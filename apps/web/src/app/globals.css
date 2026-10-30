@@ -1,0 +1,104 @@
+/*
+ * QADR OPS — feuille de styles globale.
+ *
+ * Ordre des couches : les utilitaires Tailwind gagnent toujours, puis les composants,
+ * puis notre base, puis l'ancien CSS (legacy.css). Le preflight de Tailwind n'est pas
+ * importé : il réinitialiserait les écrans existants qui comptent sur les styles du
+ * navigateur. Les nouveaux composants posent donc explicitement leurs marges et bordures.
+ */
+@layer theme, base, legacy, qadr, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "./legacy.css" layer(legacy);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Jetons du design system. La palette Tailwind par défaut est retirée pour forcer
+   l'usage des couleurs Qadr Ops (voir docs/design-system.md). */
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  /* Surfaces */
+  --color-canvas: #f8fafc;
+  --color-paper: #f3f5f2;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f9;
+  --color-line: #d7e0ea;
+  --color-line-strong: #94a3b8;
+
+  /* Texte */
+  --color-ink: #12314f;
+  --color-fg: #1e293b;
+  --color-fg-muted: #475569;
+  --color-fg-subtle: #586a7e;
+
+  /* Marque : bleu confiance, orange d'action */
+  --color-brand: #2563eb;
+  --color-brand-strong: #1d4ed8;
+  --color-brand-soft: #e7eef8;
+  --color-cta: #c2410c;
+  --color-cta-strong: #9a3412;
+  --color-cta-mark: #ea580c;
+  --color-cta-soft: #fbe5d7;
+
+  /* Couleurs fonctionnelles (texte ≥ 4.5:1 sur leur fond doux) */
+  --color-ok: #15803d;
+  --color-ok-soft: #e7f6ec;
+  --color-ok-line: #a7d8b6;
+  --color-warn: #92400e;
+  --color-warn-soft: #fdf3dc;
+  --color-warn-line: #efcd85;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+  --color-danger-line: #f1b3ab;
+  --color-info: #1d4ed8;
+  --color-info-soft: #e8effc;
+  --color-info-line: #b6cbf3;
+
+  /* Typographie : polices système pour le texte (aucun téléchargement), Calistoga
+     uniquement pour les titres latins. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-arabic: "Noto Sans Arabic", "Segoe UI", Tahoma, "Geeza Pro", "Arabic Typesetting", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Rayons, ombres, mouvements */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --shadow-card: 0 1px 2px rgb(18 49 79 / 6%), 0 1px 1px rgb(18 49 79 / 4%);
+  --shadow-raised: 0 8px 24px rgb(18 49 79 / 10%);
+  --shadow-overlay: 0 24px 48px rgb(18 49 79 / 22%);
+  --ease-snappy: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@theme inline {
+  --font-heading: var(--font-calistoga), Georgia, "Times New Roman", serif;
+}
+
+@layer qadr {
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :where(input, select, textarea, [tabindex]):focus-visible {
+    outline: 3px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+
+  /* L'arabe n'est pas couvert par Calistoga ni par certaines polices système latines. */
+  html[dir="rtl"] body { font-family: var(--font-arabic); }
+  html[dir="rtl"] .font-heading { font-family: var(--font-arabic); font-weight: 700; }
+
+  /* Les chiffres, quantités et références restent lisibles de gauche à droite. */
+  .numeric { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
+
+  dialog.qadr-dialog::backdrop { background: rgb(18 49 79 / 45%); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

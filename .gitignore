@@ -1,0 +1,60 @@
+# --- Dépendances ---
+node_modules/
+
+# --- Builds et types générés (Next.js, TypeScript) ---
+.next/
+.next-preview/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# --- Tests, couverture et fichiers temporaires ---
+coverage/
+.tmp/
+.vitest-tmp/
+test-results/
+playwright-report/
+.edge-qa-profile-*/
+drizzle/meta/_journal.json.tmp
+
+# --- Données locales du MVP (stockage JSON) ---
+data/
+
+# --- Secrets : variables d'environnement, clés et certificats ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa*
+id_ed25519*
+
+# --- Journaux et fichiers système ---
+*.log
+npm-debug.log*
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- Anciennes copies de configuration Next.js à la racine ---
+# Depuis la mission 02, l'application Next.js vit dans apps/web, qui contient des
+# copies identiques de ces fichiers. Les originaux restent sur disque tant que leur
+# suppression n'a pas été autorisée, mais ils ne doivent pas être versionnés : ils
+# feraient croire que l'application se lance depuis la racine.
+/package-lock.json
+/next.config.ts
+/tsconfig.json
+/drizzle.config.ts
+/vitest.config.ts
+/eslint.config.mjs
+/instrumentation.ts
+/instrumentation-client.ts
+/sentry.server.config.ts
+/sentry.edge.config.ts
+/.env.example
+/drizzle/

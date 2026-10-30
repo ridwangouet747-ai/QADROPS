@@ -1,0 +1,13 @@
+{
+  "name": "qadr-ops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "QADR OPS — multi-tenant commercial management MVP",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

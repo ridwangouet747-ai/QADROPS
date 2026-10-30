@@ -1,0 +1,3 @@
+ALTER TABLE "payment" ADD COLUMN "recorded_by_user_id" text;--> statement-breakpoint
+ALTER TABLE "expense" ADD CONSTRAINT "expense_actor_membership_tenant_fk" FOREIGN KEY ("business_id","paid_by_user_id") REFERENCES "public"."member"("organization_id","user_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "payment" ADD CONSTRAINT "payment_recorder_membership_tenant_fk" FOREIGN KEY ("business_id","recorded_by_user_id") REFERENCES "public"."member"("organization_id","user_id") ON DELETE no action ON UPDATE no action;

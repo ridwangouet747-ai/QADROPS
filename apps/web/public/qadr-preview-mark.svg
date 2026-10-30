@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Marque fictive de la démonstration">
+  <rect width="64" height="64" fill="#12314f"/>
+  <path d="M16 14h21c8 0 13 5 13 13v2c0 7-4 12-11 13l12 9H38L25 41v10H16V14Zm9 9v10h11c3 0 5-2 5-5s-2-5-5-5H25Z" fill="#fff"/>
+  <path d="M47 48h8v8h-8z" fill="#ea580c"/>
+</svg>

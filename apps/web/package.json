@@ -1,0 +1,48 @@
+{
+  "name": "@qadr-ops/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "preview": "node scripts/preview.mjs",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:db": "vitest run src/lib/db/pglite-migrations.integration.test.ts src/lib/domain/commercial.integration.test.ts",
+    "db:check": "tsx scripts/check-database.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.2.0",
+    "@sentry/nextjs": "10.73.0",
+    "better-auth": "1.7.7",
+    "drizzle-orm": "0.45.4",
+    "next": "16.4.2",
+    "posthog-js": "1.438.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@eslint/js": "10.0.1",
+    "@next/eslint-plugin-next": "16.4.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.11",
+    "eslint": "10.11.0",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.56.0",
+    "vitest": "4.0.15"
+  },
+  "engines": {
+    "node": "24.x"
+  }
+}

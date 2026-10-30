@@ -1,0 +1,16 @@
+node_modules/
+.next/
+.next-preview/
+out/
+coverage/
+.tmp/
+test-results/
+playwright-report/
+# Régénéré par `next typegen`, `next dev` et `next build` selon le mode actif.
+next-env.d.ts
+*.tsbuildinfo
+.env*
+!.env.example
+*.pem
+*.key
+drizzle/meta/_journal.json.tmp
