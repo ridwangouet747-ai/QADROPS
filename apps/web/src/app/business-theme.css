@@ -1,0 +1,119 @@
+/*
+ * Réalignement des écrans encore écrits avec les classes de legacy.css (produits, ventes,
+ * clients, stock, fournisseurs, achats, dépenses, paramètres, rapports, détail de vente)
+ * sur la direction artistique de la mission 04 : fond lavande, cartes blanches très arrondies,
+ * violet pour l'action, bleu nuit pour les éléments forts.
+ * Ce fichier est chargé dans la couche `qadr`, qui l'emporte sur `legacy`.
+ * À supprimer écran par écran au fur et à mesure de leur migration vers src/components/ui.
+ */
+:root {
+  /* legacy.css redéfinit --color-paper (vert pâle) : on rétablit la valeur du design system. */
+  --color-paper: #f7f6fe;
+  --ops-navy: var(--color-night);
+  --ops-blue: var(--color-brand);
+  --ops-blue-dark: var(--color-brand-strong);
+  --ops-orange: var(--color-brand);
+  --ops-ink: var(--color-fg);
+  --ops-muted: var(--color-fg-muted);
+  --ops-border: var(--color-line);
+  --ops-canvas: var(--color-canvas);
+  --font-body: var(--font-sans);
+  --font-display: var(--font-heading);
+}
+
+.business-page { background: transparent; color: var(--color-fg); }
+
+/* En-têtes de page */
+.business-heading { align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+.business-heading h1 { color: var(--color-ink); font: 700 clamp(1.75rem, 3vw, 2.4rem)/1.1 var(--font-heading); letter-spacing: -0.035em; margin: 2px 0 6px; }
+.business-heading p:last-child { color: var(--color-fg-muted); font-size: 0.93rem; }
+.business-kicker, .panel-eyebrow { color: var(--color-brand); font-size: 0.72rem; letter-spacing: 0.08em; }
+
+/* Cartes et panneaux */
+.panel, .suite-panel, .metric-card, .suite-metric, .suite-module-link {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+}
+.suite-panel { padding: clamp(16px, 2.2vw, 24px); }
+.panel h2, .suite-panel-head h2, .suite-panel-head h3 { color: var(--color-ink); font-size: 1.02rem; font-weight: 700; letter-spacing: -0.015em; }
+.suite-panel-head p { color: var(--color-fg-muted); font-size: 0.82rem; }
+.suite-panel-head > a, .suite-panel-head .suite-link-button, .suite-table td a, .suite-row-actions button, .suite-link-button { color: var(--color-brand-strong); }
+.suite-two-column, .suite-dashboard-grid, .report-grid { gap: 18px; }
+
+/* Boutons */
+.business-primary, .business-secondary { border-radius: 999px; font: 650 0.9rem/1.2 var(--font-sans); min-height: 46px; padding: 0 20px; }
+.business-primary { background: var(--color-brand); box-shadow: var(--shadow-brand); color: #fff; }
+.business-primary:hover:not(:disabled) { background: var(--color-brand-strong); }
+.business-secondary { background: var(--color-surface); border-color: var(--color-line-strong); color: var(--color-ink); }
+.business-secondary:hover:not(:disabled) { background: var(--color-surface-muted); border-color: var(--color-brand-tint); }
+.business-primary:focus-visible, .business-secondary:focus-visible, .period-tab:focus-visible { outline-color: var(--color-brand); }
+
+/* Champs */
+.business-page input, .business-page select, .business-page textarea { border: 1px solid var(--color-line-strong); border-radius: 14px; color: var(--color-fg); font: 400 16px/1.3 var(--font-sans); }
+.business-page input:focus, .business-page select:focus, .business-page textarea:focus { border-color: var(--color-brand); outline: 3px solid rgb(91 77 242 / 18%); }
+.suite-form label, .suite-inline-form label, .suite-form-grid label, .suite-toolbar label { color: var(--color-ink); font-size: 0.82rem; }
+
+/* Messages */
+.business-alert, .business-notice { border-radius: 14px; border: 1px solid; border-inline-start-width: 4px; font-size: 0.9rem; }
+.business-alert { background: var(--color-danger-soft); border-color: var(--color-danger-line); color: var(--color-danger); }
+.business-notice { background: var(--color-ok-soft); border-color: var(--color-ok-line); color: var(--color-ok); }
+.business-footnote { border-inline-start-color: var(--color-brand-tint); color: var(--color-fg-muted); font-size: 0.85rem; }
+.suite-loading, .suite-empty { color: var(--color-fg-muted); font-size: 0.9rem; }
+
+/* Tableaux : lignes aérées plutôt qu'une grille de tableur */
+.suite-table { border-collapse: separate; border-spacing: 0; }
+.suite-table th { background: var(--color-paper); border-bottom: 0; color: var(--color-fg-muted); font-size: 0.72rem; letter-spacing: 0.04em; padding: 12px 12px; }
+.suite-table th:first-child { border-start-start-radius: 12px; border-end-start-radius: 12px; }
+.suite-table th:last-child { border-start-end-radius: 12px; border-end-end-radius: 12px; }
+.suite-table td { border-bottom: 1px solid var(--color-line); color: var(--color-fg); font-size: 0.86rem; padding: 14px 12px; }
+.suite-table tbody tr:hover td { background: var(--color-paper); }
+.suite-table td strong { color: var(--color-ink); }
+.suite-subcell { color: var(--color-fg-subtle); font-size: 0.76rem; }
+.suite-due, .suite-negative { color: var(--color-danger) !important; }
+.suite-positive { color: var(--color-ok) !important; }
+.suite-stock-low { background: var(--color-danger-soft); color: var(--color-danger); font-size: 0.78rem; }
+.suite-stock-ok { color: var(--color-ok); font-size: 0.84rem; }
+.suite-row-actions button, .suite-link-button { font-size: 0.8rem; min-height: 36px; }
+
+/* Indicateurs et graphiques */
+.suite-metric > span, .metric-card > span { color: var(--color-fg-muted); font-size: 0.74rem; letter-spacing: 0.04em; }
+.suite-metric > strong, .metric-card > strong { color: var(--color-ink); font-weight: 700; }
+.suite-metric > small, .metric-card > small { color: var(--color-fg-subtle); font-size: 0.76rem; }
+.suite-metric-main, .metric-featured { background-image: linear-gradient(135deg, #7366f6 0%, #5b4df2 48%, #4535d8 100%); border-color: transparent; box-shadow: var(--shadow-raised); }
+.suite-metric-main > span, .suite-metric-main > small, .metric-featured > span, .metric-featured > small, .metric-comparison span, .metric-comparison small { color: rgb(255 255 255 / 80%); }
+.suite-metric-main > strong, .metric-featured > strong, .metric-comparison b { color: #fff; }
+.trend-track, .progress-track { background: var(--color-surface-muted); border-radius: 999px; }
+.trend-track i, .progress-track i { background: var(--color-brand); border-radius: 999px; }
+.trend-row time, .trend-row strong { font-size: 0.8rem; }
+.report-table th, .report-table td, .collection-list li > span, .collection-list li > strong, .flow-list dt, .flow-list dd, .settlement-summary span { font-size: 0.84rem; }
+.collection-list li, .flow-list > div { border-color: var(--color-line); }
+
+/* Onglets de période des rapports : pilule comme la référence */
+.report-period-tabs { background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 999px; gap: 4px; padding: 4px; }
+.period-tab { border-radius: 999px; color: var(--color-fg-muted); font-size: 0.86rem; min-height: 40px; }
+.period-tab:hover { background: var(--color-surface-muted); }
+.period-tab.is-active { background: var(--color-brand); box-shadow: var(--shadow-brand); color: #fff; }
+.report-date-fields { font-size: 0.84rem; }
+
+/* Grille des modules */
+.suite-module-link { min-height: 128px; padding: 20px; }
+.suite-module-link:hover { border-color: var(--color-brand-tint); box-shadow: var(--shadow-raised); }
+.suite-module-link strong { color: var(--color-ink); font-size: 1rem; }
+.suite-module-link > span:nth-of-type(2) { color: var(--color-fg-muted); font-size: 0.84rem; }
+.suite-module-index { color: var(--color-brand); }
+.suite-module-link > b { color: var(--color-brand); }
+
+/* Fenêtres */
+.suite-dialog-backdrop { background: rgb(22 21 43 / 50%); }
+.suite-dialog { border-color: var(--color-line); border-radius: var(--radius-xl); box-shadow: var(--shadow-overlay); }
+.suite-dialog h2 { color: var(--color-ink); }
+.suite-receipt-preview { border-color: var(--color-line-strong); border-radius: 14px; }
+
+@media (max-width: 800px) {
+  .business-heading { align-items: flex-start; }
+  .suite-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .suite-metric-main { grid-column: 1 / -1; }
+  .suite-module-grid { grid-template-columns: 1fr !important; }
+}

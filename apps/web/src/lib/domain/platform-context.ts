@@ -12,7 +12,7 @@ export async function getPlatformContext(headers: Headers): Promise<{ db: Commer
     return { db: await getPreviewDatabase() as unknown as CommercialDatabase, actorUserId: previewIdentity.platformUserId, preview: true };
   }
 
-  const session = await getAuth().api.getSession({ headers });
+  const session = await (await getAuth()).api.getSession({ headers });
   if (!session) throw new BusinessContextError("Authentification requise.", 401);
   const db = createDatabase();
   const [grant] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin).where(and(

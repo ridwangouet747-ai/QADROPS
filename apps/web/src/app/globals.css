@@ -1,46 +1,52 @@
 /*
- * QADR OPS — feuille de styles globale.
+ * QADR OPS — feuille de styles globale (direction artistique mission 04).
  *
- * Ordre des couches : les utilitaires Tailwind gagnent toujours, puis les composants,
- * puis notre base, puis l'ancien CSS (legacy.css). Le preflight de Tailwind n'est pas
- * importé : il réinitialiserait les écrans existants qui comptent sur les styles du
- * navigateur. Les nouveaux composants posent donc explicitement leurs marges et bordures.
+ * Ordre des couches : utilitaires Tailwind > composants > thème Qadr (qadr) > ancien CSS (legacy).
+ * Le preflight de Tailwind n'est pas importé : il réinitialiserait les écrans existants.
+ * `business-theme.css` réaligne les anciens écrans (produits, ventes, rapports…) sur la nouvelle
+ * direction artistique sans toucher à leur logique.
  */
 @layer theme, base, legacy, qadr, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
 @import "./legacy.css" layer(legacy);
+@import "./business-theme.css" layer(qadr);
 @import "tailwindcss/utilities.css" layer(utilities);
 
-/* Jetons du design system. La palette Tailwind par défaut est retirée pour forcer
-   l'usage des couleurs Qadr Ops (voir docs/design-system.md). */
+/* Jetons du design system. La palette Tailwind par défaut est retirée pour imposer les
+   couleurs Qadr Ops (voir docs/design-system.md). */
 @theme {
   --color-*: initial;
   --color-white: #ffffff;
   --color-black: #000000;
 
-  /* Surfaces */
-  --color-canvas: #f8fafc;
-  --color-paper: #f3f5f2;
+  /* Environnement : lavande très claire, surfaces blanches */
+  --color-canvas: #f3f2fb;
+  --color-paper: #f7f6fe;
   --color-surface: #ffffff;
-  --color-surface-muted: #f1f5f9;
-  --color-line: #d7e0ea;
-  --color-line-strong: #94a3b8;
+  --color-surface-muted: #f1f0fa;
+  --color-line: #e7e5f4;
+  --color-line-strong: #c9c6e0;
 
-  /* Texte */
-  --color-ink: #12314f;
-  --color-fg: #1e293b;
-  --color-fg-muted: #475569;
-  --color-fg-subtle: #586a7e;
+  /* Texte et bleu nuit (navigation, panneaux importants) */
+  --color-ink: #16152b;
+  --color-fg: #1f1d3a;
+  --color-fg-muted: #5f5d7a;
+  --color-fg-subtle: #6e6c8a;
+  --color-night: #1b1a2e;
+  --color-night-soft: #2a2942;
+  --color-night-line: #3a3956;
+  --color-night-fg: #b9b7d4;
 
-  /* Marque : bleu confiance, orange d'action */
-  --color-brand: #2563eb;
-  --color-brand-strong: #1d4ed8;
-  --color-brand-soft: #e7eef8;
-  --color-cta: #c2410c;
-  --color-cta-strong: #9a3412;
-  --color-cta-mark: #ea580c;
-  --color-cta-soft: #fbe5d7;
+  /* Violet intense : actions principales, sélection */
+  --color-brand: #5b4df2;
+  --color-brand-strong: #4a3de0;
+  --color-brand-soft: #eeecfe;
+  --color-brand-tint: #c9c3fb;
+  --color-cta: #5b4df2;
+  --color-cta-strong: #4a3de0;
+  --color-cta-mark: #6e62f6;
+  --color-cta-soft: #eeecfe;
 
   /* Couleurs fonctionnelles (texte ≥ 4.5:1 sur leur fond doux) */
   --color-ok: #15803d;
@@ -49,49 +55,82 @@
   --color-warn: #92400e;
   --color-warn-soft: #fdf3dc;
   --color-warn-line: #efcd85;
-  --color-danger: #b42318;
-  --color-danger-soft: #fdecea;
-  --color-danger-line: #f1b3ab;
-  --color-info: #1d4ed8;
-  --color-info-soft: #e8effc;
-  --color-info-line: #b6cbf3;
+  --color-danger: #c0262d;
+  --color-danger-soft: #fdecec;
+  --color-danger-line: #f3b5b8;
+  --color-info: #3b5bdb;
+  --color-info-soft: #ebefff;
+  --color-info-line: #bdc8f6;
 
-  /* Typographie : polices système pour le texte (aucun téléchargement), Calistoga
-     uniquement pour les titres latins. */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  /* Typographie : une seule police variable (Plus Jakarta Sans, latin) ; l'arabe utilise
+     la police arabe du système. */
   --font-arabic: "Noto Sans Arabic", "Segoe UI", Tahoma, "Geeza Pro", "Arabic Typesetting", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Rayons, ombres, mouvements */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --shadow-card: 0 1px 2px rgb(18 49 79 / 6%), 0 1px 1px rgb(18 49 79 / 4%);
-  --shadow-raised: 0 8px 24px rgb(18 49 79 / 10%);
-  --shadow-overlay: 0 24px 48px rgb(18 49 79 / 22%);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
+  --shadow-card: 0 1px 2px rgb(27 26 46 / 4%), 0 6px 20px -12px rgb(76 64 180 / 18%);
+  --shadow-raised: 0 12px 32px -12px rgb(58 46 160 / 28%);
+  --shadow-overlay: 0 28px 64px -16px rgb(22 21 43 / 40%);
+  --shadow-brand: 0 10px 24px -10px rgb(91 77 242 / 65%);
   --ease-snappy: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Qadr Ops Platform (console Super Admin) : identité monochrome isolée sous le préfixe pf-.
+     Aucun écran Business ne l'utilise ; modifier ces jetons ne change pas l'apparence Business. */
+  --color-pf-backdrop: #e9e9e6;
+  --color-pf-canvas: #f4f4f2;
+  --color-pf-glass: rgb(250 250 248 / 72%);
+  --color-pf-card: #ffffff;
+  --color-pf-raised: #fafaf9;
+  --color-pf-ink: #0b0b0c;
+  --color-pf-panel: #121214;
+  --color-pf-panel-soft: #1d1d20;
+  --color-pf-panel-line: #2c2c31;
+  --color-pf-panel-fg: #a3a3aa;
+  --color-pf-fg: #1c1c1f;
+  --color-pf-muted: #636369;
+  --color-pf-subtle: #8a8a91;
+  --color-pf-line: #e6e6e2;
+  --color-pf-line-strong: #d3d3cf;
+  --color-pf-chip: #ededea;
+  --color-pf-alert: #b42318;
+  --color-pf-alert-soft: #fbeceb;
+  --shadow-pf-card: 0 1px 2px rgb(0 0 0 / 4%), 0 14px 36px -18px rgb(0 0 0 / 14%);
+  --shadow-pf-panel: 0 24px 48px -24px rgb(0 0 0 / 45%);
+  --shadow-pf-frame: 0 1px 0 rgb(255 255 255 / 80%) inset, 0 40px 80px -40px rgb(0 0 0 / 22%);
 }
 
 @theme inline {
-  --font-heading: var(--font-calistoga), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-jakarta), system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+  --font-heading: var(--font-jakarta), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @layer qadr {
+  html { background: var(--color-canvas); }
+  body { font-family: var(--font-sans); background: var(--color-canvas); color: var(--color-fg); }
   button, input, select, textarea { font: inherit; color: inherit; }
   :where(input, select, textarea, [tabindex]):focus-visible {
     outline: 3px solid var(--color-brand);
     outline-offset: 2px;
   }
 
-  /* L'arabe n'est pas couvert par Calistoga ni par certaines polices système latines. */
+  /* L'arabe n'est pas couvert par Plus Jakarta Sans. */
   html[dir="rtl"] body { font-family: var(--font-arabic); }
-  html[dir="rtl"] .font-heading { font-family: var(--font-arabic); font-weight: 700; }
+  html[dir="rtl"] .font-heading { font-family: var(--font-arabic); }
 
-  /* Les chiffres, quantités et références restent lisibles de gauche à droite. */
+  /* Les chiffres, montants et références restent lisibles de gauche à droite. */
   .numeric { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
 
-  dialog.qadr-dialog::backdrop { background: rgb(18 49 79 / 45%); }
+  /* Dégradé violet de la direction artistique : panneaux de détail, sélection, actions fortes. */
+  .bg-brand-gradient { background-image: linear-gradient(135deg, #7366f6 0%, #5b4df2 48%, #4535d8 100%); }
+  .bg-brand-glow { background-image: radial-gradient(120% 120% at 100% 0%, rgb(255 255 255 / 18%) 0%, rgb(255 255 255 / 0%) 55%), linear-gradient(135deg, #7366f6 0%, #5b4df2 50%, #4535d8 100%); }
+  .bg-night-gradient { background-image: linear-gradient(160deg, #23223a 0%, #1b1a2e 60%, #17162a 100%); }
+
+  dialog.qadr-dialog::backdrop { background: rgb(22 21 43 / 50%); }
 
   @media (prefers-reduced-motion: reduce) {
     *, ::before, ::after {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { locales } from "./config";
-import { formatQuantity } from "./format";
+import { formatQuantity, formatXof } from "./format";
 import { createTranslator, dictionaries, interpolate } from "./translate";
 
 function leafKeys(node: unknown, prefix = ""): string[] {
@@ -38,5 +38,12 @@ describe("traductions", () => {
     expect(formatQuantity("-3.000000", "ar")).toBe("−3");
     expect(formatQuantity("9007199254740993.000001", "fr")).toBe("9007199254740993,000001");
     expect(formatQuantity(null, "fr")).toBe("—");
+  });
+
+  it("formate un montant XOF entier, isolé pour l’arabe, sans flottant", () => {
+    expect(formatXof("9007199254740993", "en")).toBe("\u20669,007,199,254,740,993 F CFA\u2069");
+    expect(formatXof("17500", "ar")).toBe("\u206617,500 F CFA\u2069");
+    expect(formatXof("abc", "fr")).toBe("—");
+    expect(formatXof(null, "fr")).toBe("—");
   });
 });

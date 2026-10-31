@@ -27,18 +27,18 @@ export async function assertBusinessOperational(tx: CommercialTransaction, busin
   if (profile.status === "expired") {
     throw new CommercialError("L’abonnement de ce commerce a expiré : les opérations sont bloquées. Vos données restent consultables.", 403);
   }
-  // A business that has had a subscription in force must still have one running. Businesses without any
-  // subscription history (or only pending/canceled ones) are not blocked here: that policy is not decided yet.
+  // A business that has had a subscription in force (trial or paid) must still have one running. Businesses
+  // without any subscription history (or only pending/canceled ones) are not blocked: that policy is not decided yet.
   const [subscriptions] = await tx.select({
-    inForceHistory: sql<boolean>`bool_or(${businessSubscription.status} in ('active','expired'))`,
-    current: sql<boolean>`bool_or(${businessSubscription.status} = 'active' and ${businessSubscription.endsAt} > ${now})`,
+    inForceHistory: sql<boolean>`bool_or(${businessSubscription.status} in ('trialing','active','expired'))`,
+    current: sql<boolean>`bool_or(${businessSubscription.status} in ('trialing','active') and ${businessSubscription.endsAt} > ${now})`,
   }).from(businessSubscription).where(eq(businessSubscription.businessId, businessId));
   if (subscriptions?.inForceHistory && !subscriptions.current) {
     throw new CommercialError("L’abonnement de ce commerce a expiré : les opérations sont bloquées. Vos données restent consultables.", 403);
   }
 }
 
-type IdempotentOperation = "purchase.receive" | "expense.create" | "receivable.payment";
+type IdempotentOperation = "purchase.receive" | "expense.create" | "receivable.payment" | "stock.opening" | "opening_balance.create" | "opening_balance.payment";
 type JsonResult = Record<string, string | number | boolean | null>;
 
 function canonicalJson(value: unknown): string {

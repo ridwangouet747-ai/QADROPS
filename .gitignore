@@ -34,6 +34,11 @@ data/
 id_rsa*
 id_ed25519*
 
+# --- Outils locaux : exports de conversation, état d'outils, archives téléchargées ---
+.claude/chat-exports/
+.clawness/
+archive-*/
+
 # --- Journaux et fichiers système ---
 *.log
 npm-debug.log*

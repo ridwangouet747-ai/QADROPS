@@ -3,7 +3,7 @@ import { getAuth } from "@/lib/auth/server";
 
 async function handle(request: Request) {
   try {
-    const handler = toNextJsHandler(getAuth());
+    const handler = toNextJsHandler(await getAuth());
     return request.method === "GET" ? handler.GET(request) : handler.POST(request);
   } catch {
     return Response.json({ error: "AUTH_CONFIGURATION_REQUIRED" }, { status: 503 });

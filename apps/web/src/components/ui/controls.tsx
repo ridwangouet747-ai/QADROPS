@@ -30,19 +30,19 @@ export function Segmented<T extends string>({ label, value, onChange, options }:
   label: string; value: T; onChange: (value: T) => void; options: { value: T; label: string; count?: number }[];
 }) {
   return (
-    <div role="group" aria-label={label} className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+    <div role="group" aria-label={label} className="flex max-w-full gap-1 overflow-x-auto rounded-full border border-line bg-surface p-1 [scrollbar-width:none]">
       {options.map((option) => {
         const active = option.value === value;
         return (
           <button
             key={option.value} type="button" aria-pressed={active} onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold whitespace-nowrap",
-              active ? "border-ink bg-ink text-white" : "border-line bg-surface text-fg-muted hover:border-line-strong",
+              "inline-flex min-h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 px-4 text-sm font-semibold whitespace-nowrap transition-colors",
+              active ? "bg-brand text-white shadow-brand" : "bg-transparent text-fg-muted hover:bg-surface-muted hover:text-ink",
             )}
           >
             {option.label}
-            {option.count !== undefined && <span className={cn("numeric rounded-full px-1.5 text-xs", active ? "bg-white/20" : "bg-surface-muted")}>{option.count}</span>}
+            {option.count !== undefined && <span className={cn("numeric rounded-full px-1.5 text-xs", active ? "bg-white/25" : "bg-surface-muted")}>{option.count}</span>}
           </button>
         );
       })}
@@ -68,16 +68,41 @@ export function ConfirmDialog({ open, title, children, confirmLabel, onConfirm, 
   return (
     <dialog
       ref={ref} onClose={onClose} aria-labelledby="confirm-dialog-title"
-      className="qadr-dialog m-auto w-[min(calc(100%_-_2rem),28rem)] rounded-xl border border-line bg-surface p-0 text-fg shadow-overlay"
+      className="qadr-dialog m-auto w-[min(calc(100%_-_2rem),28rem)] rounded-2xl border border-line bg-surface p-0 text-fg shadow-overlay"
     >
-      <div className="grid gap-3 p-5">
-        <h2 id="confirm-dialog-title" className="m-0 font-heading text-xl font-normal text-ink">{title}</h2>
+      <div className="grid gap-3 p-6">
+        <h2 id="confirm-dialog-title" className="m-0 font-heading text-xl font-bold text-ink">{title}</h2>
         <div className="text-fg-muted">{children}</div>
         <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={onClose} disabled={busy}>{t("common.cancel")}</Button>
           <Button variant={tone} onClick={onConfirm} loading={busy}>{confirmLabel}</Button>
         </div>
       </div>
+    </dialog>
+  );
+}
+
+/**
+ * Fenêtre de formulaire sur <dialog> natif : feuille ancrée en bas sur téléphone, fenêtre centrée
+ * sur ordinateur. Échap et le bouton de fermeture la referment ; le focus reste piégé dedans.
+ */
+export function FormDialog({ open, title, onClose, children, labelledBy }: { open: boolean; title: string; onClose: () => void; children: ReactNode; labelledBy: string }) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+  return (
+    <dialog ref={ref} onClose={onClose} aria-labelledby={labelledBy}
+      className="qadr-dialog m-0 mt-auto max-h-[92dvh] w-full max-w-none overflow-y-auto rounded-t-2xl border border-line bg-surface p-0 text-fg shadow-overlay sm:m-auto sm:w-[min(calc(100%_-_2rem),34rem)] sm:rounded-2xl">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-surface px-5 py-4">
+        <h2 id={labelledBy} className="m-0 text-lg font-bold text-ink">{title}</h2>
+        <button type="button" onClick={onClose} aria-label={t("common.close")} className="grid size-11 cursor-pointer place-items-center rounded-full border border-line bg-surface text-fg-muted hover:text-ink"><Icon name="close" /></button>
+      </div>
+      <div className="p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{open && children}</div>
     </dialog>
   );
 }

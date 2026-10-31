@@ -216,7 +216,7 @@ export function InventoryWorkspace() {
 
   return (
     <div className="pb-4">
-      <PageHeader kicker={t("inventory.kicker")} title={t("inventory.title")}>{t("inventory.intro")}</PageHeader>
+      <PageHeader title={t("inventory.title")}>{t("inventory.intro")}</PageHeader>
 
       <div className="mb-3 grid gap-2 empty:hidden" aria-live="polite">
         {!online && <Alert tone="warning">{t("common.offline")}</Alert>}
@@ -245,12 +245,12 @@ export function InventoryWorkspace() {
             </form>
           </Card>
 
-          <Card aria-labelledby="inventory-list-title">
-            <CardTitle id="inventory-list-title" title={t("inventory.sessions.title")} aside={<Badge>{workspace.sessions.length}</Badge>} />
+          <Card tone="night" aria-labelledby="inventory-list-title">
+            <CardTitle inverse id="inventory-list-title" title={t("inventory.sessions.title")} aside={<Badge tone="night">{workspace.sessions.length}</Badge>} />
             {loading ? (
-              <div className="grid gap-2"><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
+              <div className="grid gap-2"><Skeleton className="h-16 bg-night-soft" /><Skeleton className="h-16 bg-night-soft" /></div>
             ) : sessionsNewestFirst.length === 0 ? (
-              <EmptyState title={t("inventory.sessions.empty")}>{t("inventory.sessions.emptyHint")}</EmptyState>
+              <p className="m-0 rounded-lg bg-night-soft p-4 text-sm text-night-fg"><strong className="block text-white">{t("inventory.sessions.empty")}</strong>{t("inventory.sessions.emptyHint")}</p>
             ) : (
               <ul className="m-0 grid list-none gap-2 p-0">
                 {sessionsNewestFirst.map((session) => (
@@ -258,19 +258,19 @@ export function InventoryWorkspace() {
                     <button
                       type="button" onClick={() => openSession(session.id)} aria-current={selectedSession === session.id ? "true" : undefined}
                       className={cn(
-                        "grid w-full cursor-pointer gap-2 rounded-md border p-3 text-start transition-colors",
-                        selectedSession === session.id ? "border-brand bg-brand-soft" : "border-line bg-surface hover:border-line-strong",
+                        "grid w-full cursor-pointer gap-2 rounded-[16px] border-0 p-3 text-start text-white transition-colors",
+                        selectedSession === session.id ? "bg-brand-gradient shadow-brand" : "bg-night-soft/70 hover:bg-night-soft",
                       )}
                     >
                       <span className="flex items-start justify-between gap-2">
                         <span className="min-w-0">
-                          <strong className="block truncate text-ink">{session.categoryName ?? t("inventory.sessions.allProducts")}</strong>
-                          <small className="text-fg-muted">{formatDateTime(session.createdAt, locale)}</small>
+                          <strong className="block truncate">{session.categoryName ?? t("inventory.sessions.allProducts")}</strong>
+                          <small className="text-white/75">{formatDateTime(session.createdAt, locale)}</small>
                         </span>
                         <Badge tone={statusTone[session.status]}>{t(`inventory.status.${session.status}`)}</Badge>
                       </span>
                       <ProgressBar value={session.countedCount} max={session.scopeCount} label={t("inventory.sessions.counted", { counted: session.countedCount, total: session.scopeCount })} />
-                      <span className="numeric text-start text-xs text-fg-muted rtl:text-end">{t("inventory.sessions.counted", { counted: session.countedCount, total: session.scopeCount })}</span>
+                      <span className="numeric text-start text-xs text-white/75 rtl:text-end">{t("inventory.sessions.counted", { counted: session.countedCount, total: session.scopeCount })}</span>
                     </button>
                   </li>
                 ))}
@@ -289,7 +289,7 @@ export function InventoryWorkspace() {
             <Button variant="ghost" onClick={() => openSession("")} icon={<Icon name="back" />}>{t("inventory.detail.backToList")}</Button>
           ) : (
             <section aria-labelledby="inventory-detail-title" className="grid gap-3">
-              <div className="grid gap-3 rounded-lg border border-line bg-surface p-4 shadow-card">
+              <div className="grid gap-3 rounded-xl border border-line bg-surface p-4 shadow-card sm:p-5">
                 <Button variant="ghost" onClick={() => openSession("")} icon={<Icon name="back" />} className="-ms-2 justify-self-start lg:hidden">{t("inventory.detail.backToList")}</Button>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -337,7 +337,7 @@ export function InventoryWorkspace() {
 
               {/* Barre d'action collée au-dessus de la navigation mobile, pour garder l'étape suivante à portée de pouce. */}
               {detail.status !== "canceled" && (
-                <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 grid gap-2 rounded-lg border border-line bg-surface/95 p-3 shadow-raised min-[801px]:bottom-3">
+                <div className="sticky bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-10 grid gap-2 rounded-xl border border-line bg-surface/95 p-3 shadow-raised backdrop-blur-md lg:bottom-4">
                   {detail.status === "counting" && <>
                     <p className="m-0 text-xs text-fg-muted">{t("inventory.actions.countingHint")}</p>
                     <Button variant="cta" size="lg" block disabled={busy || counts.todo > 0 || !online || Object.keys(drafts).length > 0} onClick={() => setConfirm("submit")}>
@@ -396,7 +396,7 @@ function InventoryLineCard({ line, counting, t, locale, draft, reasonDraft, erro
     : t(delta > 0n ? "inventory.line.gain" : "inventory.line.loss", { qty: `${microsLabel(delta, locale)} ${line.baseUnit}` });
 
   return (
-    <li className={cn("grid gap-3 rounded-lg border bg-surface p-3.5 shadow-card", error ? "border-danger-line" : dirty ? "border-warn-line" : "border-line")}>
+    <li className={cn("grid gap-3 rounded-xl border bg-surface p-4 shadow-card", error ? "border-danger-line" : dirty ? "border-warn-line" : "border-line")}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <strong className="block text-[1.02rem] leading-snug text-ink">{line.productName}</strong>
@@ -405,7 +405,7 @@ function InventoryLineCard({ line, counting, t, locale, draft, reasonDraft, erro
         <Badge tone={state.tone}>{state.label}</Badge>
       </div>
 
-      <dl className="m-0 grid grid-cols-2 gap-2 rounded-md bg-paper p-2.5">
+      <dl className="m-0 grid grid-cols-2 gap-2 rounded-[14px] bg-paper p-3">
         <div className="min-w-0">
           <dt className="text-xs text-fg-muted">{t(line.theoreticalQty ? "inventory.line.referenceAtCount" : "inventory.line.reference")}</dt>
           <dd className="m-0 font-semibold text-ink"><span className="numeric">{formatQuantity(reference(line), locale)}</span> <small className="font-normal text-fg-muted">{line.baseUnit}</small></dd>

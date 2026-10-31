@@ -21,7 +21,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
           document.cookie = `${localeCookie}=${next}; path=/; max-age=31536000; samesite=lax`;
           startTransition(() => router.refresh());
         }}
-        className="min-h-11 cursor-pointer rounded-md border border-line bg-surface px-2 text-sm font-semibold text-ink"
+        className="min-h-11 cursor-pointer rounded-full border border-line bg-surface px-3 text-sm font-semibold text-ink hover:border-brand-tint"
       >
         {locales.map((code) => <option key={code} value={code} lang={code}>{t(`language.${code}`)}</option>)}
       </select>

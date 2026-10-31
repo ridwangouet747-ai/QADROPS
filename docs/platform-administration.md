@@ -1,5 +1,70 @@
 # QADR OPS — Administration de plateforme
 
+> Mise à jour mission 08 (2026-10-31) : console « Qadr Ops Platform » refondue (identité monochrome, sept rubriques), machine à états des abonnements, codes d'accès générés en série, quotas de forfait appliqués côté serveur, journal d'audit en ajout seul. Les sections historiques ci-dessous restent valables sauf mention contraire.
+
+## Mission 08 — état livré
+
+### Identité visuelle isolée
+
+Business garde FINNOVA (lavande, violet, bleu nuit). Platform utilise des jetons préfixés `pf-` déclarés dans `src/app/globals.css` (`--color-pf-*`, `--shadow-pf-*`) et des composants propres dans `src/components/platform/pf-ui.tsx`. Aucun composant Business n'importe ces fichiers ; aucun jeton Business n'a été modifié. Référence : grand plan blanc cassé translucide, navigation latérale en pilules (active en noir), cartes blanches arrondies, panneaux anthracite, très grands titres, graphiques fins sans bibliothèque.
+
+### Rubriques
+
+| Rubrique | Route | Contenu |
+| --- | --- | --- |
+| Vue d'ensemble | `/platform` | Commerces par état réel (actif, essai, suspendu, expiré, sans abonnement), abonnements en attente et à échéance sous 7 jours, inscriptions par jour/semaine (7, 30, 90 j), répartition par forfait, panneaux sombres (activité, alertes, abonnements à surveiller), revenus distinguant facturé / encaissé / en attente / remboursé / avantages promotionnels, dernières inscriptions et opérations, récapitulatif des forfaits. Tout vient de `GET /api/platform/overview`. |
+| Commerces | `/platform/businesses` | Recherche (nom, téléphone, e-mail ou nom du propriétaire), filtres état et forfait, propriétaire, date, membres, forfait ; fiche avec abonnements et historique administratif ; suspension et réactivation confirmées avec motif obligatoire. |
+| Abonnements | `/platform/subscriptions` | Commerce, forfait, période, jours restants, statut, origine (manuel, code d'accès, paiement), historique, paiements ; prolongation ou annulation motivées. |
+| Forfaits | `/platform/plans` | Code, nom, description, prix XOF, devise (XOF uniquement), durée, fonctionnalités, utilisateurs et produits max, stockage, actif/inactif ; avant/après dans l'audit. |
+| Promotions | `/platform/promotions` | Génération en série de codes d'accès (7 j, 21 j, 1 mois, 3 mois, durée libre), forfait, utilisation unique ou multiple, début, expiration, commerce éligible, campagne ; pause, reprise, révocation motivées ; états actif, programmé, en pause, épuisé, expiré, révoqué. |
+| Activité et audit | `/platform/audit` | Recherche plein texte (motif, campagne, auteur…), filtre par famille d'actions et par dates, pagination par date. |
+| Paramètres | `/platform/settings` | Profil, liste des administrateurs, procédure d'attribution, rappels (paiements non intégrés, expiration automatique). |
+
+Le module Paiements n'apparaît pas : aucun prestataire de paiement d'abonnement n'est intégré.
+
+### Sécurité
+
+- Accès : `getPlatformContext` (session Better Auth + `platform_admin` non révoqué) sur chaque page et route, et `requirePlatformAdmin` dans chaque service. Un rôle de commerce ne donne jamais accès.
+- Attribution : **uniquement** `scripts/platform-admin.ts` (`grant` / `revoke`), avec `QADR_DB_TARGET`, confirmation saisie « CONFIRMER », motif obligatoire, trace `platform.admin_granted|revoked`. Impossible de retirer le dernier administrateur. Aucune route HTTP, aucune inscription publique.
+- Aucun accès aux données commerciales (ventes, clients, stocks) depuis la console.
+
+### Machine à états des abonnements (`src/lib/domain/subscription-lifecycle.ts`)
+
+Valeurs du schéma conservées (`canceled` garde son orthographe), `trialing` ajouté par la migration 0010 :
+
+```
+pending → trialing | active | canceled
+trialing → active | suspended | expired | canceled
+active → suspended | expired | canceled
+suspended → trialing | active | expired | canceled
+expired, canceled : terminaux (une nouvelle période crée un nouvel abonnement)
+```
+
+- Expiration sans intervention : `assertBusinessOperational` refuse les opérations dès l'échéance (essai ou actif) ; `expireDueSubscriptions` normalise les statuts à chaque lecture de la console et via `GET /api/cron/subscriptions` (en-tête `Authorization: Bearer $CRON_SECRET`, 404 sans secret). Chaque expiration écrit `subscription.expired` (auteur : système).
+- Suspension : les périodes en cours passent `suspended` en mémorisant leur état (`status_before_suspension`) ; la réactivation les rétablit, ou les expire si l'échéance est passée.
+- Pas de cercle vicieux avec `pending` : un code d'accès appliqué par le propriétaire ou l'administrateur du commerce (`POST /api/business/subscription/promotion`) transforme l'abonnement en attente en essai, ou crée un essai s'il n'y en a pas, ou prolonge l'essai/abonnement en cours du même forfait. Aucun paiement n'est créé : une période offerte n'est jamais un revenu.
+- Application d'un code : verrou sur la ligne du code, une fois par commerce (contrainte unique), rejouable (le même envoi renvoie le résultat initial, `replayed: true`), refus des codes révoqués, en pause, expirés, épuisés, non éligibles, ou d'un autre forfait en cours ; tracée (`subscription.access_code_redeemed`).
+- Codes : 12 caractères tirés par `crypto.randomInt` dans un alphabet sans ambiguïté (31 symboles, ≈ 59 bits), préfixe facultatif, série de 1 à 200 ; ils ne sont montrés qu'une fois et jamais écrits dans le journal.
+
+### Quotas de forfait appliqués côté serveur (`src/lib/domain/plan-limits.ts`)
+
+- Utilisateurs : membres non désactivés + invitations encore valables ≤ `userLimit` (vérifié avant chaque nouvelle invitation ; une invitation renouvelée garde sa place).
+- Produits actifs ≤ `productLimit` (vérifié dans `createProduct`).
+- Sans abonnement en cours, aucune limite (politique « sans abonnement » toujours non tranchée).
+- Les cases de fonctionnalités (caisse, rapports, inventaires, achats) et le stockage sont **indicatifs** : ils ne sont pas encore appliqués, et l'interface le dit.
+
+### Journal d'audit
+
+Chaque entrée : auteur (ou Système), action, commerce concerné, avant, après, motif, résultat, date. La migration 0010 ajoute un déclencheur `audit_event_no_update_delete` qui refuse toute modification ou suppression (« audit_event est en ajout seul »), testé.
+
+### Migration locale `0010_platform_onboarding.sql`
+
+Statut `trialing`, origine et état avant suspension des abonnements ; description, devise, stockage des forfaits ; type, forfait, durée offerte, campagne, série, révocation des codes ; format du commerce et clé de création (onboarding) ; nom affiché sur les reçus ; index ; déclencheur d'audit. Jamais appliquée à Neon.
+
+### Tests
+
+`platform-console.integration.test.ts` (PGlite, 14 tests) et `platform.integration.test.ts` (6 tests, mis à jour : motif obligatoire, rejeu idempotent).
+
 ## Séparation et autorisations
 
 La console `/platform` est distincte des espaces commerciaux. En environnement réel, l'accès exige une session Better Auth valide et un enregistrement actif dans `platform_admin` (`revoked_at IS NULL`). Un rôle `owner`, `admin` ou tout autre rôle d'organisation ne confère jamais ce privilège. Les pages et toutes les API plateforme effectuent ce contrôle côté serveur; les services vérifient également le grant avant chaque lecture ou écriture. Une révocation prend effet à la prochaine requête. Aucun compte plateforme n'est créé automatiquement en production.
@@ -41,7 +106,7 @@ La migration ajoute les commerces éligibles d'une promotion, le snapshot de cod
 
 ## Limites connues
 
-- Les permissions d'administration plateforme sont provisionnées hors bande; aucun écran ne peut s'auto-attribuer le rôle.
+- Les permissions d'administration plateforme sont attribuées par `scripts/platform-admin.ts` (mission 08) ; aucun écran ne peut s'auto-attribuer le rôle.
 - L'authentification réelle s'appuie sur Better Auth et nécessite une session et une base configurées; la prévisualisation contourne l'écran de connexion uniquement dans le runtime local isolé.
 - L'encaissement/renouvellement SaaS par un fournisseur n'est pas intégré ici. Un statut confirmé n'est jamais créé par le formulaire de promotion.
 - Aucun panneau de monitoring d'incidents n'existe encore.

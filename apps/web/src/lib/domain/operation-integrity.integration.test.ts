@@ -10,6 +10,7 @@ import {
   createReceivedPurchase, listBusinessProducts, recordCustomerPayment, updateBusinessProduct, updateBusinessSettings,
 } from "./business-data";
 import { startInventory } from "./inventory";
+import { createOpeningBalance, postStockOpening } from "./opening";
 
 describe("operation integrity: idempotent writes and blocked businesses (PGlite)", () => {
   const client = new PGlite();
@@ -129,6 +130,9 @@ describe("operation integrity: idempotent writes and blocked businesses (PGlite)
       ["createBusinessExpense", () => createBusinessExpense(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-expense-1", category: "x", description: "y", amountXof: "1" })],
       ["updateBusinessSettings", () => updateBusinessSettings(db, { businessId: businessA, actorUserId: ownerA, name: "Bloqué", phone: null, address: null, email: "", primaryColor: "#2563EB", paperWidthMm: 80, showLogo: false, receiptFooter: null })],
       ["startInventory", () => startInventory(db, { businessId: businessA, actorUserId: ownerA })],
+      ["postStockOpening", () => postStockOpening(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-opening-1", referenceDate: "2026-01-01", lines: [{ variantId: variantA, quantity: "1" }] })],
+      ["createOpeningBalance (client)", () => createOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-ob-customer-1", partyType: "customer", partyId: customerA, amountXof: "1000", asOfDate: "2026-01-01" })],
+      ["createOpeningBalance (fournisseur)", () => createOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-ob-supplier-1", partyType: "supplier", partyId: supplierA, amountXof: "1000", asOfDate: "2026-01-01" })],
     ];
 
     it.each(["suspended", "expired"])("blocks every commercial write while the business is %s, without writing anything", async (status) => {

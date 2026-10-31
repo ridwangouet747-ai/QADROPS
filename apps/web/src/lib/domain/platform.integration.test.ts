@@ -44,7 +44,7 @@ describe("platform administration on isolated PGlite", () => {
 
   it("separates platform authority from commerce-owner roles and returns only administrative fields", async () => {
     await expect(getPlatformDashboard(db, ownerA)).rejects.toMatchObject({ status: 403 });
-    await expect(setPlatformBusinessStatus(db, ownerA, businessA, { status: "suspended" })).rejects.toMatchObject({ status: 403 });
+    await expect(setPlatformBusinessStatus(db, ownerA, businessA, { status: "suspended", reason: "Contrôle de sécurité" })).rejects.toMatchObject({ status: 403 });
     const detail = await getPlatformBusiness(db, admin, businessA);
     expect(detail).toMatchObject({ businessId: businessA, name: "Atelier A", memberCount: 1 });
     expect(detail).not.toHaveProperty("sales");
@@ -66,10 +66,10 @@ describe("platform administration on isolated PGlite", () => {
   });
 
   it("suspends and reactivates the commerce subscription transactionally and audits both actions", async () => {
-    await expect(setPlatformBusinessStatus(db, admin, businessB, { status: "suspended" })).resolves.toMatchObject({ status: "suspended" });
+    await expect(setPlatformBusinessStatus(db, admin, businessB, { status: "suspended", reason: "Impayé constaté" })).resolves.toMatchObject({ status: "suspended" });
     const [suspended] = await client.query<{ business_status: string; subscription_status: string }>("select b.status business_status,s.status subscription_status from business_profile b join business_subscription s on s.business_id=b.business_id where b.business_id=$1", [businessB]).then((r) => r.rows);
     expect(suspended).toEqual({ business_status: "suspended", subscription_status: "suspended" });
-    await setPlatformBusinessStatus(db, admin, businessB, { status: "active" });
+    await setPlatformBusinessStatus(db, admin, businessB, { status: "active", reason: "Régularisation reçue" });
     const [active] = await client.query<{ status: string }>("select status from business_subscription where id=$1", [subscriptionB]).then((r) => r.rows);
     expect(active?.status).toBe("active");
     const audit = await client.query<{ count: string }>("select count(*)::text count from audit_event where business_id is null and entity_id=$1 and event_type like 'platform.business_%'", [businessB]);
@@ -86,7 +86,8 @@ describe("platform administration on isolated PGlite", () => {
     const promo = await createPlatformPromotion(db, admin, { code: "WELCOME20", discountPercent: 20, discountXof: null, startsAt: new Date(Date.now() - 60_000).toISOString(), endsAt: new Date(Date.now() + 86_400_000).toISOString(), maxRedemptions: 1, active: true, eligibleBusinessIds: [businessA] });
     const redeemed = await redeemSubscriptionPromotion(db, ownerA, businessA, { code: "welcome20", subscriptionId: subscriptionA });
     expect(redeemed).toMatchObject({ discountAmountXof: "2000", amountDueXof: "8000", paymentStatus: "pending" });
-    await expect(redeemSubscriptionPromotion(db, ownerA, businessA, { code: "WELCOME20", subscriptionId: subscriptionA })).rejects.toMatchObject({ status: 409 });
+    // Rejeu idempotent : même résultat, aucune seconde réduction ni second paiement.
+    await expect(redeemSubscriptionPromotion(db, ownerA, businessA, { code: "WELCOME20", subscriptionId: subscriptionA })).resolves.toMatchObject({ replayed: true, redemptionId: redeemed.redemptionId, amountDueXof: "8000" });
     await expect(redeemSubscriptionPromotion(db, ownerB, businessB, { code: "WELCOME20", subscriptionId: subscriptionB })).rejects.toMatchObject({ status: 403 });
     const [snapshot] = await client.query<{ code_snapshot: string; discount_amount_xof: string; amount: string; status: string }>("select r.code_snapshot,r.discount_amount_xof::text discount_amount_xof,p.amount_xof::text amount,p.status from promotion_redemption r join subscription_payment p on p.business_id=r.business_id and p.subscription_id=r.subscription_id where r.promotion_id=$1", [promo.id]).then((r) => r.rows);
     expect(snapshot).toEqual({ code_snapshot: "WELCOME20", discount_amount_xof: "2000", amount: "8000", status: "pending" });

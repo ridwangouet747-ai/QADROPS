@@ -10,6 +10,9 @@ const environmentSchema = z.object({
   NEXT_PUBLIC_AUTH_URL: z.string().url().default("http://localhost:3000"),
   TURNSTILE_SECRET_KEY: optionalNonEmpty,
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: optionalNonEmpty,
+  RESEND_API_KEY: optionalNonEmpty,
+  RESEND_FROM_EMAIL: optionalNonEmpty,
+  RESEND_REPLY_TO: z.union([z.literal(""), z.email()]).optional(),
   SENTRY_DSN: z.string().url().optional().or(z.literal("")),
   NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional().or(z.literal("")),
   SENTRY_ENVIRONMENT: z.string().default("development"),
@@ -28,6 +31,9 @@ export function readEnvironment(source: NodeJS.ProcessEnv = process.env): AppEnv
   const values = result.data;
   if (Boolean(values.TURNSTILE_SECRET_KEY) !== Boolean(values.NEXT_PUBLIC_TURNSTILE_SITE_KEY)) {
     throw new Error("Turnstile nécessite une clé publique et une clé secrète configurées ensemble.");
+  }
+  if (Boolean(values.RESEND_API_KEY) !== Boolean(values.RESEND_FROM_EMAIL)) {
+    throw new Error("Resend nécessite RESEND_API_KEY et RESEND_FROM_EMAIL configurées ensemble.");
   }
   return values;
 }

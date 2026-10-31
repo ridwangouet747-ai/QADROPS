@@ -6,6 +6,7 @@ import { hasBusinessPermission } from "../auth/permissions";
 import { costOfGoodsSold, parseQuantityMicros, QUANTITY_SCALE } from "./costing";
 import { assertBusinessOperational } from "./operation-guard";
 import { databaseSchema, member, product, productCategory, productVariant, sale, saleLine, payment, stockMovement, auditEvent } from "../db/schema";
+import { assertPlanQuota } from "./plan-limits";
 
 export type CommercialDatabase = PgDatabase<PgQueryResultHKT, typeof databaseSchema>;
 
@@ -36,6 +37,7 @@ export async function createProduct(db: CommercialDatabase, rawInput: unknown) {
     if (!membership) throw new CommercialError("Aucun accès à ce commerce.", 403);
     if (!hasBusinessPermission(membership.role, "product", "create")) throw new CommercialError("Permission de création de produit refusée.", 403);
     await assertBusinessOperational(tx, input.businessId);
+    await assertPlanQuota(tx, input.businessId, "products");
 
     if (input.categoryId) {
       const [category] = await tx.select({ id: productCategory.id }).from(productCategory).where(and(

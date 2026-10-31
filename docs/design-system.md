@@ -1,6 +1,32 @@
 # Design system Qadr Ops (application `apps/web`)
 
-Mission 03, 2026-10-30. Ce document complète `design-system/qadr-ops/MASTER.md`. Celui-ci reste la référence pour l'identité : bleu `#2563EB`, orange `#EA580C`, fond `#F8FAFC`, Calistoga pour les titres. Un seul écart : le texte courant utilise les polices du système et non Inter, pour ne rien télécharger.
+## Mission 04 (2026-10-30) — direction artistique officielle
+
+Le propriétaire a fixé une référence visuelle (tableau de bord « FINNOVA ») : on en reprend le **style**, pas le produit, le nom ni les données.
+
+- **Couleurs** (`src/app/globals.css`, `@theme`) :
+  - fond lavande `canvas #F3F2FB` ;
+  - cartes blanches `surface` ;
+  - violet d'action `brand #5B4DF2`, avec les dégradés `.bg-brand-gradient` et `.bg-brand-glow` ;
+  - bleu nuit `night #1B1A2E` (`.bg-night-gradient`) pour la navigation et les panneaux forts.
+  - L'orange n'est plus utilisé dans l'interface.
+- **Police** : Plus Jakarta Sans, variable, latin, environ 27 Ko préchargés, via `next/font`. En arabe, la police arabe du système. Calistoga est retirée.
+- **Formes** :
+  - cartes `rounded-xl` (24 px), boutons et onglets en pilule ;
+  - ombres très légères (`shadow-card`) ; `shadow-brand` sous les actions violettes.
+- **Navigation** (`business-shell.tsx`) :
+  - **Ordinateur (≥ 1024 px)** : logo à gauche, pilule bleu nuit au centre (7 modules + menu « Plus »), puis à droite la langue, les paramètres et le commerce actif.
+  - **Téléphone et tablette** : barre basse flottante bleu nuit, quatre modules et « Modules », zones de sécurité respectées.
+- **Composants ajoutés** : `StatCard`, `BarChart` (CSS, sans bibliothèque), `IconButton`, `Monogram` (`ui/data-display.tsx`) et `Card tone="night" | "brand"`.
+- **Écrans refondus en Tailwind** : tableau de bord (`dashboard-workspace.tsx`), caisse (`pos-workspace.tsx`), inventaire et navigation.
+- **Écrans réalignés sans réécriture** : produits, ventes, clients, stock, fournisseurs, achats, dépenses, paramètres, rapports et détail de vente. Ils passent par `src/app/business-theme.css`, couche `qadr`, qui l'emporte sur `legacy.css`.
+  - Leurs textes restent en français en dur.
+  - Ils sont à migrer écran par écran vers `src/components/ui`.
+- **Montants** : `formatXof` isole chaque montant (LRI … PDI), pour qu'il garde le bon ordre au milieu d'une phrase arabe.
+
+---
+
+Historique mission 03. Ce document complète `design-system/qadr-ops/MASTER.md`. Celui-ci reste la référence pour l'identité : bleu `#2563EB`, orange `#EA580C`, fond `#F8FAFC`, Calistoga pour les titres. Un seul écart : le texte courant utilise les polices du système et non Inter, pour ne rien télécharger.
 
 ## Technique
 

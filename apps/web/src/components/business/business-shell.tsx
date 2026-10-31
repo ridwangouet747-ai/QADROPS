@@ -1,30 +1,41 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import { cn } from "@/components/ui/cn";
+import { Monogram } from "@/components/ui/data-display";
+import { Icon, type IconName } from "@/components/ui/icon";
 
-export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "modules";
+export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "modules";
 
-type NavGroup = "activity" | "management" | "stock" | "supply" | "finance" | "configuration";
-const items: { key: BusinessArea; href: string; icon: string; group: NavGroup }[] = [
-  { key: "dashboard", href: "/business/dashboard", icon: "dashboard", group: "activity" },
-  { key: "pos", href: "/business/pos", icon: "pos", group: "activity" },
-  { key: "products", href: "/business/products", icon: "products", group: "management" },
-  { key: "sales", href: "/business/sales", icon: "sales", group: "management" },
-  { key: "customers", href: "/business/customers", icon: "customers", group: "management" },
-  { key: "stock", href: "/business/stock", icon: "stock", group: "stock" },
-  { key: "inventory", href: "/business/inventory", icon: "inventory", group: "stock" },
-  { key: "suppliers", href: "/business/suppliers", icon: "suppliers", group: "supply" },
-  { key: "purchases", href: "/business/purchases", icon: "purchases", group: "supply" },
-  { key: "expenses", href: "/business/expenses", icon: "expenses", group: "finance" },
-  { key: "reports", href: "/business/reports", icon: "reports", group: "finance" },
-  { key: "settings", href: "/business/settings", icon: "settings", group: "configuration" },
+type NavItem = { key: BusinessArea; href: string; icon: IconName };
+const items: NavItem[] = [
+  { key: "dashboard", href: "/business/dashboard", icon: "grid" },
+  { key: "pos", href: "/business/pos", icon: "cart" },
+  { key: "products", href: "/business/products", icon: "box" },
+  { key: "sales", href: "/business/sales", icon: "receipt" },
+  { key: "customers", href: "/business/customers", icon: "users" },
+  { key: "stock", href: "/business/stock", icon: "store" },
+  { key: "inventory", href: "/business/inventory", icon: "clipboard" },
+  { key: "suppliers", href: "/business/suppliers", icon: "truck" },
+  { key: "purchases", href: "/business/purchases", icon: "download" },
+  { key: "expenses", href: "/business/expenses", icon: "wallet" },
+  { key: "reports", href: "/business/reports", icon: "chart" },
+  { key: "opening", href: "/business/opening", icon: "flag" },
+  { key: "team", href: "/business/team", icon: "users" },
+  { key: "settings", href: "/business/settings", icon: "settings" },
 ];
-const roleModules: Record<string, string[]> = {
+// Ordre de priorité de la barre supérieure (bureau) et de la barre basse (téléphone).
+const desktopPriority: BusinessArea[] = ["dashboard", "pos", "products", "sales", "stock", "inventory", "reports"];
+const mobilePriority: BusinessArea[] = ["dashboard", "pos", "stock", "inventory", "products", "sales"];
+
+const roleModules: Record<string, BusinessArea[]> = {
   owner: items.map((item) => item.key), admin: items.map((item) => item.key),
-  stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports"],
+  stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening"],
   accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports"],
   cashier: ["pos", "products", "sales", "customers", "stock"],
   member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases"],
@@ -32,32 +43,56 @@ const roleModules: Record<string, string[]> = {
 const BusinessRoleContext = createContext("member");
 export const useBusinessRole = () => useContext(BusinessRoleContext);
 
-function ModuleIcon({ name }: { name: string }) {
-  const paths: Record<string, ReactNode> = {
-    dashboard: <path d="M4 13h7V4H4v9Zm9 7h7V11h-7v9ZM4 20h7v-5H4v5Zm9-11h7V4h-7v5Z" />,
-    pos: <><path d="M4 8h16v12H4zM7 8V5h10v3M8 12h8M8 16h4" /></>,
-    products: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v8.5" /></>,
-    sales: <><path d="M4 19.5h16M6.5 16v-5m5.5 5V5m5.5 11v-7" /><path d="m5.5 8 5-3 5 3 3-2" /></>,
-    customers: <><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.6-3.4 2.5-5 5.5-5s4.9 1.6 5.5 5M16 5.5a3 3 0 0 1 0 5.8M17 15c2.1.5 3.3 2.1 3.7 5" /></>,
-    stock: <><path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5v-9Z" /><path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12v8.5" /></>,
-    inventory: <><path d="M5 4h14v16H5zM8 8h8M8 12h3m2 0 1.5 1.5L18 10" /></>,
-    suppliers: <><path d="M3 20h18M5 20V8l7-4 7 4v12M9 20v-6h6v6M8 9h.01M12 9h.01M16 9h.01" /></>,
-    purchases: <><path d="M4 5h2l2 11h10l2-8H7M10 20h.01M17 20h.01M10 12h7" /></>,
-    expenses: <><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h4" /></>,
-    reports: <><path d="M4 19.5h16M6.5 16V11m5.5 5V5m5.5 11v-7" /><path d="m5.5 8 5-3 5 3 3-2" /></>,
-    settings: <><circle cx="12" cy="12" r="3" /><path d="m19 14 1.5 1-1.5 2.5-1.7-.6a7 7 0 0 1-1.5.8l-.3 1.8h-3l-.3-1.8a7 7 0 0 1-1.5-.8l-1.7.6-1.5-2.5 1.5-1a7 7 0 0 1 0-1.8l-1.5-1L7 8.7l1.7.6a7 7 0 0 1 1.5-.8l.3-1.8h3l.3 1.8a7 7 0 0 1 1.5.8l1.7-.6 1.5 2.5-1.5 1a7 7 0 0 1 0 1.8Z" /></>,
-    modules: <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" />,
-  };
-  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] ?? paths.modules}</svg>;
+/** Logo Qadr Ops : toujours de gauche à droite, y compris en arabe. */
+function Brand() {
+  const { t } = useI18n();
+  return (
+    <Link href="/business/dashboard" aria-label={t("shell.homeLink")} dir="ltr" className="flex shrink-0 items-center gap-2.5 text-ink no-underline">
+      <span aria-hidden="true" className="grid size-10 place-items-center rounded-[13px] bg-brand-gradient text-lg font-extrabold text-white shadow-brand">Q</span>
+      <span className="hidden leading-none min-[400px]:grid">
+        <strong className="text-[1.05rem] font-extrabold tracking-[-0.02em]">QADR OPS</strong>
+        <small className="mt-1 hidden text-[0.68rem] font-medium text-fg-subtle 2xl:block">{t("shell.tagline")}</small>
+      </span>
+    </Link>
+  );
+}
+
+/** Menu « Plus » natif (<details>) : il s'ouvre sans JavaScript ; un clic extérieur le referme. */
+function MoreMenu({ entries, active }: { entries: NavItem[]; active: BusinessArea }) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: MouseEvent) => { if (ref.current?.open && !ref.current.contains(event.target as Node)) ref.current.open = false; };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
+  if (!entries.length) return null;
+  const current = entries.some((item) => item.key === active);
+  return (
+    <details ref={ref} className="relative">
+      <summary className={cn("flex min-h-10 cursor-pointer list-none items-center gap-1.5 rounded-full px-3.5 text-[0.86rem] font-semibold [&::-webkit-details-marker]:hidden", current ? "bg-brand-gradient text-white shadow-brand" : "text-night-fg hover:text-white")}>
+        {t("shell.more")}<Icon name="chevronDown" className="size-4" />
+      </summary>
+      <ul className="absolute end-0 top-[calc(100%+10px)] z-30 m-0 grid min-w-56 list-none gap-0.5 rounded-xl border border-line bg-surface p-2 shadow-overlay">
+        {entries.map((item) => (
+          <li key={item.key}>
+            <Link href={item.href} aria-current={item.key === active ? "page" : undefined} onClick={() => { if (ref.current) ref.current.open = false; }}
+              className={cn("flex min-h-11 items-center gap-3 rounded-[12px] px-3 text-sm font-semibold no-underline", item.key === active ? "bg-brand-soft text-brand-strong" : "text-fg hover:bg-paper")}>
+              <Icon name={item.icon} className="size-[18px] text-brand" />{t(`shell.items.${item.key}.label`)}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
 export function BusinessShell({ active, preview = false, children }: { active: BusinessArea; preview?: boolean; children: ReactNode }) {
   const { t } = useI18n();
+  const router = useRouter();
   const [businessName, setBusinessName] = useState<string | null>(preview ? "Commerce Démo QADR" : null);
   const [role, setRole] = useState(preview ? "owner" : "member");
   const displayName = businessName ?? t("shell.defaultBusiness");
-  const label = (key: BusinessArea) => t(`shell.items.${key}.label`);
-  const detail = (key: BusinessArea) => t(`shell.items.${key}.detail`);
   useEffect(() => {
     void fetch("/api/business/settings", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return;
@@ -66,22 +101,78 @@ export function BusinessShell({ active, preview = false, children }: { active: B
       if (data.settings?.role && roleModules[data.settings.role]) setRole(data.settings.role);
     }).catch(() => undefined);
   }, []);
-  const visibleItems = useMemo(() => items.filter((item) => (roleModules[role] ?? roleModules.member).includes(item.key)), [role]);
-  const groups = [...new Set(visibleItems.map((item) => item.group))];
-  const mainMobile = visibleItems.filter((item) => ["dashboard", "pos", "stock", "reports"].includes(item.key)).slice(0, 4);
-  const mobileLinks = [...mainMobile, ...(visibleItems.length > mainMobile.length ? [{ key: "modules" as const, href: "/business/modules", icon: "modules", group: "configuration" as const }] : [])];
 
-  return <BusinessRoleContext.Provider value={role}><div className="business-app-shell">
-    <aside className="business-sidebar" aria-label={t("shell.navigation")}>
-      <Link className="business-brand" href="/business/dashboard" aria-label={t("shell.homeLink")}><span className="business-brand-mark" aria-hidden="true">Q</span><span className="business-brand-copy"><strong dir="ltr">QADR <em>OPS</em></strong><small>{t("shell.brandSubtitle")}</small></span></Link>
-      <div className="business-workspace-card"><span className="business-workspace-avatar" aria-hidden="true">{displayName.slice(0, 1).toUpperCase()}</span><span className="business-workspace-copy"><small>{t("shell.activeBusiness")}</small><strong>{displayName}</strong></span></div>
-      <nav className="business-navigation" aria-label={t("shell.modulesNavigation")}>{groups.map((group) => <section className="business-navigation-group" key={group}><p className="business-navigation-label">{t(`shell.groups.${group}`)}</p>{visibleItems.filter((item) => item.group === group).map((item) => <Link key={item.key} href={item.href} className="business-nav-link" aria-current={active === item.key ? "page" : undefined}><ModuleIcon name={item.icon} /><span className="business-nav-copy"><strong>{label(item.key)}</strong><small>{detail(item.key)}</small></span>{active === item.key && <span className="business-nav-indicator" aria-hidden="true" />}</Link>)}</section>)}</nav>
-      <div className="business-sidebar-footer"><span className="business-sidebar-footer-mark" aria-hidden="true">Q</span><span><strong>QADR OPS</strong><small>{t("shell.tagline")}</small></span></div>
-    </aside>
-    <div className="business-main-column">
-      <header className="business-appbar"><Link className="business-mobile-brand" href="/business/dashboard" aria-label={t("shell.homeLink")} dir="ltr">QADR <span>OPS</span></Link><p className="business-breadcrumb"><span>{displayName}</span><span aria-hidden="true">/</span><strong>{label(active)}</strong></p>{preview ? <span className="business-preview-badge">{t("shell.previewBadge")}</span> : <span className="business-appbar-context">{t("shell.secureSpace")}</span>}<LanguageSwitcher className="shrink-0" /></header>
-      <main className={`business-page ${active}-page`} id="main-content"><div className="business-content">{children}</div></main>
-      <nav className="business-mobile-nav" aria-label={t("shell.mainNavigation")}>{mobileLinks.map((item) => <Link key={item.key} href={item.href} aria-current={item.key === active || (item.key === "modules" && !mainMobile.some((entry) => entry.key === active)) ? "page" : undefined}><ModuleIcon name={item.icon} /><span>{label(item.key)}</span></Link>)}</nav>
-    </div>
-  </div></BusinessRoleContext.Provider>;
+  const allowed = useMemo(() => new Set(roleModules[role] ?? roleModules.member), [role]);
+  const visible = items.filter((item) => allowed.has(item.key));
+  const pick = (keys: BusinessArea[]) => keys.flatMap((key) => visible.filter((item) => item.key === key));
+  const desktopMain = pick(desktopPriority);
+  const desktopMore = visible.filter((item) => !desktopMain.includes(item) && item.key !== "settings");
+  const mobileMain = pick(mobilePriority).slice(0, 4);
+  const mobileLinks: NavItem[] = [...mobileMain, ...(visible.length > mobileMain.length ? [{ key: "modules" as const, href: "/business/modules", icon: "grid" as const }] : [])];
+  const canSettings = allowed.has("settings");
+
+  return (
+    <BusinessRoleContext.Provider value={role}>
+      <div className="min-h-dvh bg-canvas text-fg">
+        <header className="sticky top-0 z-20 border-b border-line/70 bg-canvas/90 backdrop-blur-md">
+          <div className="mx-auto flex h-[68px] max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:h-[76px] lg:px-8">
+            <Brand />
+            <nav aria-label={t("shell.modulesNavigation")} className="mx-auto hidden items-center gap-0.5 rounded-full bg-night p-1.5 shadow-raised lg:flex">
+              {desktopMain.map((item) => (
+                <Link key={item.key} href={item.href} aria-current={item.key === active ? "page" : undefined}
+                  className={cn("flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[0.86rem] font-semibold whitespace-nowrap no-underline transition-colors",
+                    item.key === active ? "bg-brand-gradient text-white shadow-brand" : "text-night-fg hover:text-white")}>
+                  {item.key === active && <Icon name={item.icon} className="size-4" />}
+                  {t(`shell.items.${item.key}.label`)}
+                </Link>
+              ))}
+              <MoreMenu entries={desktopMore} active={active} />
+            </nav>
+            <div className="ms-auto flex items-center gap-2 lg:ms-0">
+              {preview && <span className="hidden rounded-full border border-warn-line bg-warn-soft px-3 py-1.5 text-xs font-semibold text-warn 2xl:inline">{t("shell.previewBadge")}</span>}
+              <LanguageSwitcher className="shrink-0" />
+              {canSettings && (
+                <Link href="/business/settings" aria-label={t("shell.settingsLink")} title={t("shell.settingsLink")}
+                  className={cn("hidden size-11 place-items-center rounded-full border bg-surface sm:grid", active === "settings" ? "border-brand text-brand" : "border-line text-ink hover:border-brand-tint hover:text-brand")}>
+                  <Icon name="settings" />
+                </Link>
+              )}
+              <Link href="/select-business" aria-label={t("selectBusiness.switch")} className="hidden items-center gap-2.5 rounded-full border border-line bg-surface py-1 ps-1 pe-4 text-inherit no-underline hover:border-brand-tint md:flex max-w-52" title={t("selectBusiness.switch")}>
+                <Monogram text={displayName} className="size-9" />
+                <span className="grid min-w-0 leading-tight">
+                  <small className="truncate text-[0.66rem] font-semibold tracking-[0.06em] whitespace-nowrap text-fg-subtle">{t("shell.activeBusiness")}</small>
+                  <strong dir="auto" className="truncate text-[0.84rem] text-ink">{displayName}</strong>
+                </span>
+              </Link>
+              <button type="button" onClick={() => void signOutAndResetAnalytics().finally(() => router.push("/login"))} aria-label={t("auth.logout")} title={t("auth.logout")}
+                className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-surface text-ink hover:border-danger-line hover:text-danger">
+                <Icon name="logout" />
+              </button>
+            </div>
+          </div>
+          {preview && <p className="m-0 border-t border-warn-line bg-warn-soft px-4 py-1 text-center text-xs font-semibold text-warn 2xl:hidden">{t("shell.previewBadge")}</p>}
+        </header>
+
+        <main id="main-content" className={`business-page ${active}-page mx-auto max-w-[1440px] px-4 pt-5 pb-32 sm:px-6 lg:px-8 lg:pt-7 lg:pb-12`}>
+          {children}
+        </main>
+
+        {/* Téléphone et tablette : barre basse flottante, cibles de 56 px, zone de sécurité respectée. */}
+        <nav aria-label={t("shell.mainNavigation")}
+          className="fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-30 mx-auto grid max-w-lg auto-cols-fr grid-flow-col gap-1 rounded-[22px] bg-night p-1.5 shadow-overlay lg:hidden">
+          {mobileLinks.map((item) => {
+            const current = item.key === active || (item.key === "modules" && !mobileMain.some((entry) => entry.key === active));
+            return (
+              <Link key={item.key} href={item.href} aria-current={current ? "page" : undefined}
+                className={cn("flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-[16px] px-1 text-[0.7rem] font-semibold no-underline",
+                  current ? "bg-brand-gradient text-white shadow-brand" : "text-night-fg")}>
+                <Icon name={item.icon} className="size-5" />
+                <span className="max-w-full truncate">{item.key === "dashboard" ? t("shell.home") : t(`shell.items.${item.key}.label`)}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+    </BusinessRoleContext.Provider>
+  );
 }

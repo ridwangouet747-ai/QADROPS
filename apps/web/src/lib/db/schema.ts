@@ -1,6 +1,6 @@
 import {
   bigint, boolean, check, foreignKey, index, integer, jsonb, numeric, pgTable, primaryKey,
-  text, timestamp, unique, uniqueIndex,
+  date, text, timestamp, unique, uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -47,13 +47,26 @@ export const verification = pgTable("verification", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (t) => [index("verification_identifier_idx").on(t.identifier)]);
 
+/**
+ * Désactivation d'un accès membre. La ligne `member` n'est jamais supprimée : ventes, mouvements et
+ * audits la référencent. Un membre présent ici avec `disabled_at` non nul ne peut plus agir sur ce commerce.
+ */
+export const businessMemberAccess = pgTable("business_member_access", {
+  businessId: text("business_id").notNull(), userId: text("user_id").notNull(),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }), disabledByUserId: text("disabled_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ name: "business_member_access_pk", columns: [t.businessId, t.userId] }), foreignKey({ columns: [t.businessId, t.userId], foreignColumns: [member.organizationId, member.userId], name: "business_member_access_member_fk" }).onDelete("cascade")]);
+
 export const businessProfile = pgTable("business_profile", {
   businessId: text("business_id").primaryKey().references(() => organization.id, { onDelete: "restrict" }),
   activity: text("activity").notNull(), phone: text("phone"), address: text("address"), businessEmail: text("business_email"),
   currency: text("currency").notNull().default("XOF"), timezone: text("timezone").notNull().default("Africa/Abidjan"),
   primaryColor: text("primary_color").notNull().default("#176B5B"), status: text("status").notNull().default("active"),
+  storeFormat: text("store_format"), creationKey: text("creation_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [check("business_activity_check", sql`${t.activity} in ('hardware','phones','general','clothing')`), check("business_currency_check", sql`${t.currency} = 'XOF'`), check("business_status_check", sql`${t.status} in ('pending','active','suspended','expired')`)]);
+}, (t) => [check("business_activity_check", sql`${t.activity} in ('hardware','phones','general','clothing')`), check("business_currency_check", sql`${t.currency} = 'XOF'`), check("business_status_check", sql`${t.status} in ('pending','active','suspended','expired')`),
+  check("business_store_format_check", sql`${t.storeFormat} is null or ${t.storeFormat} in ('shop','kiosk','wholesale','other')`),
+  uniqueIndex("business_creation_key_unique").on(t.creationKey).where(sql`${t.creationKey} is not null`)]);
 export const platformAdmin = pgTable("platform_admin", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "restrict" }),
   grantedByUserId: text("granted_by_user_id").references(() => user.id, { onDelete: "restrict" }),
@@ -61,7 +74,7 @@ export const platformAdmin = pgTable("platform_admin", {
 });
 export const receiptSettings = pgTable("receipt_settings", {
   businessId: text("business_id").primaryKey().references(() => businessProfile.businessId, { onDelete: "restrict" }),
-  paperWidthMm: integer("paper_width_mm").notNull().default(58), showLogo: boolean("show_logo").notNull().default(true),
+  paperWidthMm: integer("paper_width_mm").notNull().default(58), showLogo: boolean("show_logo").notNull().default(true), displayName: text("display_name"),
   footer: text("footer"), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [check("receipt_width_check", sql`${t.paperWidthMm} in (58,80)`)]);
 
@@ -140,6 +153,23 @@ export const purchasePayment = pgTable("purchase_payment", {
   amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), method: text("method").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [foreignKey({ columns: [t.businessId, t.purchaseId], foreignColumns: [purchase.businessId, purchase.id], name: "purchase_payment_tenant_fk" }), check("purchase_payment_positive", sql`${t.amountXof} > 0`)]);
 
+/**
+ * Solde d'ouverture : dette d'un client envers le commerce, ou du commerce envers un fournisseur,
+ * existant avant l'arrivée sur Qadr Ops. Ce n'est ni une vente à crédit ni un achat : aucun chiffre
+ * d'affaires, aucun stock. Un seul solde d'ouverture par client ou par fournisseur.
+ */
+export const openingBalance = pgTable("opening_balance", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  partyType: text("party_type").notNull(), customerId: text("customer_id"), supplierId: text("supplier_id"),
+  amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), asOfDate: date("as_of_date", { mode: "string" }).notNull(), note: text("note"),
+  createdByUserId: text("created_by_user_id").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("opening_balance_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.customerId], foreignColumns: [customer.businessId, customer.id], name: "opening_balance_customer_tenant_fk" }), foreignKey({ columns: [t.businessId, t.supplierId], foreignColumns: [supplier.businessId, supplier.id], name: "opening_balance_supplier_tenant_fk" }), foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "opening_balance_actor_membership_tenant_fk" }), uniqueIndex("opening_balance_customer_unique").on(t.businessId, t.customerId).where(sql`${t.customerId} is not null`), uniqueIndex("opening_balance_supplier_unique").on(t.businessId, t.supplierId).where(sql`${t.supplierId} is not null`), check("opening_balance_party_check", sql`(${t.partyType} = 'customer' and ${t.customerId} is not null and ${t.supplierId} is null) or (${t.partyType} = 'supplier' and ${t.supplierId} is not null and ${t.customerId} is null)`), check("opening_balance_amount_positive", sql`${t.amountXof} > 0`), check("opening_balance_note_length", sql`${t.note} is null or char_length(${t.note}) <= 500`)]);
+export const openingBalancePayment = pgTable("opening_balance_payment", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  openingBalanceId: text("opening_balance_id").notNull(), amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), method: text("method").notNull(),
+  recordedByUserId: text("recorded_by_user_id").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [foreignKey({ columns: [t.businessId, t.openingBalanceId], foreignColumns: [openingBalance.businessId, openingBalance.id], name: "opening_payment_balance_tenant_fk" }), foreignKey({ columns: [t.businessId, t.recordedByUserId], foreignColumns: [member.organizationId, member.userId], name: "opening_payment_actor_membership_tenant_fk" }), index("opening_payment_balance_idx").on(t.businessId, t.openingBalanceId), check("opening_payment_amount_positive", sql`${t.amountXof} > 0`), check("opening_payment_method_check", sql`${t.method} in ('cash','wave','orange_money','mtn_momo','other')`)]);
+
 export const inventorySession = pgTable("inventory_session", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   status: text("status").notNull().default("counting"), startedByUserId: text("started_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
@@ -156,13 +186,29 @@ export const inventoryLine = pgTable("inventory_line", {
   expectedStockRevision: bigint("expected_stock_revision", { mode: "bigint" }).notNull(), countedByUserId: text("counted_by_user_id").notNull(), adjustmentReason: text("adjustment_reason"),
 }, (t) => [unique("inventory_line_business_id_unique").on(t.businessId, t.id), unique("inventory_session_variant_unique").on(t.businessId, t.sessionId, t.variantId), foreignKey({ columns: [t.businessId, t.sessionId], foreignColumns: [inventorySession.businessId, inventorySession.id], name: "inventory_line_session_tenant_fk" }), foreignKey({ columns: [t.businessId, t.variantId], foreignColumns: [productVariant.businessId, productVariant.id], name: "inventory_line_variant_tenant_fk" }), foreignKey({ columns: [t.businessId, t.countedByUserId], foreignColumns: [member.organizationId, member.userId], name: "inventory_line_counter_membership_tenant_fk" }), check("inventory_quantities_nonnegative", sql`${t.theoreticalQty} >= 0 and ${t.countedQty} >= 0`), check("inventory_adjustment_reason_nonempty", sql`${t.adjustmentReason} is null or length(trim(${t.adjustmentReason})) > 0`)]);
 
+/**
+ * Stock d'ouverture : marchandises déjà présentes avant l'arrivée sur Qadr Ops. Ce n'est ni un achat
+ * (pas de fournisseur ni de dette) ni une vente. Une variante ne peut recevoir qu'une seule ligne
+ * d'ouverture ; les corrections ultérieures passent par un inventaire.
+ */
+export const stockOpening = pgTable("stock_opening", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  referenceDate: date("reference_date", { mode: "string" }).notNull(), note: text("note"),
+  postedByUserId: text("posted_by_user_id").notNull(), postedAt: timestamp("posted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("stock_opening_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.postedByUserId], foreignColumns: [member.organizationId, member.userId], name: "stock_opening_actor_membership_tenant_fk" }), index("stock_opening_business_date_idx").on(t.businessId, t.postedAt), check("stock_opening_note_length", sql`${t.note} is null or char_length(${t.note}) <= 500`)]);
+export const stockOpeningLine = pgTable("stock_opening_line", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  openingId: text("opening_id").notNull(), variantId: text("variant_id").notNull(),
+  quantity: numeric("quantity", { precision: 24, scale: 6 }).notNull(), unitCostXof: bigint("unit_cost_xof", { mode: "bigint" }),
+}, (t) => [unique("stock_opening_line_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.openingId], foreignColumns: [stockOpening.businessId, stockOpening.id], name: "stock_opening_line_opening_tenant_fk" }), foreignKey({ columns: [t.businessId, t.variantId], foreignColumns: [productVariant.businessId, productVariant.id], name: "stock_opening_line_variant_tenant_fk" }), unique("stock_opening_line_variant_unique").on(t.businessId, t.variantId), check("stock_opening_line_qty_positive", sql`${t.quantity} > 0`), check("stock_opening_line_cost_nonnegative", sql`${t.unitCostXof} is null or ${t.unitCostXof} >= 0`)]);
+
 export const stockMovement = pgTable("stock_movement", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), variantId: text("variant_id").notNull(),
   quantityDelta: numeric("quantity_delta", { precision: 24, scale: 6 }).notNull(), reason: text("reason").notNull(),
-  saleLineId: text("sale_line_id"), purchaseLineId: text("purchase_line_id"), inventoryLineId: text("inventory_line_id"),
+  saleLineId: text("sale_line_id"), purchaseLineId: text("purchase_line_id"), inventoryLineId: text("inventory_line_id"), openingLineId: text("opening_line_id"),
   unitCostXof: numeric("unit_cost_xof", { precision: 30, scale: 12 }), createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [foreignKey({ columns: [t.businessId, t.variantId], foreignColumns: [productVariant.businessId, productVariant.id], name: "stock_movement_variant_tenant_fk" }), foreignKey({ columns: [t.businessId, t.saleLineId], foreignColumns: [saleLine.businessId, saleLine.id], name: "stock_movement_sale_line_tenant_fk" }), foreignKey({ columns: [t.businessId, t.purchaseLineId], foreignColumns: [purchaseLine.businessId, purchaseLine.id], name: "stock_movement_purchase_line_tenant_fk" }), foreignKey({ columns: [t.businessId, t.inventoryLineId], foreignColumns: [inventoryLine.businessId, inventoryLine.id], name: "stock_movement_inventory_line_tenant_fk" }), foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "stock_movement_actor_membership_tenant_fk" }), uniqueIndex("stock_movement_sale_line_unique").on(t.businessId, t.saleLineId).where(sql`${t.saleLineId} is not null`), uniqueIndex("stock_movement_purchase_line_unique").on(t.businessId, t.purchaseLineId).where(sql`${t.purchaseLineId} is not null`), uniqueIndex("stock_movement_inventory_line_unique").on(t.businessId, t.inventoryLineId).where(sql`${t.inventoryLineId} is not null`), index("stock_movement_variant_date_idx").on(t.businessId, t.variantId, t.occurredAt), check("stock_movement_source_one_check", sql`num_nonnulls(${t.saleLineId}, ${t.purchaseLineId}, ${t.inventoryLineId}) = 1`), check("stock_movement_delta_nonzero", sql`${t.quantityDelta} <> 0`), check("stock_movement_reason_check", sql`${t.reason} in ('sale','purchase','inventory_adjustment','manual_adjustment','return')`)]);
+}, (t) => [foreignKey({ columns: [t.businessId, t.variantId], foreignColumns: [productVariant.businessId, productVariant.id], name: "stock_movement_variant_tenant_fk" }), foreignKey({ columns: [t.businessId, t.saleLineId], foreignColumns: [saleLine.businessId, saleLine.id], name: "stock_movement_sale_line_tenant_fk" }), foreignKey({ columns: [t.businessId, t.purchaseLineId], foreignColumns: [purchaseLine.businessId, purchaseLine.id], name: "stock_movement_purchase_line_tenant_fk" }), foreignKey({ columns: [t.businessId, t.inventoryLineId], foreignColumns: [inventoryLine.businessId, inventoryLine.id], name: "stock_movement_inventory_line_tenant_fk" }), foreignKey({ columns: [t.businessId, t.openingLineId], foreignColumns: [stockOpeningLine.businessId, stockOpeningLine.id], name: "stock_movement_opening_line_tenant_fk" }), foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "stock_movement_actor_membership_tenant_fk" }), uniqueIndex("stock_movement_sale_line_unique").on(t.businessId, t.saleLineId).where(sql`${t.saleLineId} is not null`), uniqueIndex("stock_movement_purchase_line_unique").on(t.businessId, t.purchaseLineId).where(sql`${t.purchaseLineId} is not null`), uniqueIndex("stock_movement_inventory_line_unique").on(t.businessId, t.inventoryLineId).where(sql`${t.inventoryLineId} is not null`), uniqueIndex("stock_movement_opening_line_unique").on(t.businessId, t.openingLineId).where(sql`${t.openingLineId} is not null`), index("stock_movement_business_date_idx").on(t.businessId, t.occurredAt, t.id), index("stock_movement_variant_date_idx").on(t.businessId, t.variantId, t.occurredAt), check("stock_movement_source_one_check", sql`num_nonnulls(${t.saleLineId}, ${t.purchaseLineId}, ${t.inventoryLineId}, ${t.openingLineId}) = 1`), check("stock_movement_delta_nonzero", sql`${t.quantityDelta} <> 0`), check("stock_movement_reason_check", sql`${t.reason} in ('sale','purchase','inventory_adjustment','manual_adjustment','return','opening_stock')`), check("stock_movement_opening_reason_check", sql`(${t.openingLineId} is null) = (${t.reason} <> 'opening_stock')`)]);
 
 export const expense = pgTable("expense", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
@@ -173,11 +219,24 @@ export const expense = pgTable("expense", {
 export const subscriptionPlan = pgTable("subscription_plan", {
   id: text("id").primaryKey(), code: text("code").notNull().unique(), name: text("name").notNull(), priceXof: bigint("price_xof", { mode: "bigint" }).notNull(),
   durationDays: integer("duration_days").notNull(), active: boolean("active").notNull().default(true), features: jsonb("features").notNull().default({}),
-}, (t) => [check("plan_amount_duration_check", sql`${t.priceXof} >= 0 and ${t.durationDays} > 0`)]);
+  description: text("description"), currency: text("currency").notNull().default("XOF"), storageMb: integer("storage_mb"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("plan_amount_duration_check", sql`${t.priceXof} >= 0 and ${t.durationDays} > 0`), check("plan_currency_check", sql`${t.currency} = 'XOF'`),
+  check("plan_storage_positive", sql`${t.storageMb} is null or ${t.storageMb} > 0`)]);
 export const promotionCode = pgTable("promotion_code", {
   id: text("id").primaryKey(), code: text("code").notNull().unique(), discountPercent: integer("discount_percent"), discountXof: bigint("discount_xof", { mode: "bigint" }),
   startsAt: timestamp("starts_at", { withTimezone: true }).notNull(), endsAt: timestamp("ends_at", { withTimezone: true }), maxRedemptions: integer("max_redemptions"), active: boolean("active").notNull().default(true),
-}, (t) => [check("promotion_discount_check", sql`(${t.discountPercent} between 1 and 100 and ${t.discountXof} is null) or (${t.discountXof} > 0 and ${t.discountPercent} is null)`), check("promotion_limit_positive", sql`${t.maxRedemptions} is null or ${t.maxRedemptions} > 0`), check("promotion_validity_order", sql`${t.endsAt} is null or ${t.endsAt} > ${t.startsAt}`)]);
+  kind: text("kind").notNull().default("discount"), planId: text("plan_id").references(() => subscriptionPlan.id, { onDelete: "restrict" }), grantDays: integer("grant_days"),
+  campaign: text("campaign"), batchId: text("batch_id"), createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedByUserId: text("revoked_by_user_id").references(() => user.id, { onDelete: "restrict" }), revokeReason: text("revoke_reason"),
+}, (t) => [
+  check("promotion_kind_check", sql`${t.kind} in ('discount','access')`),
+  check("promotion_discount_check", sql`(${t.kind} = 'discount' and ((${t.discountPercent} between 1 and 100 and ${t.discountXof} is null) or (${t.discountXof} > 0 and ${t.discountPercent} is null)))
+    or (${t.kind} = 'access' and ${t.discountPercent} is null and ${t.discountXof} is null and ${t.planId} is not null and ${t.grantDays} between 1 and 3650)`),
+  check("promotion_limit_positive", sql`${t.maxRedemptions} is null or ${t.maxRedemptions} > 0`), check("promotion_validity_order", sql`${t.endsAt} is null or ${t.endsAt} > ${t.startsAt}`),
+  index("promotion_batch_idx").on(t.batchId),
+]);
 export const promotionEligibleBusiness = pgTable("promotion_eligible_business", {
   promotionId: text("promotion_id").notNull().references(() => promotionCode.id, { onDelete: "restrict" }),
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
@@ -187,7 +246,13 @@ export const businessSubscription = pgTable("business_subscription", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }),
   status: text("status").notNull(), startsAt: timestamp("starts_at", { withTimezone: true }).notNull(), endsAt: timestamp("ends_at", { withTimezone: true }).notNull(), trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   providerReference: text("provider_reference"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [unique("subscription_business_id_unique").on(t.businessId, t.id), index("subscription_business_status_idx").on(t.businessId, t.status, t.endsAt), check("subscription_status_check", sql`${t.status} in ('pending','active','suspended','expired','canceled')`)]);
+  origin: text("origin").notNull().default("manual"), statusBeforeSuspension: text("status_before_suspension"),
+  canceledAt: timestamp("canceled_at", { withTimezone: true }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("subscription_business_id_unique").on(t.businessId, t.id), index("subscription_business_status_idx").on(t.businessId, t.status, t.endsAt),
+  check("subscription_status_check", sql`${t.status} in ('pending','trialing','active','suspended','expired','canceled')`),
+  check("subscription_origin_check", sql`${t.origin} in ('manual','promotion','payment')`),
+  check("subscription_resume_status_check", sql`${t.statusBeforeSuspension} is null or ${t.statusBeforeSuspension} in ('trialing','active')`),
+  index("subscription_status_end_idx").on(t.status, t.endsAt)]);
 export const subscriptionPayment = pgTable("subscription_payment", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), subscriptionId: text("subscription_id").notNull(),
   amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), method: text("method").notNull(), status: text("status").notNull().default("pending"),
@@ -204,7 +269,7 @@ export const auditEvent = pgTable("audit_event", {
   id: text("id").primaryKey(), businessId: text("business_id").references(() => businessProfile.businessId, { onDelete: "restrict" }), actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "restrict" }),
   eventType: text("event_type").notNull(), entityType: text("entity_type").notNull(), entityId: text("entity_id").notNull(), metadata: jsonb("metadata").notNull().default({}),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("audit_business_date_idx").on(t.businessId, t.occurredAt), index("audit_entity_idx").on(t.entityType, t.entityId)]);
+}, (t) => [index("audit_business_date_idx").on(t.businessId, t.occurredAt), index("audit_entity_idx").on(t.entityType, t.entityId), index("audit_type_date_idx").on(t.eventType, t.occurredAt)]);
 export const paymentProviderEvent = pgTable("payment_provider_event", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), provider: text("provider").notNull(), eventId: text("event_id").notNull(),
   paymentId: text("payment_id"), subscriptionPaymentId: text("subscription_payment_id"), payloadHash: text("payload_hash").notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(), processedAt: timestamp("processed_at", { withTimezone: true }),
@@ -214,12 +279,12 @@ export const idempotencyRecord = pgTable("idempotency_record", {
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), idempotencyKey: text("idempotency_key").notNull(),
   operation: text("operation").notNull(), requestHash: text("request_hash").notNull(), actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
   result: jsonb("result").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment')`)]);
+}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment')`)]);
 
 export const authSchema = { user, session, account, verification, organization, member, invitation };
 export const databaseSchema = {
-  ...authSchema, businessProfile, platformAdmin, receiptSettings, productCategory, product, productVariant,
+  ...authSchema, businessProfile, businessMemberAccess, platformAdmin, receiptSettings, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
-  purchasePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockMovement, expense, subscriptionPlan,
+  purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
   promotionCode, promotionEligibleBusiness, businessSubscription, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
 };

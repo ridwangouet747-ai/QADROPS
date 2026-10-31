@@ -18,3 +18,15 @@ export function formatDateTime(value: string | Date, locale: Locale) {
 export function formatTime(value: string | Date, locale: Locale) {
   return new Date(value).toLocaleTimeString(intlLocale[locale], { hour: "2-digit", minute: "2-digit" });
 }
+
+/** Montant XOF entier (chaîne ou bigint) formaté sans flottant : « 12 500 F CFA », isolé pour le texte bidirectionnel. */
+export function formatXof(value: string | bigint | null | undefined, locale: Locale) {
+  if (value === null || value === undefined || value === "") return "—";
+  try {
+    const amount = typeof value === "bigint" ? value : BigInt(value);
+    // Isolation bidirectionnelle (LRI … PDI) : « 19 000 F CFA » reste dans le bon ordre au milieu d'une phrase arabe.
+    return `\u2066${new Intl.NumberFormat(intlLocale[locale]).format(amount)} F CFA\u2069`;
+  } catch {
+    return "—";
+  }
+}

@@ -172,11 +172,15 @@ export async function getBusinessSale(db: CommercialDatabase, context: Context &
 export async function listBusinessCustomers(db: CommercialDatabase, context: Context) {
   await requirePermission(db, context, "customer", "read");
   const result = await db.execute(sql`select c.id, c.name, c.phone, c.notes, c.created_at as "createdAt",
-    count(s.id)::text as "saleCount", coalesce(sum(case when s.id is not null then greatest(s.total_xof-coalesce(p.paid,0),0) else 0 end),0)::text as "balanceXof"
+    count(s.id)::text as "saleCount",
+    (coalesce(sum(case when s.id is not null then greatest(s.total_xof-coalesce(p.paid,0),0) else 0 end),0) + coalesce(max(ob.remaining),0))::text as "balanceXof",
+    coalesce(max(ob.remaining),0)::text as "openingDueXof"
     from customer c left join sale s on s.business_id=c.business_id and s.customer_id=c.id and s.status <> 'voided'
+    left join (select b.customer_id, b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id=b.business_id and op.opening_balance_id=b.id),0) as remaining
+      from opening_balance b where b.business_id=${context.businessId} and b.customer_id is not null) ob on ob.customer_id=c.id
     left join (select business_id,sale_id,sum(amount_xof) as paid from payment where business_id=${context.businessId} and status='confirmed' group by business_id,sale_id) p
       on p.business_id=s.business_id and p.sale_id=s.id
-    where c.business_id=${context.businessId} group by c.id order by c.name`) as unknown as { rows: { id: string; name: string; phone: string | null; notes: string | null; createdAt: Date; saleCount: string; balanceXof: string }[] };
+    where c.business_id=${context.businessId} group by c.id order by c.name`) as unknown as { rows: { id: string; name: string; phone: string | null; notes: string | null; createdAt: Date; saleCount: string; balanceXof: string; openingDueXof: string }[] };
   return result.rows;
 }
 
@@ -237,7 +241,9 @@ export async function getStockWorkspace(db: CommercialDatabase, context: Context
 export async function listBusinessSuppliers(db: CommercialDatabase, context: Context) {
   await requirePermission(db, context, "supplier", "read");
   const rows = await db.select({ id: supplier.id, name: supplier.name, phone: supplier.phone, archivedAt: supplier.archivedAt,
-    purchaseCount: sql<string>`count(${purchase.id})::text`, purchaseTotalXof: sql<string>`coalesce(sum(${purchase.totalXof}),0)::text` })
+    purchaseCount: sql<string>`count(${purchase.id})::text`, purchaseTotalXof: sql<string>`coalesce(sum(${purchase.totalXof}),0)::text`,
+    // Dette d'ouverture restante envers ce fournisseur, distincte des achats enregistrés dans Qadr Ops.
+    openingDueXof: sql<string>`coalesce((select b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id=b.business_id and op.opening_balance_id=b.id),0) from opening_balance b where b.business_id=${supplier.businessId} and b.supplier_id=${supplier.id}),0)::text` })
     .from(supplier).leftJoin(purchase, and(eq(purchase.businessId, supplier.businessId), eq(purchase.supplierId, supplier.id), sql`${purchase.status} <> 'canceled'`))
     .where(and(eq(supplier.businessId, context.businessId), isNull(supplier.archivedAt))).groupBy(supplier.id).orderBy(asc(supplier.name));
   return rows;

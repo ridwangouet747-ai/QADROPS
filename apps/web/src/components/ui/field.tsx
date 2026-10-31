@@ -2,8 +2,8 @@ import { useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttribu
 import { cn } from "./cn";
 
 export const controlClasses = cn(
-  "block w-full min-h-11 rounded-md border border-line-strong bg-surface px-3 text-base text-fg",
-  "placeholder:text-fg-subtle aria-invalid:border-danger disabled:bg-surface-muted disabled:text-fg-muted",
+  "block w-full min-h-12 rounded-[14px] border border-line bg-surface px-4 text-base text-fg shadow-[0_1px_0_rgb(27_26_46/3%)]",
+  "placeholder:text-fg-subtle hover:border-line-strong aria-invalid:border-danger disabled:bg-surface-muted disabled:text-fg-muted",
 );
 
 /**

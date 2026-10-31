@@ -16,7 +16,7 @@ export function QuantityInput({ id, value, onChange, unit, disabled, invalid, de
   const { t, locale } = useI18n();
   const stepButton = "grid size-12 shrink-0 cursor-pointer place-items-center border-0 bg-surface-muted text-ink hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50";
   return (
-    <div className={cn("flex items-stretch overflow-hidden rounded-md border bg-surface", invalid ? "border-danger" : "border-line-strong")}>
+    <div className={cn("flex items-stretch overflow-hidden rounded-[14px] border bg-surface focus-within:border-brand focus-within:shadow-[0_0_0_3px_rgb(91_77_242/25%)]", invalid ? "border-danger" : "border-line-strong")}>
       <button type="button" className={stepButton} onClick={() => onChange(stepQuantity(value, -1, locale))} disabled={disabled} aria-label={t("quantity.decrease")}>
         <Icon name="minus" />
       </button>
@@ -25,7 +25,7 @@ export function QuantityInput({ id, value, onChange, unit, disabled, invalid, de
           id={id} type="text" inputMode="decimal" autoComplete="off" enterKeyHint="done"
           value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}
           aria-invalid={invalid || undefined} aria-describedby={describedBy} aria-label={ariaLabel}
-          className="numeric h-12 w-full min-w-0 border-0 bg-transparent text-center text-lg font-semibold text-ink outline-none"
+          className="numeric h-12 min-h-0 w-full min-w-0 rounded-none border-0 bg-transparent p-0 text-center text-lg font-semibold text-ink shadow-none outline-none"
         />
         {unit && <span className="shrink-0 text-sm text-fg-muted">{unit}</span>}
       </div>

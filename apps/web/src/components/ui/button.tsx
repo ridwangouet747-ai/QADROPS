@@ -5,18 +5,18 @@ export type ButtonVariant = "primary" | "cta" | "secondary" | "ghost" | "danger"
 type ButtonSize = "md" | "lg";
 
 const variants: Record<ButtonVariant, string> = {
-  primary: "bg-brand text-white hover:bg-brand-strong border-transparent",
-  cta: "bg-cta text-white hover:bg-cta-strong border-transparent",
-  secondary: "bg-surface text-ink border-line-strong hover:bg-surface-muted",
+  primary: "bg-brand text-white hover:bg-brand-strong border-transparent shadow-brand",
+  cta: "bg-brand-gradient text-white hover:brightness-110 border-transparent shadow-brand",
+  secondary: "bg-surface text-ink border-line hover:border-brand-tint hover:bg-paper",
   ghost: "bg-transparent text-brand-strong border-transparent hover:bg-brand-soft",
   danger: "bg-surface text-danger border-danger-line hover:bg-danger-soft",
 };
 // 44 px minimum partout : la cible tactile ne rétrécit pas sur ordinateur.
-const sizes: Record<ButtonSize, string> = { md: "min-h-11 px-4 text-[0.95rem]", lg: "min-h-12 px-5 text-base" };
+const sizes: Record<ButtonSize, string> = { md: "min-h-11 px-5 text-[0.92rem]", lg: "min-h-13 px-6 text-base" };
 
 export function buttonClasses({ variant = "primary", size = "md", block = false, className }: { variant?: ButtonVariant; size?: ButtonSize; block?: boolean; className?: string } = {}) {
   return cn(
-    "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border font-semibold leading-tight select-none",
+    "inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border font-semibold leading-tight select-none",
     "transition-colors duration-150 ease-snappy active:translate-y-px",
     "focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-brand",
     "disabled:cursor-not-allowed disabled:opacity-55 disabled:active:translate-y-0",
