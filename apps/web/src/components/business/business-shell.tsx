@@ -6,16 +6,19 @@ import { useRouter } from "next/navigation";
 import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import { NotificationBell } from "@/components/notifications/notification-bell";
+import { track } from "@/lib/analytics/client";
 import { cn } from "@/components/ui/cn";
 import { Monogram } from "@/components/ui/data-display";
 import { Icon, type IconName } from "@/components/ui/icon";
 
-export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "modules";
+export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "subscription" | "cash" | "notifications" | "printing" | "modules";
 
 type NavItem = { key: BusinessArea; href: string; icon: IconName };
 const items: NavItem[] = [
   { key: "dashboard", href: "/business/dashboard", icon: "grid" },
   { key: "pos", href: "/business/pos", icon: "cart" },
+  { key: "cash", href: "/business/cash", icon: "wallet" },
   { key: "products", href: "/business/products", icon: "box" },
   { key: "sales", href: "/business/sales", icon: "receipt" },
   { key: "customers", href: "/business/customers", icon: "users" },
@@ -27,18 +30,20 @@ const items: NavItem[] = [
   { key: "reports", href: "/business/reports", icon: "chart" },
   { key: "opening", href: "/business/opening", icon: "flag" },
   { key: "team", href: "/business/team", icon: "users" },
+  { key: "subscription", href: "/business/subscription", icon: "tag" },
+  { key: "printing", href: "/business/printing", icon: "printer" },
   { key: "settings", href: "/business/settings", icon: "settings" },
 ];
 // Ordre de priorité de la barre supérieure (bureau) et de la barre basse (téléphone).
 const desktopPriority: BusinessArea[] = ["dashboard", "pos", "products", "sales", "stock", "inventory", "reports"];
-const mobilePriority: BusinessArea[] = ["dashboard", "pos", "stock", "inventory", "products", "sales"];
+const mobilePriority: BusinessArea[] = ["dashboard", "pos", "cash", "stock", "inventory", "products", "sales"];
 
 const roleModules: Record<string, BusinessArea[]> = {
   owner: items.map((item) => item.key), admin: items.map((item) => item.key),
   stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening"],
-  accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports"],
-  cashier: ["pos", "products", "sales", "customers", "stock"],
-  member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases"],
+  accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "cash", "subscription"],
+  cashier: ["pos", "cash", "products", "sales", "customers", "stock", "printing"],
+  member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "subscription"],
 };
 const BusinessRoleContext = createContext("member");
 export const useBusinessRole = () => useContext(BusinessRoleContext);
@@ -94,6 +99,11 @@ export function BusinessShell({ active, preview = false, children }: { active: B
   const [role, setRole] = useState(preview ? "owner" : "member");
   const displayName = businessName ?? t("shell.defaultBusiness");
   useEffect(() => {
+    const features = ["dashboard", "pos", "stock", "inventory", "reports", "cash", "sales", "notifications", "printing", "subscription", "team"] as const;
+    const feature = features.find((item) => item === active);
+    if (feature) track("feature_viewed", { feature });
+  }, [active]);
+  useEffect(() => {
     void fetch("/api/business/settings", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return;
       const data = await response.json() as { settings?: { name?: string; role?: string } };
@@ -131,6 +141,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
             <div className="ms-auto flex items-center gap-2 lg:ms-0">
               {preview && <span className="hidden rounded-full border border-warn-line bg-warn-soft px-3 py-1.5 text-xs font-semibold text-warn 2xl:inline">{t("shell.previewBadge")}</span>}
               <LanguageSwitcher className="shrink-0" />
+              <NotificationBell />
               {canSettings && (
                 <Link href="/business/settings" aria-label={t("shell.settingsLink")} title={t("shell.settingsLink")}
                   className={cn("hidden size-11 place-items-center rounded-full border bg-surface sm:grid", active === "settings" ? "border-brand text-brand" : "border-line text-ink hover:border-brand-tint hover:text-brand")}>

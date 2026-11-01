@@ -99,7 +99,7 @@ describe("phase 4 inventory and commercial reports on isolated PGlite", () => {
     });
     expect(report.topProducts[0]).toMatchObject({ name: "=QADR-test-product", quantity: "2.000000", revenueXof: "400" });
     expect(report.inventoryVariance).toMatchObject({ lossQty: "2.000000", gainQty: "1.000000", validatedSessionCount: "2" });
-    expect(report.trend).toEqual([{ date: "2026-10-18", revenueXof: "400" }]);
+    expect(report.trend).toEqual([{ date: "2026-10-18", revenueXof: "400", saleCount: "1", collectionsXof: "100", expensesXof: "50" }]);
     const csv = reportCsv(report);
     expect(csv).toContain("'=QADR-test-product");
     await expect(getCommercialReport(db, { businessId, actorUserId: "phase4-outsider", period: "monthly" }, now)).rejects.toMatchObject({ status: 403 });

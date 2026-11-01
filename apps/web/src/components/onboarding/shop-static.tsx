@@ -16,8 +16,8 @@ function Layer({ show, children }: { show: boolean; children: ReactNode }) {
 export function ShopStatic({ plan, logo }: { plan: ScenePlan; logo: string }) {
   const c = { night: "#1b1a2e", soft: "#2a2942", brand: "#5b4df2", brandSoft: "#8b80f9", lav: "#eeecfe", plinth: "#c9c3fb", glass: "#d9d4fd", warm: "#ff9f7a", sand: "#d8cfbf", leaf: "#3f9c74", bulb: "#ffd166", steel: "#6e6c8a" };
   return (
-    <div className="absolute inset-0 grid place-items-center">
-      <svg viewBox="0 0 480 360" className="aspect-[4/3] w-full max-w-[560px]" aria-hidden="true">
+    <div className="absolute inset-0 grid place-items-center [container-type:size]">
+      <svg viewBox="0 0 480 360" className="aspect-[4/3] w-[min(100%,560px,133.33cqh)]" aria-hidden="true">
         <ellipse cx="240" cy="300" rx="200" ry="24" fill="#e4e1f6" />
         <rect x="60" y="268" width="360" height="24" rx="12" fill={c.plinth} />
         <rect x="90" y="252" width="300" height="20" rx="6" fill={c.night} />

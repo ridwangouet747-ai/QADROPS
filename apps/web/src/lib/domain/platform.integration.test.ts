@@ -88,10 +88,10 @@ describe("platform administration on isolated PGlite", () => {
     expect(redeemed).toMatchObject({ discountAmountXof: "2000", amountDueXof: "8000", paymentStatus: "pending" });
     // Rejeu idempotent : même résultat, aucune seconde réduction ni second paiement.
     await expect(redeemSubscriptionPromotion(db, ownerA, businessA, { code: "WELCOME20", subscriptionId: subscriptionA })).resolves.toMatchObject({ replayed: true, redemptionId: redeemed.redemptionId, amountDueXof: "8000" });
-    await expect(redeemSubscriptionPromotion(db, ownerB, businessB, { code: "WELCOME20", subscriptionId: subscriptionB })).rejects.toMatchObject({ status: 403 });
+    await expect(redeemSubscriptionPromotion(db, ownerB, businessB, { code: "WELCOME20", subscriptionId: subscriptionB })).rejects.toMatchObject({ status: 404, code: "invalid" });
     const [snapshot] = await client.query<{ code_snapshot: string; discount_amount_xof: string; amount: string; status: string }>("select r.code_snapshot,r.discount_amount_xof::text discount_amount_xof,p.amount_xof::text amount,p.status from promotion_redemption r join subscription_payment p on p.business_id=r.business_id and p.subscription_id=r.subscription_id where r.promotion_id=$1", [promo.id]).then((r) => r.rows);
     expect(snapshot).toEqual({ code_snapshot: "WELCOME20", discount_amount_xof: "2000", amount: "8000", status: "pending" });
-    await expect(redeemSubscriptionPromotion(db, ownerB, businessB, { code: "WELCOME20", subscriptionId: subscriptionB })).rejects.toThrow(/disponible/);
+    await expect(redeemSubscriptionPromotion(db, ownerB, businessB, { code: "WELCOME20", subscriptionId: subscriptionB })).rejects.toThrow(/invalide/);
     const listing = await listPlatformPromotions(db, admin);
     expect(listing[0]).toMatchObject({ id: promo.id, useCount: 1, stacking: false });
   });

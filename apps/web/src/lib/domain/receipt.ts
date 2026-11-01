@@ -13,6 +13,7 @@ export async function getSaleReceipt(db: CommercialDatabase, input: { businessId
   }
   const [saleRecord] = await db.select({
     id: sale.id, reference: sale.reference, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
+    subtotalXof: sale.subtotalXof, discountXof: sale.discountXof,
   }).from(sale).where(and(
     eq(sale.businessId, input.businessId), eq(sale.id, input.saleId),
   )).limit(1);
@@ -23,6 +24,7 @@ export async function getSaleReceipt(db: CommercialDatabase, input: { businessId
     address: businessProfile.address, email: businessProfile.businessEmail,
     currency: businessProfile.currency, paperWidthMm: receiptSettings.paperWidthMm,
     showLogo: receiptSettings.showLogo, footer: receiptSettings.footer,
+    displayName: receiptSettings.displayName, timezone: businessProfile.timezone,
   }).from(businessProfile).innerJoin(organization, eq(organization.id, businessProfile.businessId))
     .leftJoin(receiptSettings, eq(receiptSettings.businessId, businessProfile.businessId))
     .where(eq(businessProfile.businessId, input.businessId)).limit(1);
@@ -30,7 +32,7 @@ export async function getSaleReceipt(db: CommercialDatabase, input: { businessId
 
   const lines = await db.select({
     name: saleLine.productNameSnapshot, variant: saleLine.variantSnapshot,
-    quantity: saleLine.quantity, unitPriceXof: saleLine.unitPriceXof, totalXof: saleLine.lineTotalXof,
+    quantity: saleLine.quantity, unitPriceXof: saleLine.unitPriceXof, totalXof: saleLine.lineTotalXof, lineDiscountXof: saleLine.lineDiscountXof,
   }).from(saleLine).where(and(eq(saleLine.businessId, input.businessId), eq(saleLine.saleId, input.saleId)));
   const payments = await db.select({ method: payment.method, amountXof: payment.amountXof, status: payment.status })
     .from(payment).where(and(eq(payment.businessId, input.businessId), eq(payment.saleId, input.saleId)));

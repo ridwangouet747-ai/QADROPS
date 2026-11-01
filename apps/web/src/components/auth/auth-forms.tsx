@@ -10,6 +10,7 @@ import { controlClasses, Field, Input } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/components/ui/cn";
 import { authClient } from "@/lib/auth/client";
+import { track } from "@/lib/analytics/client";
 import { turnstileHeader } from "@/lib/auth/turnstile";
 import { safeNext } from "@/lib/client/redirect";
 import { AuthShell } from "./auth-shell";
@@ -73,7 +74,11 @@ export function LoginForm() {
     if (!security.ready) { setError(t("auth.turnstile.required")); return; }
     setBusy(true); setError("");
     const { error: failure } = await authClient.signIn.email({ email: email.trim(), password, fetchOptions: securityHeaders(security.token) });
-    if (failure) { setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : t("auth.login.failed")); setBusy(false); security.renew(); return; }
+    if (failure) {
+      track("login_failed", { reason: turnstileRejected(failure) ? "turnstile" : failure.status === 403 ? "verification" : failure.status === 401 ? "credentials" : "other" });
+      setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : t("auth.login.failed")); setBusy(false); security.renew(); return;
+    }
+    track("login_succeeded");
     await routeAfterSignIn(router.push, next);
   };
   return (

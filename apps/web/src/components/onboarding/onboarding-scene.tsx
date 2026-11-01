@@ -1,10 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { cn } from "@/components/ui/cn";
-import { chooseSceneMode, type SceneMode, type ScenePlan, type SceneStage } from "@/lib/onboarding/wizard";
+import { chooseSceneMode, samePlan, type SceneMode, type ScenePlan, type SceneStage, type SceneTier } from "@/lib/onboarding/wizard";
 import { ShopStatic } from "./shop-static";
 
 /* Le code 3D (three, React Three Fiber) et le lecteur Lottie ne sont téléchargés que sur cette page, et seulement si l'appareil les utilise. */
@@ -23,16 +23,16 @@ function webglAvailable() {
   } catch { return false; }
 }
 
-/** Lit les capacités observées (pas l'agent utilisateur) et choisit le rendu. */
-function detectMode(): SceneMode {
-  // Développement uniquement : ?scene=3d|lottie|static pour vérifier chaque rendu.
-  const forced = process.env.NODE_ENV !== "production" ? new URLSearchParams(location.search).get("scene") : null;
-  if (forced === "3d" || forced === "lottie" || forced === "static") return forced;
+/** Lit les capacités observées (pas l'agent utilisateur) et choisit le rendu et sa qualité. */
+function detectMode(): { mode: SceneMode; tier: SceneTier } {
   const nav = navigator as NavigatorSignals;
-  return chooseSceneMode({
+  const chosen = chooseSceneMode({
     webgl: webglAvailable(), reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches, saveData: Boolean(nav.connection?.saveData),
     width: window.innerWidth, deviceMemory: nav.deviceMemory, hardwareConcurrency: nav.hardwareConcurrency, coarsePointer: matchMedia("(pointer: coarse)").matches && !matchMedia("(pointer: fine)").matches,
   });
+  // Développement uniquement : ?scene=3d|lottie|static pour vérifier chaque rendu.
+  const forced = process.env.NODE_ENV !== "production" ? new URLSearchParams(location.search).get("scene") : null;
+  return forced === "3d" || forced === "lottie" || forced === "static" ? { ...chosen, mode: forced } : chosen;
 }
 
 /**
@@ -40,16 +40,21 @@ function detectMode(): SceneMode {
  * formulaire), puis montée en gamme après le premier affichage selon l'appareil. Toute erreur de
  * chargement ou perte de contexte WebGL redescend vers un rendu plus léger, jamais vers un blocage.
  */
-export function OnboardingScene({ plan, stage, logo, className }: { plan: ScenePlan; stage: SceneStage; logo: string; className?: string }) {
+type SceneProps = { plan: ScenePlan; stage: SceneStage; logo: string; className?: string };
+
+/* Le formulaire se redessine à chaque frappe ; la scène seulement quand ce qu'elle montre change. */
+export const OnboardingScene = memo(OnboardingSceneView, (a: SceneProps, b: SceneProps) =>
+  a.stage === b.stage && a.logo === b.logo && a.className === b.className && samePlan(a.plan, b.plan));
+
+function OnboardingSceneView({ plan, stage, logo, className }: SceneProps) {
   const { t } = useI18n();
   const [mode, setMode] = useState<SceneMode>("static");
-  const [tier, setTier] = useState<"high" | "low">("low");
+  const [tier, setTier] = useState<SceneTier>("low");
   useEffect(() => {
     const decide = () => {
       const chosen = detectMode();
-      const nav = navigator as NavigatorSignals;
-      setTier((nav.deviceMemory ?? 8) >= 8 && (nav.hardwareConcurrency ?? 8) >= 8 ? "high" : "low");
-      setMode(chosen);
+      setTier(chosen.tier);
+      setMode(chosen.mode);
     };
     const idle = (window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number }).requestIdleCallback;
     if (idle) idle(decide, { timeout: 1200 }); else setTimeout(decide, 300);

@@ -78,6 +78,45 @@ export const receiptSettings = pgTable("receipt_settings", {
   footer: text("footer"), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [check("receipt_width_check", sql`${t.paperWidthMm} in (58,80)`)]);
 
+/**
+ * Session de caisse (mission 09) : un membre ouvre sa caisse avec un fonds de départ, y rattache ses
+ * opérations en espèces, compte l'argent et clôture. Une seule session ouverte par membre et par
+ * commerce. La clôture fige le montant théorique, le montant compté et l'écart (justifié s'il n'est
+ * pas nul) ; un déclencheur refuse toute modification ultérieure, sauf la validation par un responsable.
+ */
+export const cashSession = pgTable("cash_session", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  userId: text("user_id").notNull(), status: text("status").notNull().default("open"),
+  openingFloatXof: bigint("opening_float_xof", { mode: "bigint" }).notNull(), openingNote: text("opening_note"),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  closedAt: timestamp("closed_at", { withTimezone: true }), closedByUserId: text("closed_by_user_id"),
+  countedCashXof: bigint("counted_cash_xof", { mode: "bigint" }), expectedCashXof: bigint("expected_cash_xof", { mode: "bigint" }),
+  differenceXof: bigint("difference_xof", { mode: "bigint" }), closingNote: text("closing_note"), closingSnapshot: jsonb("closing_snapshot"),
+  validatedAt: timestamp("validated_at", { withTimezone: true }), validatedByUserId: text("validated_by_user_id"), validationNote: text("validation_note"),
+}, (t) => [unique("cash_session_business_id_unique").on(t.businessId, t.id),
+  foreignKey({ columns: [t.businessId, t.userId], foreignColumns: [member.organizationId, member.userId], name: "cash_session_owner_membership_fk" }),
+  foreignKey({ columns: [t.businessId, t.closedByUserId], foreignColumns: [member.organizationId, member.userId], name: "cash_session_closer_membership_fk" }),
+  foreignKey({ columns: [t.businessId, t.validatedByUserId], foreignColumns: [member.organizationId, member.userId], name: "cash_session_validator_membership_fk" }),
+  uniqueIndex("cash_session_one_open_per_member").on(t.businessId, t.userId).where(sql`${t.status} = 'open'`),
+  index("cash_session_business_opened_idx").on(t.businessId, t.openedAt),
+  check("cash_session_status_check", sql`${t.status} in ('open','closed','validated')`),
+  check("cash_session_amounts_check", sql`${t.openingFloatXof} >= 0 and (${t.countedCashXof} is null or ${t.countedCashXof} >= 0)`),
+  check("cash_session_closing_check", sql`(${t.status} = 'open' and ${t.closedAt} is null and ${t.countedCashXof} is null and ${t.expectedCashXof} is null and ${t.differenceXof} is null)
+    or (${t.status} in ('closed','validated') and ${t.closedAt} is not null and ${t.closedByUserId} is not null and ${t.countedCashXof} is not null and ${t.expectedCashXof} is not null and ${t.differenceXof} = ${t.countedCashXof} - ${t.expectedCashXof})`),
+  check("cash_session_difference_justified", sql`${t.differenceXof} is null or ${t.differenceXof} = 0 or length(trim(coalesce(${t.closingNote}, ''))) > 0`),
+  check("cash_session_validation_check", sql`(${t.status} = 'validated') = (${t.validatedAt} is not null and ${t.validatedByUserId} is not null)`),
+  check("cash_session_notes_length", sql`char_length(coalesce(${t.openingNote}, '')) <= 500 and char_length(coalesce(${t.closingNote}, '')) <= 500 and char_length(coalesce(${t.validationNote}, '')) <= 500`)]);
+/** Entrée ou sortie d'espèces justifiée (apport de monnaie, retrait vers le coffre…), en ajout seul. */
+export const cashMovement = pgTable("cash_movement", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  sessionId: text("session_id").notNull(), direction: text("direction").notNull(), amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(),
+  reason: text("reason").notNull(), createdByUserId: text("created_by_user_id").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [foreignKey({ columns: [t.businessId, t.sessionId], foreignColumns: [cashSession.businessId, cashSession.id], name: "cash_movement_session_tenant_fk" }),
+  foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "cash_movement_actor_membership_fk" }),
+  index("cash_movement_session_idx").on(t.businessId, t.sessionId, t.occurredAt),
+  check("cash_movement_direction_check", sql`${t.direction} in ('in','out')`), check("cash_movement_amount_positive", sql`${t.amountXof} > 0`),
+  check("cash_movement_reason_length", sql`char_length(trim(${t.reason})) between 1 and 240`)]);
+
 export const productCategory = pgTable("product_category", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   name: text("name").notNull(), archivedAt: timestamp("archived_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -123,12 +162,14 @@ export const payment = pgTable("payment", {
   method: text("method").notNull(), amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), status: text("status").notNull().default("confirmed"),
   providerReference: text("provider_reference"), recordedByUserId: text("recorded_by_user_id"), idempotencyKey: text("idempotency_key").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }), providerPayloadHash: text("provider_payload_hash"),
-}, (t) => [unique("payment_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.saleId], foreignColumns: [sale.businessId, sale.id], name: "payment_sale_tenant_fk" }), foreignKey({ columns: [t.businessId, t.recordedByUserId], foreignColumns: [member.organizationId, member.userId], name: "payment_recorder_membership_tenant_fk" }), unique("payment_business_idempotency_unique").on(t.businessId, t.idempotencyKey), uniqueIndex("payment_provider_reference_unique").on(t.businessId, t.providerReference).where(sql`${t.providerReference} is not null`), index("payment_sale_status_idx").on(t.businessId, t.saleId, t.status), check("payment_amount_positive", sql`${t.amountXof} > 0`), check("payment_method_check", sql`${t.method} in ('cash','wave','orange_money','mtn_momo','other')`), check("payment_status_check", sql`${t.status} in ('pending','confirmed','failed','refunded','partially_refunded')`)]);
+  cashSessionId: text("cash_session_id"),
+}, (t) => [foreignKey({ columns: [t.businessId, t.cashSessionId], foreignColumns: [cashSession.businessId, cashSession.id], name: "payment_cash_session_tenant_fk" }), index("payment_cash_session_idx").on(t.businessId, t.cashSessionId).where(sql`${t.cashSessionId} is not null`), index("payment_business_confirmed_idx").on(t.businessId, t.confirmedAt), unique("payment_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.saleId], foreignColumns: [sale.businessId, sale.id], name: "payment_sale_tenant_fk" }), foreignKey({ columns: [t.businessId, t.recordedByUserId], foreignColumns: [member.organizationId, member.userId], name: "payment_recorder_membership_tenant_fk" }), unique("payment_business_idempotency_unique").on(t.businessId, t.idempotencyKey), uniqueIndex("payment_provider_reference_unique").on(t.businessId, t.providerReference).where(sql`${t.providerReference} is not null`), index("payment_sale_status_idx").on(t.businessId, t.saleId, t.status), check("payment_amount_positive", sql`${t.amountXof} > 0`), check("payment_method_check", sql`${t.method} in ('cash','wave','orange_money','mtn_momo','other')`), check("payment_status_check", sql`${t.status} in ('pending','confirmed','failed','refunded','partially_refunded')`)]);
 export const paymentRefund = pgTable("payment_refund", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), paymentId: text("payment_id").notNull(),
   amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), status: text("status").notNull().default("confirmed"), reference: text("reference").notNull(),
   createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [unique("refund_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.paymentId], foreignColumns: [payment.businessId, payment.id], name: "refund_payment_tenant_fk" }), foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "refund_actor_membership_tenant_fk" }), unique("refund_business_reference_unique").on(t.businessId, t.reference), index("refund_payment_date_idx").on(t.businessId, t.paymentId, t.occurredAt), check("refund_amount_positive", sql`${t.amountXof} > 0`), check("refund_status_check", sql`${t.status} in ('pending','confirmed','failed')`)]);
+  cashSessionId: text("cash_session_id"),
+}, (t) => [foreignKey({ columns: [t.businessId, t.cashSessionId], foreignColumns: [cashSession.businessId, cashSession.id], name: "refund_cash_session_tenant_fk" }), unique("refund_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.paymentId], foreignColumns: [payment.businessId, payment.id], name: "refund_payment_tenant_fk" }), foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "refund_actor_membership_tenant_fk" }), unique("refund_business_reference_unique").on(t.businessId, t.reference), index("refund_payment_date_idx").on(t.businessId, t.paymentId, t.occurredAt), check("refund_amount_positive", sql`${t.amountXof} > 0`), check("refund_status_check", sql`${t.status} in ('pending','confirmed','failed')`)]);
 export const receivablePayment = pgTable("receivable_payment", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), saleId: text("sale_id").notNull(),
   paymentId: text("payment_id").notNull(), appliedAmountXof: bigint("applied_amount_xof", { mode: "bigint" }).notNull(),
@@ -151,7 +192,8 @@ export const purchaseLine = pgTable("purchase_line", {
 export const purchasePayment = pgTable("purchase_payment", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), purchaseId: text("purchase_id").notNull(),
   amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), method: text("method").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [foreignKey({ columns: [t.businessId, t.purchaseId], foreignColumns: [purchase.businessId, purchase.id], name: "purchase_payment_tenant_fk" }), check("purchase_payment_positive", sql`${t.amountXof} > 0`)]);
+  cashSessionId: text("cash_session_id"),
+}, (t) => [foreignKey({ columns: [t.businessId, t.purchaseId], foreignColumns: [purchase.businessId, purchase.id], name: "purchase_payment_tenant_fk" }), foreignKey({ columns: [t.businessId, t.cashSessionId], foreignColumns: [cashSession.businessId, cashSession.id], name: "purchase_payment_cash_session_tenant_fk" }), index("purchase_payment_business_date_idx").on(t.businessId, t.occurredAt), check("purchase_payment_positive", sql`${t.amountXof} > 0`)]);
 
 /**
  * Solde d'ouverture : dette d'un client envers le commerce, ou du commerce envers un fournisseur,
@@ -168,7 +210,8 @@ export const openingBalancePayment = pgTable("opening_balance_payment", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   openingBalanceId: text("opening_balance_id").notNull(), amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), method: text("method").notNull(),
   recordedByUserId: text("recorded_by_user_id").notNull(), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [foreignKey({ columns: [t.businessId, t.openingBalanceId], foreignColumns: [openingBalance.businessId, openingBalance.id], name: "opening_payment_balance_tenant_fk" }), foreignKey({ columns: [t.businessId, t.recordedByUserId], foreignColumns: [member.organizationId, member.userId], name: "opening_payment_actor_membership_tenant_fk" }), index("opening_payment_balance_idx").on(t.businessId, t.openingBalanceId), check("opening_payment_amount_positive", sql`${t.amountXof} > 0`), check("opening_payment_method_check", sql`${t.method} in ('cash','wave','orange_money','mtn_momo','other')`)]);
+  cashSessionId: text("cash_session_id"),
+}, (t) => [foreignKey({ columns: [t.businessId, t.cashSessionId], foreignColumns: [cashSession.businessId, cashSession.id], name: "opening_payment_cash_session_tenant_fk" }), index("opening_payment_business_date_idx").on(t.businessId, t.occurredAt), foreignKey({ columns: [t.businessId, t.openingBalanceId], foreignColumns: [openingBalance.businessId, openingBalance.id], name: "opening_payment_balance_tenant_fk" }), foreignKey({ columns: [t.businessId, t.recordedByUserId], foreignColumns: [member.organizationId, member.userId], name: "opening_payment_actor_membership_tenant_fk" }), index("opening_payment_balance_idx").on(t.businessId, t.openingBalanceId), check("opening_payment_amount_positive", sql`${t.amountXof} > 0`), check("opening_payment_method_check", sql`${t.method} in ('cash','wave','orange_money','mtn_momo','other')`)]);
 
 export const inventorySession = pgTable("inventory_session", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
@@ -214,7 +257,9 @@ export const expense = pgTable("expense", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   category: text("category").notNull(), description: text("description").notNull(), amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(),
   paidByUserId: text("paid_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [unique("expense_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.paidByUserId], foreignColumns: [member.organizationId, member.userId], name: "expense_actor_membership_tenant_fk" }), index("expense_business_date_idx").on(t.businessId, t.occurredAt), check("expense_positive", sql`${t.amountXof} > 0`)]);
+  // Moyen de paiement : nul pour les dépenses saisies avant la mission 09 (« non précisé »).
+  paymentMethod: text("payment_method"), cashSessionId: text("cash_session_id"),
+}, (t) => [check("expense_payment_method_check", sql`${t.paymentMethod} is null or ${t.paymentMethod} in ('cash','wave','orange_money','mtn_momo','other')`), foreignKey({ columns: [t.businessId, t.cashSessionId], foreignColumns: [cashSession.businessId, cashSession.id], name: "expense_cash_session_tenant_fk" }), unique("expense_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.paidByUserId], foreignColumns: [member.organizationId, member.userId], name: "expense_actor_membership_tenant_fk" }), index("expense_business_date_idx").on(t.businessId, t.occurredAt), check("expense_positive", sql`${t.amountXof} > 0`)]);
 
 export const subscriptionPlan = pgTable("subscription_plan", {
   id: text("id").primaryKey(), code: text("code").notNull().unique(), name: text("name").notNull(), priceXof: bigint("price_xof", { mode: "bigint" }).notNull(),
@@ -279,11 +324,122 @@ export const idempotencyRecord = pgTable("idempotency_record", {
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), idempotencyKey: text("idempotency_key").notNull(),
   operation: text("operation").notNull(), requestHash: text("request_hash").notNull(), actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
   result: jsonb("result").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment')`)]);
+}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment','cash_session.open','cash_session.movement','cash_session.close','cash_session.validate')`)]);
+
+/* ------------------------------------------------------------------ Notifications (mission 10) */
+
+/**
+ * Modèle de notification administré par Qadr Agency. Textes en trois langues, variables limitées à une
+ * liste blanche (aucun code exécuté), lien interne seulement. `kind = 'event'` : déclenché par un événement
+ * métier (`key` = type d'événement) ; `kind = 'announcement'` : envoyé par une campagne.
+ */
+export const notificationTemplate = pgTable("notification_template", {
+  id: text("id").primaryKey(), key: text("key").notNull().unique(), kind: text("kind").notNull().default("event"), category: text("category").notNull(),
+  active: boolean("active").notNull().default(true), icon: text("icon").notNull().default("bell"), linkPath: text("link_path"),
+  titleFr: text("title_fr").notNull(), titleEn: text("title_en").notNull(), titleAr: text("title_ar").notNull(),
+  bodyFr: text("body_fr").notNull(), bodyEn: text("body_en").notNull(), bodyAr: text("body_ar").notNull(),
+  version: integer("version").notNull().default(1), updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("notification_template_kind_check", sql`${t.kind} in ('event','announcement')`),
+  check("notification_template_category_check", sql`${t.category} in ('commercial','security','subscription','system','announcement')`),
+  check("notification_template_text_length", sql`char_length(${t.titleFr}) between 1 and 120 and char_length(${t.titleEn}) between 1 and 120 and char_length(${t.titleAr}) between 1 and 120
+    and char_length(${t.bodyFr}) between 1 and 500 and char_length(${t.bodyEn}) between 1 and 500 and char_length(${t.bodyAr}) between 1 and 500`),
+  check("notification_template_link_check", sql`${t.linkPath} is null or ${t.linkPath} ~ '^/[A-Za-z0-9/_-]*$'`)]);
+/** Annonce envoyée à tous les commerces ou à un segment décidé par le serveur ; pausable. */
+export const notificationCampaign = pgTable("notification_campaign", {
+  id: text("id").primaryKey(), templateId: text("template_id").notNull().references(() => notificationTemplate.id, { onDelete: "restrict" }),
+  segment: jsonb("segment").notNull().default({}), status: text("status").notNull().default("running"),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  recipientCount: integer("recipient_count").notNull().default(0),
+}, (t) => [check("notification_campaign_status_check", sql`${t.status} in ('running','paused','done','canceled')`)]);
+/**
+ * Boîte d'envoi transactionnelle : écrite dans la même transaction que l'opération métier, traitée plus tard
+ * par un processus indépendant. `dedup_key` empêche deux événements identiques. Aucune donnée confidentielle :
+ * seulement des identifiants et des variables autorisées.
+ */
+export const notificationOutbox = pgTable("notification_outbox", {
+  id: text("id").primaryKey(), businessId: text("business_id").references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  eventType: text("event_type").notNull(), payload: jsonb("payload").notNull().default({}), dedupKey: text("dedup_key").notNull().unique(),
+  campaignId: text("campaign_id").references(() => notificationCampaign.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("pending"), attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(), lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  lastError: text("last_error"), recipientCount: integer("recipient_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), processedAt: timestamp("processed_at", { withTimezone: true }),
+}, (t) => [check("notification_outbox_status_check", sql`${t.status} in ('pending','done','failed','skipped')`),
+  index("notification_outbox_pending_idx").on(t.status, t.nextAttemptAt), index("notification_outbox_business_idx").on(t.businessId, t.createdAt)]);
+/** Notification interne d'un utilisateur, rendue dans sa langue à la création. Une seule par (événement, destinataire). */
+export const notification = pgTable("notification", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  businessId: text("business_id").references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  outboxId: text("outbox_id").notNull().references(() => notificationOutbox.id, { onDelete: "restrict" }),
+  templateKey: text("template_key").notNull(), category: text("category").notNull(), icon: text("icon").notNull().default("bell"),
+  title: text("title").notNull(), body: text("body").notNull(), linkPath: text("link_path"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), readAt: timestamp("read_at", { withTimezone: true }),
+}, (t) => [unique("notification_outbox_user_unique").on(t.outboxId, t.userId), index("notification_user_idx").on(t.userId, t.businessId, t.createdAt),
+  index("notification_unread_idx").on(t.userId, t.readAt), check("notification_link_check", sql`${t.linkPath} is null or ${t.linkPath} ~ '^/[A-Za-z0-9/_-]*$'`)]);
+/** Abonnement Web Push d'un appareil (navigateur) ; désactivé quand le service push répond 404/410. */
+export const pushSubscription = pgTable("push_subscription", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  endpoint: text("endpoint").notNull().unique(), p256dh: text("p256dh").notNull(), auth: text("auth").notNull(), deviceLabel: text("device_label"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  failureCount: integer("failure_count").notNull().default(0), disabledAt: timestamp("disabled_at", { withTimezone: true }), disabledReason: text("disabled_reason"),
+}, (t) => [index("push_subscription_user_idx").on(t.userId), check("push_subscription_endpoint_https", sql`${t.endpoint} like 'https://%'`)]);
+/** Préférences d'un utilisateur : langue des notifications, push, catégories, plage de tranquillité (minutes, fuseau du commerce). */
+export const notificationPreference = pgTable("notification_preference", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "restrict" }), locale: text("locale").notNull().default("fr"),
+  pushEnabled: boolean("push_enabled").notNull().default(false), categories: jsonb("categories").notNull().default({}),
+  quietStartMinute: integer("quiet_start_minute"), quietEndMinute: integer("quiet_end_minute"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("notification_preference_locale_check", sql`${t.locale} in ('fr','en','ar')`),
+  check("notification_preference_quiet_check", sql`(${t.quietStartMinute} is null) = (${t.quietEndMinute} is null) and coalesce(${t.quietStartMinute}, 0) between 0 and 1439 and coalesce(${t.quietEndMinute}, 0) between 0 and 1439`)]);
+/** Suivi de chaque tentative push : envoyée, échouée, appareil expiré, ou volontairement sautée (préférences, nuit, limite). */
+export const notificationDelivery = pgTable("notification_delivery", {
+  id: text("id").primaryKey(), notificationId: text("notification_id").notNull().references(() => notification.id, { onDelete: "restrict" }),
+  subscriptionId: text("subscription_id").references(() => pushSubscription.id, { onDelete: "restrict" }), status: text("status").notNull(),
+  httpStatus: integer("http_status"), error: text("error"), attempts: integer("attempts").notNull().default(1),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }), attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("notification_delivery_status_check", sql`${t.status} in ('sent','failed','retry','expired','skipped_preference','skipped_quiet','skipped_rate','skipped_unconfigured')`),
+  index("notification_delivery_notification_idx").on(t.notificationId), index("notification_delivery_retry_idx").on(t.status, t.nextAttemptAt)]);
+
+/* ------------------------------------------------------------------ Impression thermique (mission 10) */
+
+/** Module facultatif : désactivé par défaut, un commerce sans imprimante n'a rien à configurer. */
+export const printerSettings = pgTable("printer_settings", {
+  businessId: text("business_id").primaryKey().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  enabled: boolean("enabled").notNull().default(false), autoPrint: boolean("auto_print").notNull().default(false),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: "restrict" }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+/** Imprimante déclarée par le commerce (le secret d'appairage reste dans le navigateur et le service local, jamais ici). */
+export const printDevice = pgTable("print_device", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  name: text("name").notNull(), transport: text("transport").notNull(), profile: text("profile").notNull().default("generic"), paperWidthMm: integer("paper_width_mm").notNull().default(80),
+  agentId: text("agent_id"), createdByUserId: text("created_by_user_id").notNull(), archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), lastStatus: text("last_status"), lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+}, (t) => [unique("print_device_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "print_device_creator_membership_fk" }),
+  check("print_device_transport_check", sql`${t.transport} in ('tcp','windows_share','device','simulated')`), check("print_device_width_check", sql`${t.paperWidthMm} in (58,80)`),
+  check("print_device_name_length", sql`char_length(trim(${t.name})) between 1 and 80`)]);
+/**
+ * Tâche d'impression : identifiant unique transmis au service local (qui refuse d'imprimer deux fois la même tâche).
+ * Une seule impression automatique d'origine par (vente, imprimante) ; une réimpression est une nouvelle tâche.
+ * `uncertain` : résultat inconnu (coupure) ; c'est à la personne de dire si le ticket est sorti.
+ */
+export const printJob = pgTable("print_job", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  deviceId: text("device_id").notNull(), saleId: text("sale_id"), kind: text("kind").notNull(), status: text("status").notNull().default("pending"),
+  reprintOfJobId: text("reprint_of_job_id"), errorCode: text("error_code"), createdByUserId: text("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [foreignKey({ columns: [t.businessId, t.deviceId], foreignColumns: [printDevice.businessId, printDevice.id], name: "print_job_device_tenant_fk" }),
+  foreignKey({ columns: [t.businessId, t.saleId], foreignColumns: [sale.businessId, sale.id], name: "print_job_sale_tenant_fk" }),
+  foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "print_job_creator_membership_fk" }),
+  uniqueIndex("print_job_one_original_receipt").on(t.businessId, t.saleId, t.deviceId).where(sql`${t.kind} = 'receipt' and ${t.reprintOfJobId} is null`),
+  index("print_job_business_idx").on(t.businessId, t.createdAt),
+  check("print_job_kind_check", sql`${t.kind} in ('receipt','test')`), check("print_job_status_check", sql`${t.status} in ('pending','printed','failed','uncertain','canceled')`),
+  check("print_job_receipt_sale_check", sql`(${t.kind} = 'receipt') = (${t.saleId} is not null)`)]);
 
 export const authSchema = { user, session, account, verification, organization, member, invitation };
 export const databaseSchema = {
-  ...authSchema, businessProfile, businessMemberAccess, platformAdmin, receiptSettings, productCategory, product, productVariant,
+  ...authSchema, businessProfile, businessMemberAccess, platformAdmin, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
   promotionCode, promotionEligibleBusiness, businessSubscription, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,

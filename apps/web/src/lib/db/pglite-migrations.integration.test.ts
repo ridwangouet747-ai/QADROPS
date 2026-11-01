@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies the eleven committed migrations and creates the expected tables", async () => {
+  it("applies the thirteen committed migrations and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,17 +24,18 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("11");
-    expect(tables.rows[0]?.count).toBe("42");
+    expect(applied.rows[0]?.count).toBe("13");
+    expect(tables.rows[0]?.count).toBe("54");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
     );
     expect(names.rows.map((row) => row.table_name)).toEqual([
-      "account", "audit_event", "business_member_access", "business_profile", "business_subscription", "customer", "expense", "idempotency_record",
-      "inventory_line", "inventory_scope_variant", "inventory_session", "invitation", "member", "opening_balance", "opening_balance_payment", "organization", "payment",
-      "payment_provider_event", "payment_refund", "platform_admin", "product", "product_category",
+      "account", "audit_event", "business_member_access", "business_profile", "business_subscription", "cash_movement", "cash_session", "customer", "expense", "idempotency_record",
+      "inventory_line", "inventory_scope_variant", "inventory_session", "invitation", "member", "notification", "notification_campaign", "notification_delivery", "notification_outbox",
+      "notification_preference", "notification_template", "opening_balance", "opening_balance_payment", "organization", "payment",
+      "payment_provider_event", "payment_refund", "platform_admin", "print_device", "print_job", "printer_settings", "product", "product_category",
       "product_variant", "promotion_code", "promotion_eligible_business", "promotion_redemption", "purchase", "purchase_line",
-      "purchase_payment", "receipt_settings", "receivable_payment", "sale", "sale_line", "session",
+      "purchase_payment", "push_subscription", "receipt_settings", "receivable_payment", "sale", "sale_line", "session",
       "stock_movement", "stock_opening", "stock_opening_line", "subscription_payment", "subscription_plan", "supplier", "user", "verification",
     ]);
   });
@@ -68,6 +69,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("11");
+    expect(applied.rows[0]?.count).toBe("13");
   });
 });

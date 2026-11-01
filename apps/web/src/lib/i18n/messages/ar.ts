@@ -1,3 +1,9 @@
+import { metaAr } from "./meta";
+import { subscriptionAr } from "./subscription";
+import { reportsAr } from "./reports";
+import { cashAr } from "./cash";
+import { notificationsAr, pfNotificationsAr } from "./notifications";
+import { printingAr } from "./printing";
 import { wizardAr } from "./wizard";
 import { platformAr } from "./platform";
 import type { Messages } from "./fr";
@@ -69,6 +75,10 @@ export const ar: Messages = {
       settings: { label: "الإعدادات", detail: "المتجر والإيصالات" },
       opening: { label: "البدء", detail: "مخزون وديون البداية" },
       team: { label: "الفريق", detail: "الموظفون والصلاحيات" },
+      subscription: { label: "الاشتراك", detail: "الباقة ورمز الدخول" },
+      cash: { label: "الإغلاق", detail: "فتح الصندوق وعدّه" },
+      notifications: { label: "الإشعارات", detail: "التنبيهات والإعدادات" },
+      printing: { label: "الطابعة", detail: "إيصالات حرارية" },
       modules: { label: "الوحدات", detail: "كل الوحدات" },
     },
   },
@@ -262,6 +272,8 @@ export const ar: Messages = {
     successBody: "المجموع {total} · المقبوض {paid} · المتبقي {due}",
     stockUpdated: "المخزون محدَّث. الإيصال غير المطبوع لا يلغي البيع.",
     receipt: "عرض الإيصال",
+    printThermal: "طباعة الإيصال",
+    printing: "جارٍ الطباعة…",
     newSale: "بيع جديد",
   },
   errors: {
@@ -713,4 +725,12 @@ export const ar: Messages = {
   },
   platform: platformAr,
   wizard: wizardAr,
+  meta: metaAr,
+  subscription: subscriptionAr,
+  reports: reportsAr,
+  cash: cashAr,
+  notifications: notificationsAr,
+  pfNotifications: pfNotificationsAr,
+  printing: printingAr,
+  analytics: { consent: { title: "قياس الاستخدام", body: "هل توافق على أن يقيس Qadr Ops، بشكل مجهول، طريقة استخدام التطبيق لتحسينه؟ لا يُرسل أي مبلغ أو اسم أو محتوى بيع. يمكنك الرفض دون أي عواقب.", accept: "موافقة", refuse: "رفض" } },
 };

@@ -7,11 +7,14 @@ import { costOfGoodsSold, parseQuantityMicros, QUANTITY_SCALE } from "./costing"
 import { assertBusinessOperational } from "./operation-guard";
 import { databaseSchema, member, product, productCategory, productVariant, sale, saleLine, payment, stockMovement, auditEvent } from "../db/schema";
 import { assertPlanQuota } from "./plan-limits";
+import { attachOpenCashSession } from "./cash-session";
+import { enqueueNotification } from "./notifications";
 
 export type CommercialDatabase = PgDatabase<PgQueryResultHKT, typeof databaseSchema>;
 
 export class CommercialError extends Error {
-  constructor(message: string, readonly status = 400) {
+  /** `code` : identifiant stable, sans donnée, que l'interface traduit (le message reste en français). */
+  constructor(message: string, readonly status = 400, readonly code?: string) {
     super(message);
     this.name = "CommercialError";
   }
@@ -187,13 +190,29 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
         await tx.insert(stockMovement).values({ id: randomUUID(), businessId: input.businessId, variantId: line.row.variant.id,
           quantityDelta: `-${line.quantity}`, reason: "sale", saleLineId: lineId, unitCostXof: line.row.variant.averageCostXof, createdByUserId: input.actorUserId });
       }
+      // Les espèces vont dans la caisse ouverte du vendeur (s'il en a une) ; le Mobile Money reste en attente, hors caisse.
+      const cashSessionId = input.payments.some((part) => part.method === "cash") ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
       for (const [index, part] of input.payments.entries()) {
         await tx.insert(payment).values({ id: randomUUID(), businessId: input.businessId, saleId, method: part.method,
           amountXof: BigInt(part.amountXof), status: part.method === "cash" ? "confirmed" : "pending", recordedByUserId: input.actorUserId,
-          idempotencyKey: `${input.idempotencyKey}:${index}`, confirmedAt: part.method === "cash" ? new Date() : null });
+          idempotencyKey: `${input.idempotencyKey}:${index}`, confirmedAt: part.method === "cash" ? new Date() : null,
+          cashSessionId: part.method === "cash" ? cashSessionId : null });
       }
       await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
         eventType: "sale.created", entityType: "sale", entityId: saleId, metadata: { lineCount: lines.length, paymentPartCount: input.payments.length } });
+      // Boîte d'envoi : écrite dans la transaction de la vente, envoyée plus tard ; aucun montant n'y figure.
+      await enqueueNotification(tx, { businessId: input.businessId, eventType: "sale.created", payload: { saleId, actorUserId: input.actorUserId }, dedupKey: `sale.created:${saleId}` });
+      if (input.payments.some((part) => part.method !== "cash")) {
+        await enqueueNotification(tx, { businessId: input.businessId, eventType: "payment.pending", payload: { saleId, actorUserId: input.actorUserId }, dedupKey: `payment.pending:${saleId}` });
+      }
+      for (const line of lines) {
+        const before = parseQuantityMicros(line.row.variant.onHand);
+        const after = before - line.quantityMicros;
+        const threshold = parseQuantityMicros(line.row.variant.lowStockThreshold);
+        const crossed = after === 0n ? "stock.out" : threshold > 0n && after <= threshold && before > threshold ? "stock.low" : null;
+        if (crossed) await enqueueNotification(tx, { businessId: input.businessId, eventType: crossed,
+          payload: { variantId: line.row.variant.id, productName: line.row.productName, actorUserId: input.actorUserId }, dedupKey: `${crossed}:${line.row.variant.id}:${saleId}` });
+      }
       return { id: saleId, reference, subtotalXof: subtotal, totalXof: subtotal, paidXof: confirmedTotal,
         dueXof: subtotal - confirmedTotal, replayed: false };
     });

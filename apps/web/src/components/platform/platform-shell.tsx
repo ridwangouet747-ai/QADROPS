@@ -10,7 +10,7 @@ import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { localeCookie, locales, isLocale } from "@/lib/i18n/config";
 import { PfAvatar, PfDialog, PfIconButton, pfFocus, pfRequest } from "./pf-ui";
 
-export type PlatformSection = "overview" | "businesses" | "subscriptions" | "plans" | "promotions" | "audit" | "settings";
+export type PlatformSection = "overview" | "businesses" | "subscriptions" | "plans" | "promotions" | "notifications" | "audit" | "settings";
 
 const items: { key: PlatformSection; href: string; icon: IconName }[] = [
   { key: "overview", href: "/platform", icon: "grid" },
@@ -18,6 +18,7 @@ const items: { key: PlatformSection; href: string; icon: IconName }[] = [
   { key: "subscriptions", href: "/platform/subscriptions", icon: "receipt" },
   { key: "plans", href: "/platform/plans", icon: "layers" },
   { key: "promotions", href: "/platform/promotions", icon: "tag" },
+  { key: "notifications", href: "/platform/notifications", icon: "bell" },
   { key: "audit", href: "/platform/audit", icon: "activity" },
   { key: "settings", href: "/platform/settings", icon: "settings" },
 ];

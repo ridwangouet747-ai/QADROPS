@@ -147,14 +147,15 @@ describe("console Super Admin (mission 08)", () => {
     });
 
     it("refuse un code épuisé, révoqué, expiré, non éligible ou pour un autre forfait en cours", async () => {
-      await expect(redeemSubscriptionPromotion(db, owner.b, business.b, { code: codes[0]!.code })).rejects.toThrow(/limite/);
+      await expect(redeemSubscriptionPromotion(db, owner.b, business.b, { code: codes[0]!.code })).rejects.toMatchObject({ status: 409, code: "already_used" });
       await setPromotionStatus(db, admin, codes[2]!.id, { action: "revoke", reason: "Code diffusé publiquement" });
       await expect(redeemSubscriptionPromotion(db, owner.b, business.b, { code: codes[2]!.code })).rejects.toThrow(/révoqué/);
       await expect(setPromotionStatus(db, admin, codes[2]!.id, { action: "resume", reason: "Erreur de manipulation" })).rejects.toMatchObject({ status: 409 });
       const expired = await generateAccessCodes(db, admin, { planId: plans.pro, grantDays: 7, quantity: 1, maxRedemptions: 5, startsAt: day(-10).toISOString(), endsAt: day(-1).toISOString(), campaign: "Ancienne campagne" });
-      await expect(redeemSubscriptionPromotion(db, owner.b, business.b, { code: expired.codes[0]!.code })).rejects.toThrow(/valide/);
+      await expect(redeemSubscriptionPromotion(db, owner.b, business.b, { code: expired.codes[0]!.code })).rejects.toMatchObject({ code: "expired" });
       const targeted = await generateAccessCodes(db, admin, { planId: plans.pro, grantDays: 30, quantity: 1, maxRedemptions: 5, startsAt: day(-1).toISOString(), endsAt: null, eligibleBusinessIds: [business.b], campaign: "Fidélité Bakary" });
-      await expect(redeemSubscriptionPromotion(db, owner.c, business.c, { code: targeted.codes[0]!.code })).rejects.toMatchObject({ status: 403 });
+      // Réservé à un autre commerce : même réponse qu’un code inconnu (pas d’énumération).
+      await expect(redeemSubscriptionPromotion(db, owner.c, business.c, { code: targeted.codes[0]!.code })).rejects.toMatchObject({ status: 404, code: "invalid" });
       const extended = await redeemSubscriptionPromotion(db, owner.b, business.b, { code: targeted.codes[0]!.code });
       expect(extended).toMatchObject({ status: "active", grantDays: 30 });
       const otherPlan = await generateAccessCodes(db, admin, { planId: plans.starter, grantDays: 7, quantity: 1, maxRedemptions: 5, startsAt: day(-1).toISOString(), endsAt: null, campaign: "Autre forfait" });

@@ -65,5 +65,6 @@ export function errorResponse(error: unknown): Response {
   const validationError = error instanceof Error && error.name === "ZodError";
   const status = knownError && "status" in error && typeof error.status === "number" ? error.status : validationError ? 400 : 500;
   const message = knownError && error instanceof Error ? error.message : validationError ? "Les données de la requête sont invalides." : "Une erreur empêche le traitement de la requête.";
-  return Response.json({ error: message }, { status });
+  const code = knownError && "code" in error && typeof error.code === "string" ? error.code : validationError ? "validation" : undefined;
+  return Response.json(code ? { error: message, code } : { error: message }, { status });
 }

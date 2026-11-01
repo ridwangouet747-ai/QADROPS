@@ -27,6 +27,14 @@ describe("traductions", () => {
     for (const key of reference) expect(placeholders(t(key as never))).toEqual(placeholders(fr(key as never)));
   });
 
+  it("traduit réellement les titres d’onglet (le titre de /register restait en français)", () => {
+    for (const key of ["meta.register", "meta.onboarding", "meta.login", "meta.subscription", "meta.siteTitle"] as const) {
+      const titles = locales.map((locale) => createTranslator(locale)(key));
+      expect(new Set(titles).size).toBe(locales.length);
+    }
+    expect(createTranslator("ar")("meta.register")).toMatch(/[؀-ۿ]/);
+  });
+
   it("remplace les variables connues et laisse les autres visibles", () => {
     expect(interpolate("{counted}/{total} comptés", { counted: 3, total: 10 })).toBe("3/10 comptés");
     expect(interpolate("Bonjour {nom}", {})).toBe("Bonjour {nom}");

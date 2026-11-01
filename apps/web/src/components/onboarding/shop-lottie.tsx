@@ -55,8 +55,9 @@ export default function ShopLottie({ plan, stage, logo, onFailure }: { plan: Sce
 
   const activity: Activity = plan.activity ?? "general";
   return (
-    <div className="absolute inset-0 grid place-items-center">
-      <div className="relative aspect-[4/3] w-full max-w-[560px]" data-activity={activity}>
+    // Contenu 4:3 contenu dans la largeur ET la hauteur : le bandeau mobile (230 px de haut) coupait sinon le bas de la scène.
+    <div className="absolute inset-0 grid place-items-center [container-type:size]">
+      <div className="relative aspect-[4/3] w-[min(100%,560px,133.33cqh)]" data-activity={activity}>
         {/* Seul l'aménagement de l'activité choisie reste visible (Lottie impose display en ligne, d'où !important). */}
         <style>{`${(["hardware", "phones", "clothing", "general"] as const).map((key) => `[data-activity]:not([data-activity="${key}"]) .act-${key}`).join(",")}{display:none!important}
           ${plan.activity ? "" : "[data-activity] [class^='act-']{display:none!important}"}`}</style>

@@ -110,18 +110,33 @@ export type SceneStage = WizardStep | "welcome";
  * aménagement selon l'activité dès qu'elle est choisie, comptoir et éclairage (coordonnées), logo
  * (identité), finitions (récapitulatif), ouverture et célébration (après confirmation du serveur).
  */
-export function scenePlan(stage: SceneStage, values: Pick<BusinessValues, "businessName" | "activity" | "logo" | "displayName">) {
+export type SceneInputs = Pick<BusinessValues, "businessName" | "activity" | "logo" | "displayName"> & Partial<Pick<BusinessValues, "phone" | "address">>;
+
+/**
+ * Ce que la boutique montre, piloté par la saisie et pas seulement par l'étape : chaque champ rempli
+ * fait apparaître son élément au moment où il est tapé (dalle du compte, murs et enseigne avec le
+ * nom, comptoir avec le téléphone, éclairage avec l'adresse). Une étape dépassée reste construite,
+ * même si ses champs facultatifs sont vides.
+ */
+export function scenePlan(stage: SceneStage, values: SceneInputs, accountFilled = 0) {
   const order: SceneStage[] = [...wizardSteps, "welcome"];
   const level = order.indexOf(stage);
   const at = (step: SceneStage) => level >= order.indexOf(step);
+  const past = (step: SceneStage) => level > order.indexOf(step);
+  const filled = (value?: string) => Boolean(value?.trim());
+  const named = filled(values.businessName) || filled(values.displayName);
+  const structure = past("identity") || (at("identity") && named);
   return {
     level,
+    /** Hauteur de la dalle, de 0 à 1 : un quart par champ du compte rempli. */
+    groundwork: past("account") ? 1 : Math.min(4, Math.max(0, accountFilled)) / 4,
     foundation: true,
-    structure: at("identity"),
-    sign: at("identity"),
+    structure,
+    sign: structure,
     signText: (values.displayName.trim() || values.businessName.trim()).slice(0, 40),
-    activity: at("identity") ? values.activity : null,
-    interior: at("details"),
+    activity: structure ? values.activity : null,
+    interior: past("details") || (at("details") && filled(values.phone)),
+    lights: past("details") || (at("details") && filled(values.address)),
     logo: at("branding") && values.logo !== "",
     finished: at("review"),
     welcome: stage === "welcome",
@@ -129,9 +144,15 @@ export function scenePlan(stage: SceneStage, values: Pick<BusinessValues, "busin
 }
 export type ScenePlan = ReturnType<typeof scenePlan>;
 
+/** Deux plans identiques ne redessinent pas la scène (la saisie d'un champ sans effet visuel reste gratuite). */
+export function samePlan(a: ScenePlan, b: ScenePlan) {
+  return (Object.keys(a) as (keyof ScenePlan)[]).every((key) => a[key] === b[key]);
+}
+
 /* ------------------------------------------------------------------ Choix du rendu */
 
 export type SceneMode = "3d" | "lottie" | "static";
+export type SceneTier = "high" | "low";
 export type DeviceSignals = {
   webgl: boolean; reducedMotion: boolean; saveData: boolean; width: number;
   deviceMemory?: number; hardwareConcurrency?: number; coarsePointer: boolean;
@@ -139,14 +160,13 @@ export type DeviceSignals = {
 
 /**
  * Rendu adapté à l'appareil, sans se fier au modèle ni à l'agent utilisateur :
- * - mouvement réduit ou économie de données → illustration statique (aucun téléchargement de plus) ;
- * - écran étroit, tactile, mémoire ou processeur modestes, ou WebGL absent → animation Lottie légère ;
- * - sinon → scène 3D.
+ * - mouvement réduit, économie de données ou WebGL absent → illustration statique (aucun téléchargement de plus) ;
+ * - sinon → scène Three.js, en qualité réduite sur écran étroit, tactile, ou mémoire/processeur modestes.
+ * Lottie n'est plus choisi d'emblée : il sert de repli animé après une perte de contexte WebGL.
  */
-export function chooseSceneMode(signals: DeviceSignals): SceneMode {
-  if (signals.reducedMotion || signals.saveData) return "static";
+export function chooseSceneMode(signals: DeviceSignals): { mode: SceneMode; tier: SceneTier } {
+  if (signals.reducedMotion || signals.saveData || !signals.webgl) return { mode: "static", tier: "low" };
   const modest = (signals.deviceMemory !== undefined && signals.deviceMemory <= 4)
     || (signals.hardwareConcurrency !== undefined && signals.hardwareConcurrency <= 4);
-  if (!signals.webgl || signals.width < 1024 || signals.coarsePointer || modest) return "lottie";
-  return "3d";
+  return { mode: "3d", tier: signals.width < 1024 || signals.coarsePointer || modest ? "low" : "high" };
 }

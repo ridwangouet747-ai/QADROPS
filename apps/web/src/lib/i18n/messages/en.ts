@@ -1,3 +1,9 @@
+import { metaEn } from "./meta";
+import { subscriptionEn } from "./subscription";
+import { reportsEn } from "./reports";
+import { cashEn } from "./cash";
+import { notificationsEn, pfNotificationsEn } from "./notifications";
+import { printingEn } from "./printing";
 import { wizardEn } from "./wizard";
 import { platformEn } from "./platform";
 import type { Messages } from "./fr";
@@ -68,6 +74,10 @@ export const en: Messages = {
       settings: { label: "Settings", detail: "Business & receipts" },
       opening: { label: "Business start", detail: "Starting stock and debts" },
       team: { label: "Team", detail: "Staff and access" },
+      subscription: { label: "Subscription", detail: "Plan & access code" },
+      cash: { label: "Cash-up", detail: "Open & count the till" },
+      notifications: { label: "Notifications", detail: "Alerts & settings" },
+      printing: { label: "Printer", detail: "Thermal receipts" },
       modules: { label: "Modules", detail: "All modules" },
     },
   },
@@ -261,6 +271,8 @@ export const en: Messages = {
     successBody: "Total {total} · Taken {paid} · Left {due}",
     stockUpdated: "Stock is up to date. An unprinted receipt does not cancel the sale.",
     receipt: "Show receipt",
+    printThermal: "Print receipt",
+    printing: "Printing…",
     newSale: "New sale",
   },
   errors: {
@@ -712,4 +724,12 @@ export const en: Messages = {
   },
   platform: platformEn,
   wizard: wizardEn,
+  meta: metaEn,
+  subscription: subscriptionEn,
+  reports: reportsEn,
+  cash: cashEn,
+  notifications: notificationsEn,
+  pfNotifications: pfNotificationsEn,
+  printing: printingEn,
+  analytics: { consent: { title: "Usage measurement", body: "Do you agree that Qadr Ops anonymously measures how the app is used, to improve it? No amount, name or sale content is sent. You can refuse with no consequence.", accept: "Accept", refuse: "Refuse" } },
 };

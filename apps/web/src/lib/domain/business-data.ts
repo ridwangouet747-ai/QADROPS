@@ -11,6 +11,7 @@ import { parseQuantityMicros, QUANTITY_SCALE, UNIT_COST_SCALE, weightedAverageCo
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { getCommercialReport } from "./reports";
 import { assertBusinessOperational, idempotencyKeySchema, runIdempotent } from "./operation-guard";
+import { attachOpenCashSession } from "./cash-session";
 
 type Context = { businessId: string; actorUserId: string };
 
@@ -42,8 +43,8 @@ export async function getBusinessOverview(db: CommercialDatabase, context: Conte
     db.select({ name: organization.name, logo: organization.logo, activity: businessProfile.activity, phone: businessProfile.phone, timezone: businessProfile.timezone })
       .from(businessProfile).innerJoin(organization, eq(organization.id, businessProfile.businessId))
       .where(eq(businessProfile.businessId, context.businessId)).limit(1),
-    getCommercialReport(db, { ...context, period: "daily", date: today }),
-    getCommercialReport(db, { ...context, period: "weekly", date: today }),
+    getCommercialReport(db, { ...context, period: "daily", date: today, detail: "summary" }),
+    getCommercialReport(db, { ...context, period: "weekly", date: today, detail: "summary" }),
     db.select({ id: sale.id, reference: sale.reference, status: sale.status, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
       customerName: customer.name, paidXof: sql<string>`coalesce(sum(case when ${payment.status} = 'confirmed' then ${payment.amountXof} else 0 end),0)::text` })
       .from(sale).leftJoin(customer, and(eq(customer.businessId, sale.businessId), eq(customer.id, sale.customerId)))
@@ -211,8 +212,9 @@ export async function recordCustomerPayment(db: CommercialDatabase, raw: unknown
     const amount = BigInt(input.amountXof);
     if (amount > balance) throw new CommercialError("Le règlement dépasse le solde restant dû.", 409);
     const id = randomUUID();
+    const cashSessionId = input.method === "cash" ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
     await tx.insert(payment).values({ id, businessId: input.businessId, saleId: input.saleId, method: input.method,
-      amountXof: amount, status: "confirmed", recordedByUserId: input.actorUserId, idempotencyKey: `receivable:${input.idempotencyKey}`, confirmedAt: new Date() });
+      amountXof: amount, status: "confirmed", recordedByUserId: input.actorUserId, idempotencyKey: `receivable:${input.idempotencyKey}`, confirmedAt: new Date(), cashSessionId });
     await tx.insert(receivablePayment).values({ id: randomUUID(), businessId: input.businessId, saleId: input.saleId, paymentId: id, appliedAmountXof: amount });
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "receivable.payment_recorded", entityType: "sale", entityId: input.saleId, metadata: { amountXof: amount.toString(), method: input.method } });
     return { paymentId: id, remainingXof: (balance - amount).toString() };
@@ -315,7 +317,10 @@ export async function createReceivedPurchase(db: CommercialDatabase, raw: unknow
       await tx.insert(stockMovement).values({ id: randomUUID(), businessId: input.businessId, variantId: line.variantId,
         quantityDelta: line.quantity, reason: "purchase", purchaseLineId: lineId, unitCostXof: formatCost(BigInt(line.unitCostXof) * UNIT_COST_SCALE), createdByUserId: input.actorUserId });
     }
-    if (paid > 0n) await tx.insert(purchasePayment).values({ id: randomUUID(), businessId: input.businessId, purchaseId: id, amountXof: paid, method: input.paymentMethod });
+    if (paid > 0n) {
+      const cashSessionId = input.paymentMethod === "cash" ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
+      await tx.insert(purchasePayment).values({ id: randomUUID(), businessId: input.businessId, purchaseId: id, amountXof: paid, method: input.paymentMethod, cashSessionId });
+    }
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "purchase.received", entityType: "purchase", entityId: id, metadata: { lineCount: input.lines.length, totalXof: total.toString() } });
     return { id, reference: input.reference, totalXof: total.toString(), paidXof: paid.toString(), dueXof: (total - paid).toString() };
   });
@@ -332,18 +337,22 @@ export async function listBusinessPurchases(db: CommercialDatabase, context: Con
 
 export async function listBusinessExpenses(db: CommercialDatabase, context: Context) {
   await requirePermission(db, context, "expense", "read");
-  return db.select({ id: expense.id, category: expense.category, description: expense.description, amountXof: expense.amountXof, occurredAt: expense.occurredAt })
+  return db.select({ id: expense.id, category: expense.category, description: expense.description, amountXof: expense.amountXof, paymentMethod: expense.paymentMethod, occurredAt: expense.occurredAt })
     .from(expense).where(eq(expense.businessId, context.businessId)).orderBy(desc(expense.occurredAt)).limit(200);
 }
 
 export async function createBusinessExpense(db: CommercialDatabase, raw: unknown) {
-  const input = z.object({ ...contextShape, idempotencyKey: idempotencyKeySchema, category: z.string().trim().min(1).max(80), description: z.string().trim().min(1).max(240), amountXof: xof }).parse(raw);
+  const input = z.object({ ...contextShape, idempotencyKey: idempotencyKeySchema, category: z.string().trim().min(1).max(80), description: z.string().trim().min(1).max(240), amountXof: xof,
+    // Facultatif pour les anciens clients ; une dépense en espèces sort de la caisse ouverte de la personne qui l'enregistre.
+    paymentMethod: z.enum(["cash", "wave", "orange_money", "mtn_momo", "other"]).optional() }).parse(raw);
   if (BigInt(input.amountXof) <= 0n) throw new CommercialError("Le montant doit être supérieur à zéro.");
   await requirePermission(db, input, "expense", "create");
   const id = randomUUID();
   return runIdempotent(db, { ...input, operation: "expense.create",
-    request: { category: input.category, description: input.description, amountXof: input.amountXof } }, async (tx) => {
-    await tx.insert(expense).values({ id, businessId: input.businessId, category: input.category, description: input.description, amountXof: BigInt(input.amountXof), paidByUserId: input.actorUserId });
+    request: { category: input.category, description: input.description, amountXof: input.amountXof, paymentMethod: input.paymentMethod } }, async (tx) => {
+    const cashSessionId = input.paymentMethod === "cash" ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
+    await tx.insert(expense).values({ id, businessId: input.businessId, category: input.category, description: input.description, amountXof: BigInt(input.amountXof),
+      paidByUserId: input.actorUserId, paymentMethod: input.paymentMethod ?? null, cashSessionId });
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "expense.created", entityType: "expense", entityId: id, metadata: { amountXof: input.amountXof, category: input.category } });
     return { id };
   });

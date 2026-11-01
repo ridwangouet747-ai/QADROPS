@@ -1,3 +1,9 @@
+import { metaFr } from "./meta";
+import { subscriptionFr } from "./subscription";
+import { reportsFr } from "./reports";
+import { cashFr } from "./cash";
+import { notificationsFr, pfNotificationsFr } from "./notifications";
+import { printingFr } from "./printing";
 import { wizardFr } from "./wizard";
 import { platformFr } from "./platform";
 /** Source des clés de traduction. `en.ts` et `ar.ts` doivent reprendre exactement la même structure. */
@@ -67,6 +73,10 @@ export const fr = {
       settings: { label: "Paramètres", detail: "Commerce & reçus" },
       opening: { label: "Démarrage", detail: "Stock et dettes de départ" },
       team: { label: "Équipe", detail: "Employés et accès" },
+      subscription: { label: "Abonnement", detail: "Forfait & code d’accès" },
+      cash: { label: "Clôture", detail: "Ouvrir & compter la caisse" },
+      notifications: { label: "Notifications", detail: "Alertes & réglages" },
+      printing: { label: "Imprimante", detail: "Tickets thermiques" },
       modules: { label: "Modules", detail: "Tous les modules" },
     },
   },
@@ -260,6 +270,8 @@ export const fr = {
     successBody: "Total {total} · Encaissé {paid} · Reste {due}",
     stockUpdated: "Le stock est à jour. Un reçu non imprimé n’annule pas la vente.",
     receipt: "Afficher le reçu",
+    printThermal: "Imprimer le ticket",
+    printing: "Impression en cours…",
     newSale: "Nouvelle vente",
   },
   errors: {
@@ -711,6 +723,14 @@ export const fr = {
   },
   platform: platformFr,
   wizard: wizardFr,
+  meta: metaFr,
+  subscription: subscriptionFr,
+  reports: reportsFr,
+  cash: cashFr,
+  notifications: notificationsFr,
+  pfNotifications: pfNotificationsFr,
+  printing: printingFr,
+  analytics: { consent: { title: "Mesure d'audience", body: "Acceptez-vous que Qadr Ops mesure, de façon anonyme, l'usage de l'application pour l'améliorer ? Aucun montant, nom ou contenu de vente n'est envoyé. Vous pouvez refuser sans conséquence.", accept: "Accepter", refuse: "Refuser" } },
 };
 
 type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };

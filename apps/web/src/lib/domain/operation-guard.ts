@@ -38,7 +38,8 @@ export async function assertBusinessOperational(tx: CommercialTransaction, busin
   }
 }
 
-type IdempotentOperation = "purchase.receive" | "expense.create" | "receivable.payment" | "stock.opening" | "opening_balance.create" | "opening_balance.payment";
+type IdempotentOperation = "purchase.receive" | "expense.create" | "receivable.payment" | "stock.opening" | "opening_balance.create" | "opening_balance.payment"
+  | "cash_session.open" | "cash_session.movement" | "cash_session.close" | "cash_session.validate";
 type JsonResult = Record<string, string | number | boolean | null>;
 
 function canonicalJson(value: unknown): string {

@@ -1,3 +1,4 @@
+import { enqueueNotification } from "./notifications";
 import { randomInt, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -284,6 +285,7 @@ export async function setPlatformBusinessStatus(db: PlatformDb, actorUserId: str
       actorUserId, eventType: `platform.business_${status}`, entityType: "business", entityId: businessId, businessId,
       before: { status: business.status }, after: { status }, reason, metadata: { subscriptions: affected.length },
     });
+    if (status === "suspended") await enqueueNotification(tx as unknown as CommercialDatabase, { businessId, eventType: "business.suspended", payload: { eventDate: now.toISOString() }, dedupKey: `business.suspended:${businessId}:${now.toISOString()}` });
     return { businessId, status };
   });
 }
@@ -719,41 +721,69 @@ const redeemSchema = z.object({ code: z.string().trim().toUpperCase().min(3).max
  * code), une seule fois par commerce (contrainte unique), idempotente (un nouvel envoi renvoie le
  * résultat initial), tracée. Un code d'accès ouvre une période d'essai sans paiement : un commerce
  * sans abonnement ou en attente peut donc démarrer sans cercle vicieux.
+ *
+ * Contre l'énumération : un code réservé à d'autres commerces répond exactement comme un code
+ * inconnu, et chaque refus est tracé (sans le code saisi) puis limité par utilisateur et commerce.
  */
 export async function redeemSubscriptionPromotion(db: PlatformDb, actorUserId: string, businessId: string, raw: unknown, now = new Date()) {
   const input = redeemSchema.parse(raw);
+  const [recent] = await db.select({ total: count() }).from(auditEvent).where(and(eq(auditEvent.businessId, businessId), eq(auditEvent.actorUserId, actorUserId),
+    eq(auditEvent.eventType, "subscription.promotion_rejected"), gte(auditEvent.occurredAt, new Date(now.getTime() - redeemWindowMs))));
+  if (Number(recent?.total ?? 0) >= redeemMaxRejections) throw new CommercialError("Trop d’essais. Patientez quelques minutes avant de réessayer.", 429, "rate_limited");
+  try {
+    return await redeemInTransaction(db, actorUserId, businessId, input, now);
+  } catch (error) {
+    if (error instanceof CommercialError && error.code && error.code !== "not_found") {
+      await db.insert(auditEvent).values({ id: randomUUID(), businessId, actorUserId, eventType: "subscription.promotion_rejected", entityType: "business", entityId: businessId,
+        metadata: { businessId, reason: error.code, result: "failure", codeLength: input.code.length } });
+    }
+    throw error;
+  }
+}
+
+/** Refus tolérés par utilisateur et commerce sur la fenêtre glissante avant le blocage temporaire (429). */
+const redeemMaxRejections = 10;
+const redeemWindowMs = 15 * 60_000;
+
+async function redeemInTransaction(db: PlatformDb, actorUserId: string, businessId: string, input: z.infer<typeof redeemSchema>, now: Date) {
   return db.transaction(async (tx) => {
     const [membership] = await tx.select({ role: member.role }).from(member).where(and(eq(member.organizationId, businessId), eq(member.userId, actorUserId))).limit(1);
-    if (!membership || !["owner", "admin"].includes(membership.role)) throw new CommercialError("Seul l’administrateur du commerce peut utiliser ce code.", 403);
+    if (!membership || !["owner", "admin"].includes(membership.role)) throw new CommercialError("Seul l’administrateur du commerce peut utiliser ce code.", 403, "forbidden");
     const [profile] = await tx.select({ status: businessProfile.status }).from(businessProfile).where(eq(businessProfile.businessId, businessId)).for("update").limit(1);
-    if (!profile) throw new CommercialError("Commerce introuvable.", 404);
-    if (profile.status === "suspended") throw new CommercialError("Ce commerce est suspendu : contactez Qadr Agency.", 403);
+    if (!profile) throw new CommercialError("Commerce introuvable.", 404, "not_found");
+    if (profile.status === "suspended") throw new CommercialError("Ce commerce est suspendu : contactez Qadr Agency.", 403, "business_suspended");
+    const invalid = () => new CommercialError("Code promotionnel invalide.", 404, "invalid");
     const [promo] = await tx.select().from(promotionCode).where(eq(promotionCode.code, input.code)).for("update").limit(1);
-    if (!promo) throw new CommercialError("Code promotionnel invalide.", 404);
+    if (!promo) throw invalid();
 
     // Rejeu : le même commerce renvoie le même code, on rend le résultat déjà enregistré.
     const [previous] = await tx.select().from(promotionRedemption).where(and(eq(promotionRedemption.promotionId, promo.id), eq(promotionRedemption.businessId, businessId))).limit(1);
     if (previous) return redemptionResult(tx, promo, previous, true);
 
-    if (promo.revokedAt) throw new CommercialError("Ce code a été révoqué.");
-    if (!promo.active || promo.startsAt > now || (promo.endsAt && promo.endsAt <= now)) throw new CommercialError("Ce code n’est pas actuellement valide.");
     const [eligible] = await tx.select({ businessId: promotionEligibleBusiness.businessId }).from(promotionEligibleBusiness)
       .where(eq(promotionEligibleBusiness.promotionId, promo.id)).limit(1);
     if (eligible) {
       const [match] = await tx.select({ businessId: promotionEligibleBusiness.businessId }).from(promotionEligibleBusiness)
         .where(and(eq(promotionEligibleBusiness.promotionId, promo.id), eq(promotionEligibleBusiness.businessId, businessId))).limit(1);
-      if (!match) throw new CommercialError("Ce code n’est pas disponible pour ce commerce.", 403);
+      if (!match) throw invalid();
     }
+    if (promo.revokedAt) throw new CommercialError("Ce code a été révoqué.", 400, "revoked");
+    if (promo.endsAt && promo.endsAt <= now) throw new CommercialError("Ce code a expiré.", 400, "expired");
+    if (!promo.active || promo.startsAt > now) throw new CommercialError("Ce code n’est pas actuellement valide.", 400, "not_active");
     const [used] = await tx.select({ total: count() }).from(promotionRedemption).where(eq(promotionRedemption.promotionId, promo.id));
-    if (promo.maxRedemptions !== null && Number(used?.total ?? 0) >= promo.maxRedemptions) throw new CommercialError("La limite d’utilisation de ce code est atteinte.");
+    if (promo.maxRedemptions !== null && Number(used?.total ?? 0) >= promo.maxRedemptions) {
+      throw promo.maxRedemptions === 1
+        ? new CommercialError("Ce code a déjà été utilisé.", 409, "already_used")
+        : new CommercialError("La limite d’utilisation de ce code est atteinte.", 409, "exhausted");
+    }
 
     if (promo.kind === "access") return applyAccessCode(tx as unknown as PlatformDb, promo, businessId, actorUserId, profile.status, now);
 
     const [subscription] = input.subscriptionId ? await tx.select({ id: businessSubscription.id, planId: businessSubscription.planId, status: businessSubscription.status })
       .from(businessSubscription).where(and(eq(businessSubscription.businessId, businessId), eq(businessSubscription.id, input.subscriptionId))).for("update").limit(1) : [];
-    if (!subscription || subscription.status !== "pending") throw new CommercialError("Le code s’applique uniquement à un abonnement en attente.");
-    const [plan] = await tx.select({ priceXof: subscriptionPlan.priceXof }).from(subscriptionPlan).where(eq(subscriptionPlan.id, subscription.planId)).limit(1);
-    if (!plan) throw new CommercialError("Forfait introuvable.", 404);
+    if (!subscription || subscription.status !== "pending") throw new CommercialError("Le code s’applique uniquement à un abonnement en attente.", 409, "incompatible_subscription");
+    const [plan] = await tx.select({ priceXof: subscriptionPlan.priceXof, code: subscriptionPlan.code, name: subscriptionPlan.name }).from(subscriptionPlan).where(eq(subscriptionPlan.id, subscription.planId)).limit(1);
+    if (!plan) throw new CommercialError("Forfait introuvable.", 404, "not_found");
     const price = BigInt(plan.priceXof);
     const rawDiscount = promo.discountPercent !== null
       ? (price * BigInt(promo.discountPercent) + 50n) / 100n
@@ -771,22 +801,30 @@ export async function redeemSubscriptionPromotion(db: PlatformDb, actorUserId: s
     });
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId, actorUserId, eventType: "subscription.promotion_redeemed",
       entityType: "promotion_redemption", entityId: redemptionId, metadata: { businessId, code: promo.code, discountAmountXof: discount.toString(), amountDueXof: amountDue.toString(), result: "success" } });
-    return { kind: "discount" as const, replayed: false, redemptionId, discountAmountXof: discount.toString(), amountDueXof: amountDue.toString(), paymentStatus: amountDue > 0n ? "pending" : "no_payment_due" };
+    return { kind: "discount" as const, replayed: false, redemptionId, plan: { code: plan.code, name: plan.name }, discountAmountXof: discount.toString(), amountDueXof: amountDue.toString(), paymentStatus: amountDue > 0n ? "pending" : "no_payment_due" };
   });
 }
 
 type PromotionRow = typeof promotionCode.$inferSelect;
 
+/** Forfait affiché au commerçant après l'application d'un code (code et nom, sans prix interne). */
+async function planSummary(tx: PlatformDb, planId: string | null | undefined) {
+  if (!planId) return null;
+  const [plan] = await tx.select({ code: subscriptionPlan.code, name: subscriptionPlan.name }).from(subscriptionPlan).where(eq(subscriptionPlan.id, planId)).limit(1);
+  return plan ?? null;
+}
+
 async function redemptionResult(tx: unknown, promo: PromotionRow, redemption: typeof promotionRedemption.$inferSelect, replayed: boolean) {
+  const [subscription] = await (tx as PlatformDb).select({ id: businessSubscription.id, planId: businessSubscription.planId, status: businessSubscription.status, endsAt: businessSubscription.endsAt })
+    .from(businessSubscription).where(eq(businessSubscription.id, redemption.subscriptionId)).limit(1);
+  const plan = await planSummary(tx as PlatformDb, subscription?.planId);
   if (promo.kind === "access") {
-    const [subscription] = await (tx as PlatformDb).select({ id: businessSubscription.id, status: businessSubscription.status, endsAt: businessSubscription.endsAt })
-      .from(businessSubscription).where(eq(businessSubscription.id, redemption.subscriptionId)).limit(1);
-    return { kind: "access" as const, replayed, redemptionId: redemption.id, subscriptionId: redemption.subscriptionId, status: subscription?.status ?? null, endsAt: subscription?.endsAt ?? null, grantDays: promo.grantDays };
+    return { kind: "access" as const, replayed, redemptionId: redemption.id, subscriptionId: redemption.subscriptionId, plan, status: subscription?.status ?? null, endsAt: subscription?.endsAt ?? null, grantDays: promo.grantDays };
   }
   const [payment] = await (tx as PlatformDb).select({ amountXof: subscriptionPayment.amountXof }).from(subscriptionPayment)
     .where(and(eq(subscriptionPayment.businessId, redemption.businessId), eq(subscriptionPayment.idempotencyKey, `promotion:${redemption.id}`))).limit(1);
   const due = payment ? BigInt(payment.amountXof) : 0n;
-  return { kind: "discount" as const, replayed, redemptionId: redemption.id, discountAmountXof: redemption.discountAmountXof.toString(), amountDueXof: due.toString(), paymentStatus: due > 0n ? "pending" : "no_payment_due" };
+  return { kind: "discount" as const, replayed, redemptionId: redemption.id, plan, discountAmountXof: redemption.discountAmountXof.toString(), amountDueXof: due.toString(), paymentStatus: due > 0n ? "pending" : "no_payment_due" };
 }
 
 async function applyAccessCode(tx: PlatformDb, promo: PromotionRow, businessId: string, actorUserId: string, profileStatus: string, now: Date) {
@@ -799,7 +837,7 @@ async function applyAccessCode(tx: PlatformDb, promo: PromotionRow, businessId: 
   let before: Record<string, Json>;
   let after: Record<string, Json>;
   if (running) {
-    if (running.planId !== promo.planId) throw new CommercialError("Un abonnement à un autre forfait est en cours : ce code ne peut pas s’y ajouter.", 409);
+    if (running.planId !== promo.planId) throw new CommercialError("Un abonnement à un autre forfait est en cours : ce code ne peut pas s’y ajouter.", 409, "incompatible_subscription");
     const endsAt = new Date(running.endsAt.getTime() + days * dayMs);
     const trialEndsAt = running.status === "trialing" ? endsAt : running.trialEndsAt;
     await tx.update(businessSubscription).set({ endsAt, trialEndsAt, updatedAt: now }).where(eq(businessSubscription.id, running.id));
@@ -828,5 +866,5 @@ async function applyAccessCode(tx: PlatformDb, promo: PromotionRow, businessId: 
     metadata: { businessId, code: promo.code, grantDays: days, before, after, result: "success", reason: promo.campaign ?? null },
   });
   const [subscription] = await tx.select({ status: businessSubscription.status, endsAt: businessSubscription.endsAt }).from(businessSubscription).where(eq(businessSubscription.id, subscriptionId)).limit(1);
-  return { kind: "access" as const, replayed: false, redemptionId, subscriptionId, status: subscription!.status, endsAt: subscription!.endsAt, grantDays: days };
+  return { kind: "access" as const, replayed: false, redemptionId, subscriptionId, plan: await planSummary(tx, promo.planId), status: subscription!.status, endsAt: subscription!.endsAt, grantDays: days };
 }

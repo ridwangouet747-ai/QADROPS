@@ -13,6 +13,11 @@ const statements = {
   expense: ["create", "read", "update"],
   supplier: ["create", "read", "update"],
   purchase: ["create", "read"],
+  // Caisse (mission 09) : open/close/read portent sur sa propre session ; audit = voir toutes les sessions,
+  // validate = valider une clôture, manage = clôturer la session d'un autre membre (absence, oubli).
+  cash: ["open", "close", "read", "audit", "validate", "manage"],
+  // Impression (mission 10) : configure = activer le module et déclarer les imprimantes ; print = imprimer et réimprimer.
+  printer: ["configure", "print"],
 } as const;
 
 export const businessAccess = createAccessControl(statements);
@@ -32,15 +37,17 @@ const ownerPermissions = {
   expense: ["create", "read", "update"] as const,
   supplier: ["create", "read", "update"] as const,
   purchase: ["create", "read"] as const,
+  cash: ["open", "close", "read", "audit", "validate", "manage"] as const,
+  printer: ["configure", "print"] as const,
 };
 
 export const businessRoles = {
   owner: businessAccess.newRole(ownerPermissions),
   admin: businessAccess.newRole({ ...ownerPermissions, organization: ["update"] }),
-  member: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: ["read"], product: ["read"], sale: ["read"], customer: ["read"], payment: ["read"], inventory: ["read"], report: [], business: ["read"], expense: [], supplier: ["read"], purchase: ["read"] }),
-  cashier: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: [], product: ["read"], sale: ["create", "read"], customer: ["create", "read"], payment: ["record"], inventory: ["read"], report: [], business: [], expense: [], supplier: [], purchase: [] }),
-  stock_manager: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: [], product: ["create", "read", "update", "archive"], sale: ["read"], customer: ["read"], payment: [], inventory: ["read", "count", "validate", "adjust"], report: ["read"], business: [], expense: [], supplier: ["create", "read", "update"], purchase: ["create", "read"] }),
-  accountant: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: [], product: ["read"], sale: ["read"], customer: ["read"], payment: ["read"], inventory: ["read"], report: ["read"], business: ["read"], expense: ["create", "read", "update"], supplier: ["read"], purchase: ["read"] }),
+  member: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: ["read"], product: ["read"], sale: ["read"], customer: ["read"], payment: ["read"], inventory: ["read"], report: [], business: ["read"], expense: [], supplier: ["read"], purchase: ["read"], cash: [], printer: [] }),
+  cashier: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: [], product: ["read"], sale: ["create", "read"], customer: ["create", "read"], payment: ["record"], inventory: ["read"], report: [], business: [], expense: [], supplier: [], purchase: [], cash: ["open", "close", "read"], printer: ["print"] }),
+  stock_manager: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: [], product: ["create", "read", "update", "archive"], sale: ["read"], customer: ["read"], payment: [], inventory: ["read", "count", "validate", "adjust"], report: ["read"], business: [], expense: [], supplier: ["create", "read", "update"], purchase: ["create", "read"], cash: [], printer: [] }),
+  accountant: businessAccess.newRole({ organization: [], member: [], invitation: [], ac: [], product: ["read"], sale: ["read"], customer: ["read"], payment: ["read"], inventory: ["read"], report: ["read"], business: ["read"], expense: ["create", "read", "update"], supplier: ["read"], purchase: ["read"], cash: ["audit", "validate"], printer: [] }),
 };
 
 export type BusinessRole = keyof typeof businessRoles;

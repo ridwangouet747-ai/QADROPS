@@ -1,10 +1,11 @@
+import { localizedPageMetadata } from "@/lib/i18n/server";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { PlatformConsole } from "@/components/platform/platform-console";
 import { getPlatformContext } from "@/lib/domain/platform-context";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Qadr Ops Platform", robots: { index: false } };
+export const generateMetadata = () => localizedPageMetadata("meta.platform");
 
 export default async function PlatformDashboardPage() {
   try {

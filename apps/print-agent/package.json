@@ -1,0 +1,14 @@
+{
+  "name": "@qadr-ops/print-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Service local d'impression thermique ESC/POS pour Qadr Ops (sans dépendance).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "qadr-print-agent": "src/cli.mjs" },
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "test": "node --test \"test/**/*.test.mjs\""
+  }
+}

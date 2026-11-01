@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
@@ -18,6 +18,7 @@ import { Alert } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { authClient } from "@/lib/auth/client";
+import { track } from "@/lib/analytics/client";
 import { safeNext } from "@/lib/client/redirect";
 import type { MessageKey } from "@/lib/i18n/translate";
 import {
@@ -64,6 +65,8 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const panel = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const welcomeRef = useRef<HTMLDivElement>(null);
+  const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (redirectTimer.current) clearTimeout(redirectTimer.current); }, []);
   const firstRender = useRef(true);
   // Tant que la page n'est pas hydratée, aucun envoi natif du formulaire (qui contournerait la validation).
   const [hydrated, setHydrated] = useState(false);
@@ -83,6 +86,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const values = useWatch({ control: business.control }) as BusinessValues;
   const accountName = useWatch({ control: account.control, name: "name" });
   const accountEmail = useWatch({ control: account.control, name: "email" });
+  const [accountPassword, accountConfirm] = useWatch({ control: account.control, name: ["password", "confirm"] });
 
   /* Reprise du brouillon et de la session existante. */
   useEffect(() => {
@@ -189,7 +193,8 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
     // Confirmation du serveur reçue : seulement maintenant, la bienvenue.
     storage.clear();
     setPhase("welcome");
-    setTimeout(() => router.push("/business/dashboard"), 3800);
+    track("signup_completed");
+    redirectTimer.current = setTimeout(() => router.push("/business/dashboard"), 3800);
   };
 
   const onLogo = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -205,7 +210,9 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   };
 
   const stage: SceneStage = phase === "welcome" ? "welcome" : step;
-  const plan = useMemo(() => scenePlan(stage, { ...emptyBusiness, ...values }), [stage, values]);
+  const accountFilled = [accountName, accountEmail, accountPassword, accountConfirm].filter((value) => value?.trim()).length;
+  // Recalculé à chaque frappe (pur et léger) ; OnboardingScene ne se redessine que si le plan visible change.
+  const plan = scenePlan(stage, { ...emptyBusiness, ...values }, accountFilled);
   const fieldError = (message?: string) => (message ? t(message as MessageKey) : undefined);
   const businessErrors = business.formState.errors;
   const accountErrors = account.formState.errors;
@@ -239,6 +246,11 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
               <span className="mt-6 block h-1.5 overflow-hidden rounded-full bg-surface-muted"><span data-progress className="block h-full origin-left rounded-full bg-brand rtl:origin-right" /></span>
               <p data-welcome className="m-0 mt-2 text-[0.8rem] text-fg-subtle">{t("wizard.welcome.redirecting")}</p>
               <Button data-welcome className="mt-5" size="lg" block onClick={() => router.push("/business/dashboard")} icon={<Icon name="forward" />}>{t("wizard.actions.goDashboard")}</Button>
+              {/* Facultatif : l'inscription n'exige aucun code ; ce lien suspend la redirection automatique. */}
+              <Link data-welcome href="/business/subscription" onClick={() => { if (redirectTimer.current) clearTimeout(redirectTimer.current); }}
+                className="mt-3 inline-flex min-h-11 items-center justify-center gap-2 text-sm font-semibold text-brand-strong no-underline hover:underline">
+                <Icon name="tag" className="size-4" />{t("wizard.welcome.haveCode")}
+              </Link>
             </div>
           ) : (
             <>

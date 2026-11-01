@@ -10,6 +10,7 @@ import { parseQuantityMicros, QUANTITY_SCALE, UNIT_COST_SCALE } from "./costing"
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { decodeCursor, encodeCursor, likePattern, pageLimit, productCursorSchema } from "./cursor";
 import { idempotencyKeySchema, runIdempotent } from "./operation-guard";
+import { attachOpenCashSession } from "./cash-session";
 
 type Context = { businessId: string; actorUserId: string };
 const contextShape = { businessId: z.string().min(1), actorUserId: z.string().min(1) };
@@ -201,8 +202,10 @@ export async function recordOpeningBalancePayment(db: CommercialDatabase, raw: u
       .where(and(eq(openingBalancePayment.businessId, input.businessId), eq(openingBalancePayment.openingBalanceId, input.openingBalanceId)));
     const remaining = locked.amountXof - BigInt(paid?.total ?? "0");
     if (amount > remaining) throw new CommercialError("Le règlement dépasse le solde restant dû.", 409);
+    // Une ancienne dette réglée en espèces passe par la caisse ouverte (sans devenir du chiffre d'affaires).
+    const cashSessionId = input.method === "cash" ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
     await tx.insert(openingBalancePayment).values({ id: randomUUID(), businessId: input.businessId, openingBalanceId: input.openingBalanceId,
-      amountXof: amount, method: input.method, recordedByUserId: input.actorUserId });
+      amountXof: amount, method: input.method, recordedByUserId: input.actorUserId, cashSessionId });
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "opening_balance.payment_recorded",
       entityType: "opening_balance", entityId: input.openingBalanceId, metadata: { amountXof: input.amountXof, method: input.method } });
     return { remainingXof: (remaining - amount).toString() };

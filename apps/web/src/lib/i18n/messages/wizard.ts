@@ -35,7 +35,7 @@ export const wizardFr = {
     network: "Pas de connexion. Vos informations sont conservées : réessayez dès que le réseau revient.",
     summary: "Corrigez les champs signalés pour continuer.",
   },
-  welcome: { title: "Bienvenue dans Qadr Ops", body: "{business} est ouvert. Votre tableau de bord vous attend.", redirecting: "Ouverture du tableau de bord…" },
+  welcome: { title: "Bienvenue dans Qadr Ops", body: "{business} est ouvert. Votre tableau de bord vous attend.", redirecting: "Ouverture du tableau de bord…", haveCode: "J’ai un code d’accès Qadr Agency" },
   scene: {
     label: "Illustration décorative : votre boutique se construit au fil des étapes.", loading: "Préparation de l’illustration…",
     captions: { account: "Les fondations sont posées", identity: "La façade prend forme", details: "L’intérieur s’installe", branding: "Votre enseigne s’affiche", review: "Votre boutique est prête", welcome: "C’est ouvert !" },
@@ -82,7 +82,7 @@ export const wizardEn: WizardMessages = {
     network: "No connection. Your details are kept: try again when the network is back.",
     summary: "Fix the highlighted fields to continue.",
   },
-  welcome: { title: "Welcome to Qadr Ops", body: "{business} is open. Your dashboard is waiting.", redirecting: "Opening your dashboard…" },
+  welcome: { title: "Welcome to Qadr Ops", body: "{business} is open. Your dashboard is waiting.", redirecting: "Opening your dashboard…", haveCode: "I have a Qadr Agency access code" },
   scene: {
     label: "Decorative illustration: your shop is built step by step.", loading: "Preparing the illustration…",
     captions: { account: "The foundations are laid", identity: "The storefront takes shape", details: "The interior settles in", branding: "Your sign lights up", review: "Your shop is ready", welcome: "We're open!" },
@@ -126,7 +126,7 @@ export const wizardAr: WizardMessages = {
     network: "لا يوجد اتصال. بياناتك محفوظة: أعد المحاولة عند عودة الشبكة.",
     summary: "صحّح الحقول المشار إليها للمتابعة.",
   },
-  welcome: { title: "مرحباً بك في Qadr Ops", body: "{business} مفتوح الآن. لوحة التحكم بانتظارك.", redirecting: "جارٍ فتح لوحة التحكم…" },
+  welcome: { title: "مرحباً بك في Qadr Ops", body: "{business} مفتوح الآن. لوحة التحكم بانتظارك.", redirecting: "جارٍ فتح لوحة التحكم…", haveCode: "لديّ رمز دخول من Qadr Agency" },
   scene: {
     label: "رسم توضيحي زخرفي: متجرك يُبنى خطوة بخطوة.", loading: "جارٍ تحضير الرسم…",
     captions: { account: "وُضعت الأساسات", identity: "الواجهة تتشكّل", details: "الداخل يتجهّز", branding: "لافتتك تظهر", review: "متجرك جاهز", welcome: "نحن مفتوحون!" },

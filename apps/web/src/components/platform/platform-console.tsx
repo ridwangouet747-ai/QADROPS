@@ -4,6 +4,7 @@ import { PlatformAudit } from "./platform-audit";
 import { PlatformBusinesses } from "./platform-businesses";
 import { PlatformOverview } from "./platform-overview";
 import { PlatformPlans } from "./platform-plans";
+import { PlatformNotifications } from "./platform-notifications";
 import { PlatformPromotions } from "./platform-promotions";
 import { PlatformSettings } from "./platform-settings";
 import { PlatformShell, type PlatformSection } from "./platform-shell";
@@ -15,6 +16,7 @@ const views: Record<PlatformSection, () => React.ReactNode> = {
   subscriptions: () => <PlatformSubscriptions />,
   plans: () => <PlatformPlans />,
   promotions: () => <PlatformPromotions />,
+  notifications: () => <PlatformNotifications />,
   audit: () => <PlatformAudit />,
   settings: () => <PlatformSettings />,
 };

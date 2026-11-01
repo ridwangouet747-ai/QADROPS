@@ -11,6 +11,7 @@ import {
 } from "./business-data";
 import { startInventory } from "./inventory";
 import { createOpeningBalance, postStockOpening } from "./opening";
+import { openCashSession } from "./cash-session";
 
 describe("operation integrity: idempotent writes and blocked businesses (PGlite)", () => {
   const client = new PGlite();
@@ -132,6 +133,7 @@ describe("operation integrity: idempotent writes and blocked businesses (PGlite)
       ["startInventory", () => startInventory(db, { businessId: businessA, actorUserId: ownerA })],
       ["postStockOpening", () => postStockOpening(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-opening-1", referenceDate: "2026-01-01", lines: [{ variantId: variantA, quantity: "1" }] })],
       ["createOpeningBalance (client)", () => createOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-ob-customer-1", partyType: "customer", partyId: customerA, amountXof: "1000", asOfDate: "2026-01-01" })],
+      ["openCashSession", () => openCashSession(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-cash-open-1", openingFloatXof: "1000" })],
       ["createOpeningBalance (fournisseur)", () => createOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-ob-supplier-1", partyType: "supplier", partyId: supplierA, amountXof: "1000", asOfDate: "2026-01-01" })],
     ];
 

@@ -7,7 +7,7 @@ export const platformFr = {
   console: "Console Qadr Agency",
   superAdmin: "Super Admin",
   previewBanner: "Aperçu local · données de démonstration",
-  nav: { label: "Navigation de la console", overview: "Vue d’ensemble", businesses: "Commerces", subscriptions: "Abonnements", plans: "Forfaits", promotions: "Promotions", audit: "Activité et audit", settings: "Paramètres" },
+  nav: { label: "Navigation de la console", overview: "Vue d’ensemble", businesses: "Commerces", subscriptions: "Abonnements", plans: "Forfaits", promotions: "Promotions", notifications: "Notifications", audit: "Activité et audit", settings: "Paramètres" },
   common: {
     loading: "Chargement…", retry: "Réessayer", save: "Enregistrer", cancel: "Annuler", confirm: "Confirmer", close: "Fermer", all: "Tous",
     search: "Rechercher", noResults: "Aucun résultat.", back: "Retour", copy: "Copier", copied: "Copié", none: "—", unlimited: "Illimité",
@@ -126,7 +126,7 @@ export const platformEn: PlatformMessages = {
   console: "Qadr Agency console",
   superAdmin: "Super Admin",
   previewBanner: "Local preview · demo data",
-  nav: { label: "Console navigation", overview: "Overview", businesses: "Businesses", subscriptions: "Subscriptions", plans: "Plans", promotions: "Promotions", audit: "Activity & audit", settings: "Settings" },
+  nav: { label: "Console navigation", overview: "Overview", businesses: "Businesses", subscriptions: "Subscriptions", plans: "Plans", promotions: "Promotions", notifications: "Notifications", audit: "Activity & audit", settings: "Settings" },
   common: {
     loading: "Loading…", retry: "Try again", save: "Save", cancel: "Cancel", confirm: "Confirm", close: "Close", all: "All",
     search: "Search", noResults: "No results.", back: "Back", copy: "Copy", copied: "Copied", none: "—", unlimited: "Unlimited",
@@ -242,7 +242,7 @@ export const platformAr: PlatformMessages = {
   console: "لوحة Qadr Agency",
   superAdmin: "المشرف العام",
   previewBanner: "معاينة محلية · بيانات تجريبية",
-  nav: { label: "تنقّل اللوحة", overview: "نظرة عامة", businesses: "المتاجر", subscriptions: "الاشتراكات", plans: "الباقات", promotions: "العروض", audit: "النشاط والتدقيق", settings: "الإعدادات" },
+  nav: { label: "تنقّل اللوحة", overview: "نظرة عامة", businesses: "المتاجر", subscriptions: "الاشتراكات", plans: "الباقات", promotions: "العروض", notifications: "الإشعارات", audit: "النشاط والتدقيق", settings: "الإعدادات" },
   common: {
     loading: "جارٍ التحميل…", retry: "إعادة المحاولة", save: "حفظ", cancel: "إلغاء", confirm: "تأكيد", close: "إغلاق", all: "الكل",
     search: "بحث", noResults: "لا توجد نتائج.", back: "رجوع", copy: "نسخ", copied: "تم النسخ", none: "—", unlimited: "غير محدود",

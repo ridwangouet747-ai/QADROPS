@@ -2,6 +2,8 @@ import { createSale } from "@/lib/domain/commercial";
 import { listBusinessSales } from "@/lib/domain/business-data";
 import { errorResponse, getBusinessContext, jsonSafe, parseJsonRequest } from "@/lib/domain/business-context";
 
+import { processNotificationsAfterResponse } from "@/lib/notifications/server";
+
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
@@ -18,6 +20,8 @@ export async function POST(request: Request) {
     const context = await getBusinessContext(request.headers);
     const body = await parseJsonRequest(request);
     const sale = await createSale(context.db, { ...body, businessId: context.businessId, actorUserId: context.userId });
+    // La vente est déjà enregistrée : les notifications partent après la réponse, sans la retarder.
+    if (!sale.replayed) processNotificationsAfterResponse(context.db);
     return new Response(jsonSafe({ sale }), { status: sale.replayed ? 200 : 201, headers: { "content-type": "application/json" } });
   } catch (error) {
     return errorResponse(error);

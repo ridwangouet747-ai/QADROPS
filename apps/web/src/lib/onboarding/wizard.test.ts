@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   accountSchema, brandingSchema, chooseSceneMode, detailsSchema, emptyBusiness, identitySchema, newCreationKey, parseDraft,
-  scenePlan, serializeDraft, toCreateBusinessPayload, type DeviceSignals,
+  samePlan, scenePlan, serializeDraft, toCreateBusinessPayload, type DeviceSignals,
 } from "./wizard";
 
 const desktop: DeviceSignals = { webgl: true, reducedMotion: false, saveData: false, width: 1366, deviceMemory: 8, hardwareConcurrency: 8, coarsePointer: false };
@@ -56,23 +56,46 @@ describe("plan de la scène", () => {
   it("construit la boutique étape par étape", () => {
     expect(scenePlan("account", values)).toMatchObject({ foundation: true, structure: false, activity: null, logo: false, welcome: false });
     expect(scenePlan("identity", values)).toMatchObject({ structure: true, sign: true, signText: "Quincaillerie Koné", activity: "hardware", interior: false });
-    expect(scenePlan("details", values)).toMatchObject({ interior: true, logo: false });
+    expect(scenePlan("details", values)).toMatchObject({ interior: false, lights: false, logo: false });
+    expect(scenePlan("branding", values)).toMatchObject({ interior: true, lights: true });
     expect(scenePlan("branding", { ...values, displayName: "Koné & Fils" })).toMatchObject({ logo: true, signText: "Koné & Fils" });
     expect(scenePlan("review", { ...values, logo: "" })).toMatchObject({ finished: true, logo: false });
     expect(scenePlan("welcome", values)).toMatchObject({ welcome: true, finished: true });
   });
+
+  it("suit la saisie champ par champ, sans attendre le changement d'étape", () => {
+    expect(scenePlan("account", values, 0).groundwork).toBe(0);
+    expect(scenePlan("account", values, 2).groundwork).toBe(0.5);
+    expect(scenePlan("account", values, 9).groundwork).toBe(1);
+    expect(scenePlan("identity", values, 0).groundwork).toBe(1);
+    // Murs, enseigne et rayonnages apparaissent dès la première lettre du nom.
+    const unnamed = { ...values, businessName: "" };
+    expect(scenePlan("identity", unnamed)).toMatchObject({ structure: false, sign: false, activity: null });
+    expect(scenePlan("identity", { ...unnamed, businessName: "K" })).toMatchObject({ structure: true, sign: true, activity: "hardware", signText: "K" });
+    // Comptoir avec le téléphone, éclairage avec l'adresse.
+    expect(scenePlan("details", { ...values, phone: "07" })).toMatchObject({ interior: true, lights: false });
+    expect(scenePlan("details", { ...values, address: "Cocody" })).toMatchObject({ interior: false, lights: true });
+  });
+
+  it("ne redessine pas la scène quand la saisie ne change rien de visible", () => {
+    const a = scenePlan("details", { ...values, phone: "07" });
+    expect(samePlan(a, scenePlan("details", { ...values, phone: "07 08" }))).toBe(true);
+    expect(samePlan(a, scenePlan("details", { ...values, phone: "07", address: "Plateau" }))).toBe(false);
+    expect(samePlan(scenePlan("identity", values), scenePlan("identity", { ...values, businessName: "Koné" }))).toBe(false);
+  });
 });
 
 describe("choix du rendu selon l'appareil", () => {
-  it("3D sur un ordinateur capable", () => expect(chooseSceneMode(desktop)).toBe("3d"));
-  it("Lottie sur téléphone, appareil modeste ou sans WebGL", () => {
-    expect(chooseSceneMode({ ...desktop, width: 390, coarsePointer: true })).toBe("lottie");
-    expect(chooseSceneMode({ ...desktop, deviceMemory: 2 })).toBe("lottie");
-    expect(chooseSceneMode({ ...desktop, hardwareConcurrency: 4 })).toBe("lottie");
-    expect(chooseSceneMode({ ...desktop, webgl: false })).toBe("lottie");
+  it("3D en pleine qualité sur un ordinateur capable", () => expect(chooseSceneMode(desktop)).toEqual({ mode: "3d", tier: "high" }));
+  it("3D en qualité réduite sur téléphone, tablette ou appareil modeste", () => {
+    expect(chooseSceneMode({ ...desktop, width: 390, coarsePointer: true })).toEqual({ mode: "3d", tier: "low" });
+    expect(chooseSceneMode({ ...desktop, width: 768 })).toEqual({ mode: "3d", tier: "low" });
+    expect(chooseSceneMode({ ...desktop, deviceMemory: 2 })).toEqual({ mode: "3d", tier: "low" });
+    expect(chooseSceneMode({ ...desktop, hardwareConcurrency: 4 })).toEqual({ mode: "3d", tier: "low" });
   });
-  it("illustration statique si le mouvement doit être réduit ou les données économisées", () => {
-    expect(chooseSceneMode({ ...desktop, reducedMotion: true })).toBe("static");
-    expect(chooseSceneMode({ ...desktop, width: 360, saveData: true })).toBe("static");
+  it("illustration statique sans WebGL, avec mouvement réduit ou économie de données", () => {
+    expect(chooseSceneMode({ ...desktop, webgl: false }).mode).toBe("static");
+    expect(chooseSceneMode({ ...desktop, reducedMotion: true }).mode).toBe("static");
+    expect(chooseSceneMode({ ...desktop, width: 360, saveData: true }).mode).toBe("static");
   });
 });

@@ -11,6 +11,7 @@ import { Icon } from "@/components/ui/icon";
 import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { intlLocale } from "@/lib/i18n/config";
 import { formatDateTime, formatQuantity, formatXof } from "@/lib/i18n/format";
+import { SubscriptionNotice } from "./subscription-workspace";
 
 type Amount = string | null | undefined;
 type Overview = {
@@ -78,6 +79,7 @@ export function DashboardWorkspace() {
         <Link href="/business/pos" className={buttonClasses({ variant: "primary", className: "no-underline" })}><Icon name="plus" />{t("dashboard.openPos")}</Link>
       }>{t("dashboard.intro")}</PageHeader>
 
+      <SubscriptionNotice />
       {error && <Alert tone="danger" className="mb-4">{error}</Alert>}
 
       {!data && !error ? (

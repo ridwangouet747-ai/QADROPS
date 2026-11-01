@@ -14,6 +14,10 @@ import { Card, PageHeader } from "@/components/ui/layout";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { MICROS, parseQuantityInput, stepQuantity, toApiQuantity } from "@/lib/client/quantity";
 import { formatQuantity, formatXof } from "@/lib/i18n/format";
+import type { MessageKey } from "@/lib/i18n/translate";
+import { printThroughAgent, readPairing } from "@/lib/printing/agent-client";
+import { track } from "@/lib/analytics/client";
+import { countBucket } from "@/lib/analytics/events";
 
 type Product = { id: string; name: string; categoryId: string | null; categoryName: string | null; baseUnit: string; variantId: string; variantLabel: string; sku: string | null; salePriceXof: string; onHand: string };
 type Customer = { id: string; name: string; phone: string | null; balanceXof: string };
@@ -50,6 +54,23 @@ export function PosWorkspace() {
   const [mobileView, setMobileView] = useState<"catalog" | "cart">("catalog");
   const attemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
   const [success, setSuccess] = useState<SaleResult | null>(null);
+  // Module d'impression facultatif : lu une fois ; 403 ou panne = pas d'impression, la caisse fonctionne pareil.
+  const [printSetup, setPrintSetup] = useState<{ enabled: boolean; autoPrint: boolean } | null>(null);
+  const [hasPairing, setHasPairing] = useState(false);
+  const [printState, setPrintState] = useState<string>("");
+  useEffect(() => {
+    setHasPairing(Boolean(readPairing()));
+    fetch("/api/business/printing", { cache: "no-store" }).then(async (response) => { if (response.ok) setPrintSetup(await response.json() as { enabled: boolean; autoPrint: boolean }); }).catch(() => undefined);
+  }, []);
+  const printReceipt = async (saleId: string) => {
+    setPrintState("printing");
+    const result = await printThroughAgent({ kind: "receipt", saleId });
+    if (result.status === "failed") track("print_failed", { error: (["not_paired", "agent_unreachable", "timeout", "paper_out", "disconnected", "connection_refused", "communication_error"] as const).find((code) => code === result.error) ?? "other" });
+    const errorKey = `printing.errors.${result.error ?? "generic"}` as MessageKey;
+    const errorText = t(errorKey) === errorKey ? t("printing.errors.generic") : t(errorKey);
+    setPrintState(result.status === "printed" ? t(result.error === "already_printed" ? "printing.results.already" : "printing.results.printed")
+      : result.status === "uncertain" ? t("printing.results.uncertain") : t("printing.results.failed", { error: errorText }));
+  };
 
   useEffect(() => {
     let active = true;
@@ -111,10 +132,15 @@ export function PosWorkspace() {
       });
       const body = await response.json() as { sale?: SaleResult; error?: string };
       if (!response.ok || !body.sale) throw new Error(body.error || t("pos.saleFailed"));
-      setSuccess(body.sale); attemptRef.current = null; setCart([]); setCustomerId(""); setPayments([{ method: "cash", amountXof: "" }]); setMobileView("catalog");
+      setSuccess(body.sale); setPrintState(""); attemptRef.current = null;
+      const methods = new Set(salePayload.payments.map((part) => part.method));
+      track("sale_recorded", { line_count: countBucket(salePayload.lines.length), has_customer: Boolean(salePayload.customerId),
+        payment_mix: body.sale.dueXof !== "0" && !salePayload.payments.length ? "credit" : methods.size > 1 ? "mixed" : methods.has("cash") ? "cash" : "mobile" });
+      // Impression automatique : seulement après la validation du serveur, en arrière-plan ; une panne ne touche pas la vente.
+      if (printSetup?.enabled && printSetup.autoPrint && readPairing()) void printReceipt(body.sale.id); setCart([]); setCustomerId(""); setPayments([{ method: "cash", amountXof: "" }]); setMobileView("catalog");
       const refreshed = await fetch("/api/business/products", { cache: "no-store" }).then((result) => result.json()) as { products?: Product[] };
       if (refreshed.products) setProducts(refreshed.products);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : t("pos.saleFailed")); }
+    } catch (caught) { track("sale_failed", { reason: caught instanceof TypeError ? "network" : "other" }); setError(caught instanceof Error ? caught.message : t("pos.saleFailed")); }
     finally { setPending(false); }
   }
 
@@ -137,9 +163,11 @@ export function PosWorkspace() {
               <p className="numeric m-0 text-start text-xl font-bold rtl:text-end"># {success.reference}</p>
               <p className="m-0 text-sm text-white/85">{t("pos.successBody", { total: money(success.totalXof), paid: money(success.paidXof), due: money(success.dueXof) })}</p>
               <p className="m-0 mt-1 text-xs text-white/70">{t("pos.stockUpdated")}</p>
+              {printState && <p className="m-0 mt-1 text-xs font-semibold text-white" role="status">{printState === "printing" ? t("pos.printing") : printState}</p>}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            {printSetup?.enabled && hasPairing && <button type="button" onClick={() => void printReceipt(success.id)} disabled={printState === "printing"} className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-white/40 bg-transparent px-4 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-60"><Icon name="printer" className="size-4" />{t("pos.printThermal")}</button>}
             <Link href={`/business/sales/${success.id}/receipt`} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/40 px-4 text-sm font-semibold text-white no-underline hover:bg-white/10"><Icon name="print" className="size-4" />{t("pos.receipt")}</Link>
             <button type="button" onClick={() => setSuccess(null)} className="inline-flex min-h-11 cursor-pointer items-center rounded-full border-0 bg-white px-5 text-sm font-semibold text-brand-strong">{t("pos.newSale")}</button>
           </div>
@@ -198,7 +226,7 @@ export function PosWorkspace() {
                   <p className="m-0 text-xs text-fg-subtle">{t("pos.cartCount", { count: itemCount })}</p>
                 </div>
               </div>
-              <Button variant="ghost" onClick={() => setCart([])} disabled={!cart.length} icon={<Icon name="trash" className="size-4" />}>{t("pos.clear")}</Button>
+              <Button variant="ghost" onClick={() => { if (cart.length) track("cart_abandoned", { line_count: countBucket(cart.length) }); setCart([]); }} disabled={!cart.length} icon={<Icon name="trash" className="size-4" />}>{t("pos.clear")}</Button>
             </div>
 
             {cart.length === 0 ? (

@@ -46,6 +46,16 @@ expired, canceled : terminaux (une nouvelle période crée un nouvel abonnement)
 - Application d'un code : verrou sur la ligne du code, une fois par commerce (contrainte unique), rejouable (le même envoi renvoie le résultat initial, `replayed: true`), refus des codes révoqués, en pause, expirés, épuisés, non éligibles, ou d'un autre forfait en cours ; tracée (`subscription.access_code_redeemed`).
 - Codes : 12 caractères tirés par `crypto.randomInt` dans un alphabet sans ambiguïté (31 symboles, ≈ 59 bits), préfixe facultatif, série de 1 à 200 ; ils ne sont montrés qu'une fois et jamais écrits dans le journal.
 
+### Saisie d'un code par le commerçant (complément mission 08)
+
+- Écran `/business/subscription` (menu « Plus » → Abonnement ; rôles `owner`, `admin`, `accountant`, `member` en lecture) : forfait en vigueur ou dernier connu, échéance, jours restants, origine, abonnement en attente. Lecture par `GET /api/business/subscription` (`getBusinessSubscriptionOverview`, permission `business:read`, commerce de la session uniquement). L'application reste sur l'unique route `POST /api/business/subscription/promotion` ; aucune seconde API.
+- Parcours : saisir → continuer → confirmer → résultat confirmé par le serveur (forfait, jours offerts, nouvelle échéance, état ; pour une réduction : montant et reste à payer). La vérification et l'activation se font dans **la même transaction** : pas d'étape « vérifier » séparée, qui ouvrirait un oracle d'énumération et un écart entre vérification et application. Le navigateur n'active jamais rien lui-même (`src/lib/subscription/redeem-outcome.ts`).
+- Accès : bandeau du tableau de bord pour un commerce sans forfait ou expiré (propriétaire/administrateur seulement) et lien facultatif « J'ai un code d'accès » sur l'écran de bienvenue de l'inscription. L'inscription n'exige aucun code.
+- Codes d'erreur stables renvoyés par l'API (`{ error, code }`, message serveur en français, traduit côté interface) : `invalid` (404), `expired`, `not_active`, `revoked`, `already_used` (code à usage unique, 409), `exhausted` (409), `business_suspended` (403), `forbidden` (403), `incompatible_subscription` (409), `rate_limited` (429). L'interface ajoute `network` (aucune réponse) et `unavailable` (5xx ou réponse illisible) ; réessayer est sans risque grâce au rejeu.
+- Anti-énumération : un code réservé à d'autres commerces répond **exactement** comme un code inconnu (`invalid`, 404), quel que soit son état ; l'éligibilité est vérifiée avant l'état du code.
+- Chaque refus écrit `subscription.promotion_rejected` (motif, longueur du code, jamais le code). Après 10 refus en 15 minutes pour un même utilisateur dans un même commerce, réponse 429. Limite fondée sur le journal en base, donc valable sur plusieurs instances.
+- Double soumission : bouton verrouillé côté navigateur, puis verrou de ligne et contrainte unique côté serveur ; deux requêtes simultanées du même commerce donnent un seul enregistrement (la seconde `replayed: true`) et un code à usage unique disputé par deux commerces n'est accordé qu'à un seul. Tests : `business-subscription.integration.test.ts`.
+
 ### Quotas de forfait appliqués côté serveur (`src/lib/domain/plan-limits.ts`)
 
 - Utilisateurs : membres non désactivés + invitations encore valables ≤ `userLimit` (vérifié avant chaque nouvelle invitation ; une invitation renouvelée garde sa place).
@@ -82,7 +92,7 @@ Le contrôle plateforme ne donne pas d'accès implicite aux ventes, clients, lig
 | Promotions | `/platform/promotions` | Création, activation/désactivation, périodes, types d'avantage, éligibilité, plafond et utilisations. |
 | Audit | `/platform/audit` | Événements globaux de plateforme, sans secrets ni contenu de paiement. |
 
-Les routes JSON correspondantes sont sous `/api/platform/*`. La route commerçant `/api/business/subscription/promotion` applique un code uniquement à un abonnement en attente et exige le rôle commercial `owner` ou `admin` du commerce cible.
+Les routes JSON correspondantes sont sous `/api/platform/*`. La route commerçant `/api/business/subscription/promotion` exige le rôle commercial `owner` ou `admin` du commerce de la session ; un code de réduction ne s'applique qu'à un abonnement en attente, un code d'accès ouvre ou prolonge un essai (voir « Saisie d'un code par le commerçant »).
 
 ## Règles financières et promotions
 

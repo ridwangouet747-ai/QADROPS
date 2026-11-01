@@ -7,12 +7,12 @@
  * est arrêtée (frameloop="never"). Les géométries et matériaux déclarés en JSX sont libérés par
  * React Three Fiber au démontage ; les textures créées à la main sont libérées explicitement.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import * as THREE from "three";
-import type { Activity, ScenePlan, SceneStage } from "@/lib/onboarding/wizard";
+import { samePlan, type Activity, type ScenePlan, type SceneStage } from "@/lib/onboarding/wizard";
 
 gsap.registerPlugin(useGSAP);
 
@@ -32,8 +32,9 @@ function Reveal({ show, mode = "pop", delay = 0, children, position }: { show: b
     if (!group) return;
     if (show) group.visible = true;
     const target = show ? 1 : 0.001;
+    // overwrite : une saisie effacée puis retapée reprend l'animation en cours au lieu de la doubler.
     const vars: gsap.TweenVars = {
-      duration: show ? 0.95 : 0.35, delay: show ? delay : 0, ease: show ? (mode === "pop" ? "back.out(1.5)" : "power3.out") : "power2.in",
+      duration: show ? 0.75 : 0.3, delay: show ? delay : 0, ease: show ? (mode === "pop" ? "back.out(1.5)" : "power3.out") : "power2.in", overwrite: true,
       onUpdate: invalidate, onComplete: () => { if (!show) group.visible = false; invalidate(); },
     };
     if (mode === "grow") gsap.to(group.scale, { y: target, ...vars });
@@ -43,6 +44,17 @@ function Reveal({ show, mode = "pop", delay = 0, children, position }: { show: b
     } else gsap.to(group.scale, { x: target, y: target, z: target, ...vars });
   }, { dependencies: [show] });
   return <group ref={ref} position={position} scale={mode === "grow" ? [1, 0.001, 1] : [0.001, 0.001, 0.001]} visible={false}>{children}</group>;
+}
+
+/** Croissance continue (0 à 1) : la dalle monte d'un cran à chaque champ du compte rempli. */
+function Grow({ amount, children }: { amount: number; children: ReactNode }) {
+  const ref = useRef<THREE.Group>(null);
+  const invalidate = useThree((state) => state.invalidate);
+  useGSAP(() => {
+    if (!ref.current) return;
+    gsap.to(ref.current.scale, { y: Math.max(0.12, amount), duration: 0.55, ease: "back.out(1.6)", overwrite: true, onUpdate: invalidate });
+  }, { dependencies: [amount] });
+  return <group ref={ref} scale={[1, 0.12, 1]}>{children}</group>;
 }
 
 function Box({ size, position, color, rotation, emissive, opacity }: { size: [number, number, number]; position: [number, number, number]; color: string; rotation?: [number, number, number]; emissive?: string; opacity?: number }) {
@@ -85,65 +97,85 @@ function ContactShadow() {
   );
 }
 
-/** Enseigne : texture dessinée dans un canvas 2D (nom du commerce, logo), redessinée à chaque saisie. */
-function Sign({ text, logo }: { text: string; logo: string | null }) {
+/**
+ * Enseigne : texture dessinée dans un canvas 2D (nom du commerce, logo). Le logo n'est décodé qu'une
+ * fois par fichier ; chaque frappe redessine au plus une fois par image (requestAnimationFrame) et
+ * donne un petit rebond à l'enseigne, pour que la boutique réponde au rythme de la saisie.
+ */
+function Sign({ text, logo, tier }: { text: string; logo: string | null; tier: Tier }) {
   const invalidate = useThree((state) => state.invalidate);
-  const canvas = useMemo(() => Object.assign(document.createElement("canvas"), { width: 1024, height: 256 }), []);
+  const board = useRef<THREE.Group>(null);
+  const [width, height] = tier === "high" ? [1024, 256] : [768, 192];
+  const canvas = useMemo(() => Object.assign(document.createElement("canvas"), { width, height }), [width, height]);
   const texture = useMemo(() => {
     const created = new THREE.CanvasTexture(canvas);
     created.colorSpace = THREE.SRGBColorSpace;
-    created.anisotropy = 4;
+    created.anisotropy = tier === "high" ? 4 : 1;
     return created;
-  }, [canvas]);
+  }, [canvas, tier]);
   useEffect(() => () => texture.dispose(), [texture]);
+
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
+    if (!logo) { setImage(null); return; }
     let cancelled = false;
-    const draw = (image: HTMLImageElement | null) => {
-      if (cancelled) return;
+    const loaded = new Image();
+    loaded.src = logo;
+    loaded.decode().then(() => { if (!cancelled) setImage(loaded); }, () => { if (!cancelled) setImage(null); });
+    return () => { cancelled = true; };
+  }, [logo]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const k = width / 1024;
       const context = canvas.getContext("2d")!;
-      const gradient = context.createLinearGradient(0, 0, 1024, 256);
+      const gradient = context.createLinearGradient(0, 0, width, height);
       gradient.addColorStop(0, "#5b4df2");
       gradient.addColorStop(1, "#7f74f8");
-      context.clearRect(0, 0, 1024, 256);
+      context.clearRect(0, 0, width, height);
       context.fillStyle = gradient;
       context.beginPath();
-      context.roundRect(0, 0, 1024, 256, 48);
+      context.roundRect(0, 0, width, height, 48 * k);
       context.fill();
-      let textStart = 70;
+      let textStart = 70 * k;
       if (image) {
         context.fillStyle = "#ffffff";
         context.beginPath();
-        context.arc(128, 128, 88, 0, Math.PI * 2);
+        context.arc(128 * k, 128 * k, 88 * k, 0, Math.PI * 2);
         context.fill();
-        const scale = Math.min(130 / image.width, 130 / image.height);
-        context.drawImage(image, 128 - (image.width * scale) / 2, 128 - (image.height * scale) / 2, image.width * scale, image.height * scale);
-        textStart = 250;
+        const scale = Math.min((130 * k) / image.width, (130 * k) / image.height);
+        context.drawImage(image, 128 * k - (image.width * scale) / 2, 128 * k - (image.height * scale) / 2, image.width * scale, image.height * scale);
+        textStart = 250 * k;
       }
       const label = text || "QADR OPS";
       const rtl = /[֐-ࣿ]/.test(label);
-      let size = 104;
+      const room = width - textStart - 60 * k;
+      let size = 104 * k;
       context.fillStyle = "#ffffff";
       context.textBaseline = "middle";
       context.direction = rtl ? "rtl" : "ltr";
       do {
         context.font = `800 ${size}px "Plus Jakarta Sans", "Noto Sans Arabic", "Segoe UI", system-ui, sans-serif`;
-        size -= 4;
-      } while (context.measureText(label).width > 1024 - textStart - 60 && size > 40);
+        size -= 4 * k;
+      } while (context.measureText(label).width > room && size > 40 * k);
       context.textAlign = "center";
-      context.fillText(label, textStart + (1024 - textStart - 40) / 2, 132, 1024 - textStart - 60);
+      context.fillText(label, textStart + (width - textStart - 40 * k) / 2, 132 * k, room);
       texture.needsUpdate = true;
       invalidate();
-    };
-    if (logo) {
-      const image = new Image();
-      image.onload = () => draw(image);
-      image.onerror = () => draw(null);
-      image.src = logo;
-    } else draw(null);
-    return () => { cancelled = true; };
-  }, [text, logo, canvas, texture, invalidate]);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [text, image, canvas, texture, invalidate, width, height]);
+
+  // Rebond discret à chaque modification du texte (une seule animation à la fois).
+  const typed = useRef(false);
+  useGSAP(() => {
+    if (!board.current) return;
+    if (!typed.current) { typed.current = true; return; }
+    gsap.fromTo(board.current.scale, { x: 1.045, y: 1.08 }, { x: 1, y: 1, duration: 0.35, ease: "back.out(3)", overwrite: true, onUpdate: invalidate });
+  }, { dependencies: [text, image] });
+
   return (
-    <group position={[0, 3.18, 1.66]}>
+    <group ref={board} position={[0, 3.18, 1.66]}>
       <Box size={[2.9, 0.82, 0.12]} position={[0, 0, -0.05]} color={colors.night} />
       <mesh position={[0, 0, 0.02]}>
         <planeGeometry args={[2.78, 0.7]} />
@@ -304,42 +336,66 @@ export function fittedCamera(stage: SceneStage, aspect: number) {
   return { position: new THREE.Vector3(...view.direction).normalize().multiplyScalar(distance).add(target), target };
 }
 
+/**
+ * Caméra : un seul état (position, point visé, décalage du pointeur) composé à chaque image. Les
+ * glissements sont des quickTo qui se recalent sur la nouvelle cible sans repartir de zéro : un
+ * changement d'étape, un redimensionnement (bandeau mobile qui se réduit pendant la saisie) et la
+ * parallaxe ne se disputent plus la même propriété, d'où l'absence d'à-coups.
+ */
 function Rig({ stage, tier }: { stage: SceneStage; tier: Tier }) {
   const { camera, invalidate, gl, size } = useThree();
   const aspect = size.width / Math.max(size.height, 1);
-  const target = useRef(new THREE.Vector3(...views.account.target));
-  const first = useRef(true);
-  useGSAP(() => {
+  const rig = useRef({ position: new THREE.Vector3(), target: new THREE.Vector3(), offset: { x: 0 } });
+  const movers = useRef<((value: number) => void)[] | null>(null);
+  const apply = useCallback(() => {
+    const { position, target, offset } = rig.current;
+    camera.position.set(position.x + offset.x, position.y, position.z);
+    camera.lookAt(target);
+    invalidate();
+  }, [camera, invalidate]);
+
+  useEffect(() => {
     const goal = fittedCamera(stage, aspect);
-    const update = () => { camera.lookAt(target.current); invalidate(); };
-    if (first.current) {
-      // Premier cadrage immédiat ; les étapes suivantes glissent doucement.
-      first.current = false;
-      camera.position.copy(goal.position);
-      target.current.copy(goal.target);
-      update();
+    const values = [goal.position.x, goal.position.y, goal.position.z, goal.target.x, goal.target.y, goal.target.z];
+    if (!movers.current) {
+      // Premier cadrage immédiat ; ensuite tout glisse.
+      rig.current.position.copy(goal.position);
+      rig.current.target.copy(goal.target);
+      const { position, target } = rig.current;
+      const vars = { duration: 1.1, ease: "power3.out", onUpdate: apply };
+      movers.current = [
+        gsap.quickTo(position, "x", vars), gsap.quickTo(position, "y", vars), gsap.quickTo(position, "z", vars),
+        gsap.quickTo(target, "x", vars), gsap.quickTo(target, "y", vars), gsap.quickTo(target, "z", vars),
+      ];
+      apply();
       return;
     }
-    gsap.to(camera.position, { x: goal.position.x, y: goal.position.y, z: goal.position.z, duration: 1.4, ease: "power2.inOut", onUpdate: update });
-    gsap.to(target.current, { x: goal.target.x, y: goal.target.y, z: goal.target.z, duration: 1.4, ease: "power2.inOut", onUpdate: update });
-  }, { dependencies: [stage, aspect] });
+    movers.current.forEach((move, index) => move(values[index]!));
+  }, [stage, aspect, apply]);
+
+  useEffect(() => () => { gsap.killTweensOf([rig.current.position, rig.current.target, rig.current.offset]); }, []);
+
   useEffect(() => {
     if (tier !== "high") return;
-    // Parallaxe très discrète au pointeur (quelques degrés), uniquement sur ordinateur performant.
+    // Parallaxe très discrète au pointeur, uniquement sur ordinateur performant ; elle décale la caméra sans toucher au cadrage d'étape.
     const element = gl.domElement;
-    const base = fittedCamera(stage, aspect).position.x;
-    const xTo = gsap.quickTo(camera.position, "x", { duration: 1.2, ease: "power3", onUpdate: () => { camera.lookAt(target.current); invalidate(); } });
+    const xTo = gsap.quickTo(rig.current.offset, "x", { duration: 1.2, ease: "power3", onUpdate: apply });
     const onMove = (event: PointerEvent) => {
       const bounds = element.getBoundingClientRect();
-      xTo(base + ((event.clientX - bounds.left) / bounds.width - 0.5) * 0.6);
+      xTo(((event.clientX - bounds.left) / bounds.width - 0.5) * 0.6);
     };
+    const onLeave = () => xTo(0);
     element.addEventListener("pointermove", onMove);
-    return () => element.removeEventListener("pointermove", onMove);
-  }, [camera, gl, invalidate, stage, tier, aspect]);
+    element.addEventListener("pointerleave", onLeave);
+    return () => { element.removeEventListener("pointermove", onMove); element.removeEventListener("pointerleave", onLeave); };
+  }, [gl, apply, tier]);
   return null;
 }
 
-function Shop({ plan, tier, logo }: { plan: ScenePlan; tier: Tier; logo: string }) {
+/* La structure ne se redessine pas quand seul le texte de l'enseigne change (l'enseigne a son propre composant). */
+const Shop = memo(ShopBody, (a, b) => a.tier === b.tier && samePlan({ ...a.plan, signText: "" }, { ...b.plan, signText: "" }));
+
+function ShopBody({ plan, tier }: { plan: ScenePlan; tier: Tier }) {
   const invalidate = useThree((state) => state.invalidate);
   const doorLeft = useRef<THREE.Group>(null);
   const doorRight = useRef<THREE.Group>(null);
@@ -350,8 +406,8 @@ function Shop({ plan, tier, logo }: { plan: ScenePlan; tier: Tier; logo: string 
       gsap.to(doorLeft.current.position, { x: open ? -1.02 : -0.35, duration: 1.1, delay: open ? 0.35 : 0, ease: "power3.inOut", onUpdate: invalidate });
       gsap.to(doorRight.current.position, { x: open ? 1.02 : 0.35, duration: 1.1, delay: open ? 0.35 : 0, ease: "power3.inOut", onUpdate: invalidate });
     }
-    if (light.current) gsap.to(light.current, { intensity: plan.welcome ? 7 : plan.finished ? 3.5 : plan.interior ? 1.5 : 0, duration: 1.2, ease: "power2.out", onUpdate: invalidate });
-  }, { dependencies: [plan.welcome, plan.finished, plan.interior] });
+    if (light.current) gsap.to(light.current, { intensity: plan.welcome ? 7 : plan.finished ? 3.5 : plan.lights ? 1.5 : 0, duration: 0.9, ease: "power2.out", overwrite: true, onUpdate: invalidate });
+  }, { dependencies: [plan.welcome, plan.finished, plan.lights] });
 
   return (
     <group position={[0, -0.2, 0]}>
@@ -359,10 +415,10 @@ function Shop({ plan, tier, logo }: { plan: ScenePlan; tier: Tier; logo: string 
       <Cylinder radius={3.9} height={0.32} position={[0, -0.16, 0]} color={colors.plinth} segments={tier === "high" ? 64 : 32} />
       <Cylinder radius={3.95} height={0.06} position={[0, -0.32, 0]} color={colors.plinthEdge} segments={tier === "high" ? 64 : 32} />
 
-      <Reveal show={plan.foundation} mode="grow">
+      <Grow amount={plan.groundwork}>
         <Box size={[5.4, 0.2, 4.0]} position={[0, 0.1, 0]} color={colors.nightSoft} />
         <Box size={[5.0, 0.04, 3.6]} position={[0, 0.22, 0]} color={colors.floor} />
-      </Reveal>
+      </Grow>
 
       <Reveal show={plan.structure} mode="grow" delay={0.05}>
         <Box size={[4.9, 2.5, 0.16]} position={[0, 1.45, -1.75]} color={colors.wall} />
@@ -391,8 +447,6 @@ function Shop({ plan, tier, logo }: { plan: ScenePlan; tier: Tier; logo: string 
         <Reveal show={plan.structure} mode="pop" delay={0.45}><Box size={[0.68, 1.8, 0.04]} position={[0, 1.12, 1.7]} color={colors.glass} opacity={0.45} /></Reveal>
       </group>
 
-      <Reveal show={plan.sign} mode="pop" delay={0.5}><Sign text={plan.signText} logo={plan.logo ? logo : null} /></Reveal>
-
       {(["hardware", "phones", "clothing", "general"] as const).map((activity) => (
         <Reveal key={activity} show={plan.activity === activity} mode="pop" delay={0.3}><ActivityProps activity={activity} tier={tier} /></Reveal>
       ))}
@@ -401,6 +455,9 @@ function Shop({ plan, tier, logo }: { plan: ScenePlan; tier: Tier; logo: string 
         <Box size={[1.5, 0.85, 0.6]} position={[0, 0.65, -0.55]} color={colors.nightSoft} />
         <Box size={[1.6, 0.06, 0.7]} position={[0, 1.1, -0.55]} color={colors.white} />
         <Box size={[0.36, 0.24, 0.3]} position={[0.4, 1.26, -0.55]} color={colors.night} emissive={colors.brand} />
+      </Reveal>
+
+      <Reveal show={plan.lights} mode="drop" position={[0, 0, 0]}>
         {[-1.4, 0, 1.4].map((x) => <Cylinder key={x} radius={0.13} height={0.08} position={[x, 2.48, 0.1]} color={colors.bulb} />)}
       </Reveal>
 
@@ -461,7 +518,10 @@ export default function ShopScene3D({ plan, stage, tier, logo, onContextLost }: 
         <hemisphereLight args={["#ffffff", colors.plinthEdge, 0.7]} />
         <directionalLight position={[5, 9, 7]} intensity={1.6} />
         <Rig stage={stage} tier={tier} />
-        <Shop plan={plan} tier={tier} logo={logo} />
+        <Shop plan={plan} tier={tier} />
+        <group position={[0, -0.2, 0]}>
+          <Reveal show={plan.sign} mode="pop" delay={0.15}><Sign text={plan.signText} logo={plan.logo ? logo : null} tier={tier} /></Reveal>
+        </group>
       </Canvas>
     </div>
   );

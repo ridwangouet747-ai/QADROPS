@@ -1,0 +1,10 @@
+{
+  "port": 17777,
+  "allowedOrigins": ["http://localhost:3001", "https://app.qadrops.example"],
+  "printers": [
+    { "id": "comptoir", "name": "Imprimante réseau du comptoir", "transport": "tcp", "host": "192.168.1.50", "port": 9100, "paperWidthMm": 80, "profile": "epson" },
+    { "id": "usb-windows", "name": "XPrinter USB (partage Windows)", "transport": "windows_share", "share": "XP58", "paperWidthMm": 58, "profile": "xprinter" },
+    { "id": "usb-linux", "name": "Imprimante USB (Linux)", "transport": "device", "path": "/dev/usb/lp0", "paperWidthMm": 80 },
+    { "id": "demo", "name": "Imprimante simulée", "transport": "simulated", "file": "./tickets-simules.bin", "paperWidthMm": 58 }
+  ]
+}
