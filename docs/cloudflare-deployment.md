@@ -1,5 +1,7 @@
 # Déploiement de l'application sur Cloudflare Workers
 
+> **Mis de côté le 2026-11-01 (décision D-01, mission 11) :** l'application est hébergée sur Vercel, avec Cloudflare devant. Voir `docs/architecture/cloudflare-vercel-ownership.md`. Ce guide et les fichiers Workers restent pour mémoire. Les constats sur `.env.local` et sur la taille du Worker ne valent que pour OpenNext.
+
 Décision du propriétaire (2026-11-01) : l'application `apps/web` (landing page, espace commerçant `/business`, console Super Admin `/platform`) est hébergée sur **Cloudflare Workers**, pas sur Vercel. Ce guide remplace le § 4 (Vercel) et le § 12 (crons) de `docs/production-setup-guide.md`.
 
 **Rien n'a été déployé.** Aucun compte Cloudflare n'a été relié, aucun secret créé.

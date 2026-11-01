@@ -27,4 +27,12 @@ describe("cronRequest", () => {
     const crons = JSON.parse(config.replace(/^\s*\/\/.*$/gm, "")).triggers.crons as string[];
     expect([...crons].sort()).toEqual(Object.keys(CRON_ROUTES).sort());
   });
+
+  it("déclare dans vercel.json les mêmes horaires et routes", () => {
+    const config = JSON.parse(readFileSync(resolve(process.cwd(), "vercel.json"), "utf8")) as {
+      crons: { path: string; schedule: string }[];
+    };
+    const declared = Object.fromEntries(config.crons.map(({ schedule, path }) => [schedule, path]));
+    expect(declared).toEqual(CRON_ROUTES);
+  });
 });
