@@ -1,5 +1,5 @@
 import { getAuth, type QadrAuth } from "@/lib/auth/server";
-import { createDatabase } from "@/lib/db/client";
+import { getDatabase } from "@/lib/db/client";
 import { BusinessContextError } from "./business-context";
 import type { CommercialDatabase } from "./commercial";
 
@@ -10,6 +10,6 @@ export async function getAccountContext(headers: Headers): Promise<{ auth: QadrA
   const auth = await getAuth();
   const current = await auth.api.getSession({ headers });
   if (!current) throw new BusinessContextError("Authentification requise.", 401);
-  const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : createDatabase();
+  const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : getDatabase();
   return { auth, db, userId: current.user.id, email: current.user.email, emailVerified: current.user.emailVerified, activeBusinessId: current.session.activeOrganizationId ?? null };
 }

@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { createDatabase } from "@/lib/db/client";
+import { getDatabase } from "@/lib/db/client";
 import { errorResponse } from "@/lib/domain/business-context";
 import { expireDueSubscriptions } from "@/lib/domain/subscription-lifecycle";
 
@@ -17,6 +17,6 @@ export async function GET(request: Request) {
   const expected = Buffer.from(`Bearer ${secret}`);
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return new Response(null, { status: 401 });
   try {
-    return Response.json(await expireDueSubscriptions(createDatabase()));
+    return Response.json(await expireDueSubscriptions(getDatabase()));
   } catch (error) { return errorResponse(error); }
 }

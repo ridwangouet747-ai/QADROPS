@@ -1,0 +1,4 @@
+ALTER TABLE "notification" DROP CONSTRAINT "notification_link_check";--> statement-breakpoint
+ALTER TABLE "notification_template" DROP CONSTRAINT "notification_template_link_check";--> statement-breakpoint
+ALTER TABLE "notification" ADD CONSTRAINT "notification_link_check" CHECK ("notification"."link_path" is null or "notification"."link_path" ~ '^/([A-Za-z0-9_-][A-Za-z0-9/_-]*)?$');--> statement-breakpoint
+ALTER TABLE "notification_template" ADD CONSTRAINT "notification_template_link_check" CHECK ("notification_template"."link_path" is null or "notification_template"."link_path" ~ '^/([A-Za-z0-9_-][A-Za-z0-9/_-]*)?$');

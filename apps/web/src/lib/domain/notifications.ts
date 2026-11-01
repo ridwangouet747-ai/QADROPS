@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "../auth/permissions";
 import {
@@ -251,7 +251,9 @@ async function retryPushDeliveries(db: CommercialDatabase, now: Date, sender: Pu
     .from(notificationDelivery).innerJoin(notification, eq(notification.id, notificationDelivery.notificationId))
     .innerJoin(pushSubscription, eq(pushSubscription.id, notificationDelivery.subscriptionId))
     .leftJoin(notificationPreference, eq(notificationPreference.userId, notification.userId))
-    .where(and(eq(notificationDelivery.status, "retry"), lte(notificationDelivery.nextAttemptAt, now), isNull(pushSubscription.disabledAt))).limit(50);
+    // L'appareil doit encore appartenir au destinataire : sinon une relance partirait vers le compte qui l'a repris.
+    .where(and(eq(notificationDelivery.status, "retry"), lte(notificationDelivery.nextAttemptAt, now), isNull(pushSubscription.disabledAt),
+      eq(pushSubscription.userId, notification.userId))).limit(50);
   let sent = 0, failed = 0;
   for (const row of due) {
     const ok = await deliver(db, sender, row.device, { notificationId: row.item.id, title: row.item.title, locale: (row.locale ?? "fr") as NotificationLocale,
@@ -314,7 +316,8 @@ export async function markNotificationsRead(db: CommercialDatabase, inbox: Inbox
 
 export async function getNotificationPreferences(db: CommercialDatabase, userId: string) {
   const [stored] = await db.select().from(notificationPreference).where(eq(notificationPreference.userId, userId)).limit(1);
-  const devices = await db.select({ id: pushSubscription.id, deviceLabel: pushSubscription.deviceLabel, createdAt: pushSubscription.createdAt, lastSuccessAt: pushSubscription.lastSuccessAt })
+  // L'adresse push (celle des appareils de la personne elle-même) permet à l'écran de reconnaître le navigateur courant.
+  const devices = await db.select({ id: pushSubscription.id, endpoint: pushSubscription.endpoint, deviceLabel: pushSubscription.deviceLabel, createdAt: pushSubscription.createdAt, lastSuccessAt: pushSubscription.lastSuccessAt })
     .from(pushSubscription).where(and(eq(pushSubscription.userId, userId), isNull(pushSubscription.disabledAt))).orderBy(desc(pushSubscription.createdAt));
   return {
     locale: (stored?.locale ?? "fr") as NotificationLocale, pushEnabled: stored?.pushEnabled ?? false,
@@ -342,8 +345,9 @@ const subscriptionInput = z.object({
 });
 
 /**
- * Enregistre l'appareil courant. Un même navigateur réutilise son adresse push : elle est rattachée à
- * l'utilisateur connecté (changement de compte sur le même appareil).
+ * Enregistre l'appareil courant. Une adresse push déjà active pour un autre compte n'est jamais reprise
+ * (409) : le navigateur se réabonne alors pour obtenir une adresse neuve. Une adresse désactivée peut
+ * être rattachée à l'utilisateur connecté.
  */
 export async function registerPushSubscription(db: CommercialDatabase, userId: string, raw: unknown, now = new Date()) {
   const input = subscriptionInput.parse(raw);
@@ -351,7 +355,9 @@ export async function registerPushSubscription(db: CommercialDatabase, userId: s
   const id = randomUUID();
   const [row] = await db.insert(pushSubscription).values({ id, userId, endpoint: input.endpoint, p256dh: input.keys.p256dh, auth: input.keys.auth, deviceLabel: input.deviceLabel || null })
     .onConflictDoUpdate({ target: pushSubscription.endpoint, set: { userId, p256dh: input.keys.p256dh, auth: input.keys.auth, deviceLabel: input.deviceLabel || null,
-      disabledAt: null, disabledReason: null, failureCount: 0, createdAt: now } }).returning({ id: pushSubscription.id });
+      disabledAt: null, disabledReason: null, failureCount: 0, createdAt: now },
+      setWhere: or(eq(pushSubscription.userId, userId), isNotNull(pushSubscription.disabledAt)) }).returning({ id: pushSubscription.id });
+  if (!row) throw new CommercialError("Cet appareil est déjà relié à un autre compte.", 409, "push_endpoint_taken");
   await db.insert(notificationPreference).values({ userId, pushEnabled: true }).onConflictDoUpdate({ target: notificationPreference.userId, set: { pushEnabled: true, updatedAt: now } });
   return { id: row!.id };
 }
@@ -362,6 +368,14 @@ export async function removePushSubscription(db: CommercialDatabase, userId: str
     .where(and(eq(pushSubscription.id, subscriptionId), eq(pushSubscription.userId, userId), isNull(pushSubscription.disabledAt))).returning({ id: pushSubscription.id });
   if (!removed.length) throw new CommercialError("Appareil introuvable.", 404, "not_found");
   return { removed: true };
+}
+
+/** Déconnexion : ce navigateur ne doit plus recevoir les notifications du compte. Sans effet si l'adresse n'est pas à lui. */
+export async function forgetPushEndpoint(db: CommercialDatabase, userId: string, raw: unknown, now = new Date()) {
+  const { endpoint } = z.object({ endpoint: z.string().url().max(1000) }).parse(raw);
+  const removed = await db.update(pushSubscription).set({ disabledAt: now, disabledReason: "signed_out", p256dh: "", auth: "" })
+    .where(and(eq(pushSubscription.endpoint, endpoint), eq(pushSubscription.userId, userId), isNull(pushSubscription.disabledAt))).returning({ id: pushSubscription.id });
+  return { removed: removed.length > 0 };
 }
 
 /* ------------------------------------------------------------------ 5. Console Super Admin */
@@ -383,7 +397,8 @@ export async function listNotificationTemplates(db: CommercialDatabase, actorUse
 
 const templateInput = z.object({
   key: z.string().regex(/^[a-z][a-z0-9_.-]{2,60}$/), kind: z.enum(["event", "announcement"]), category: z.enum(categories), icon: z.enum(icons),
-  linkPath: z.string().regex(/^\/[A-Za-z0-9/_-]*$/).max(200).nullable(), active: z.boolean(),
+  // « //hote » serait une adresse externe pour le navigateur : le premier caractère après « / » ne peut pas être « / ».
+  linkPath: z.string().regex(/^\/(?:[A-Za-z0-9_-][A-Za-z0-9/_-]*)?$/).max(200).nullable(), active: z.boolean(),
   titleFr: z.string().max(120), titleEn: z.string().max(120), titleAr: z.string().max(120), bodyFr: z.string().max(500), bodyEn: z.string().max(500), bodyAr: z.string().max(500),
 });
 

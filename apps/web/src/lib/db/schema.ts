@@ -344,7 +344,7 @@ export const notificationTemplate = pgTable("notification_template", {
   check("notification_template_category_check", sql`${t.category} in ('commercial','security','subscription','system','announcement')`),
   check("notification_template_text_length", sql`char_length(${t.titleFr}) between 1 and 120 and char_length(${t.titleEn}) between 1 and 120 and char_length(${t.titleAr}) between 1 and 120
     and char_length(${t.bodyFr}) between 1 and 500 and char_length(${t.bodyEn}) between 1 and 500 and char_length(${t.bodyAr}) between 1 and 500`),
-  check("notification_template_link_check", sql`${t.linkPath} is null or ${t.linkPath} ~ '^/[A-Za-z0-9/_-]*$'`)]);
+  check("notification_template_link_check", sql`${t.linkPath} is null or ${t.linkPath} ~ '^/([A-Za-z0-9_-][A-Za-z0-9/_-]*)?$'`)]);
 /** Annonce envoyée à tous les commerces ou à un segment décidé par le serveur ; pausable. */
 export const notificationCampaign = pgTable("notification_campaign", {
   id: text("id").primaryKey(), templateId: text("template_id").notNull().references(() => notificationTemplate.id, { onDelete: "restrict" }),
@@ -377,7 +377,7 @@ export const notification = pgTable("notification", {
   title: text("title").notNull(), body: text("body").notNull(), linkPath: text("link_path"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), readAt: timestamp("read_at", { withTimezone: true }),
 }, (t) => [unique("notification_outbox_user_unique").on(t.outboxId, t.userId), index("notification_user_idx").on(t.userId, t.businessId, t.createdAt),
-  index("notification_unread_idx").on(t.userId, t.readAt), check("notification_link_check", sql`${t.linkPath} is null or ${t.linkPath} ~ '^/[A-Za-z0-9/_-]*$'`)]);
+  index("notification_unread_idx").on(t.userId, t.readAt), check("notification_link_check", sql`${t.linkPath} is null or ${t.linkPath} ~ '^/([A-Za-z0-9_-][A-Za-z0-9/_-]*)?$'`)]);
 /** Abonnement Web Push d'un appareil (navigateur) ; désactivé quand le service push répond 404/410. */
 export const pushSubscription = pgTable("push_subscription", {
   id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => user.id, { onDelete: "restrict" }),

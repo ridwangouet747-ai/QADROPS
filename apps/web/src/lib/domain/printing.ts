@@ -115,7 +115,7 @@ export async function createPrintJob(db: CommercialDatabase, context: Context, r
     if (!original || original.saleId !== input.saleId) throw new CommercialError("Impression d’origine introuvable.", 404, "not_found");
     reprintOf = original.id;
   }
-  const id = randomUUID();
+  let id = randomUUID();
   const [created] = await db.insert(printJob).values({ id, businessId: context.businessId, deviceId: device.id, saleId: input.saleId, kind: "receipt", reprintOfJobId: reprintOf,
     createdByUserId: context.actorUserId, createdAt: now, updatedAt: now }).onConflictDoNothing().returning({ id: printJob.id });
   let job: { id: string; status: string; duplicate: boolean } = { id, status: "pending", duplicate: false };
@@ -124,6 +124,15 @@ export async function createPrintJob(db: CommercialDatabase, context: Context, r
       eq(printJob.deviceId, device.id), eq(printJob.kind, "receipt"), isNull(printJob.reprintOfJobId))).limit(1);
     job = { id: existing!.id, status: existing!.status, duplicate: true };
     if (existing!.status === "printed" || existing!.status === "canceled") return { job: { ...job, kind: "receipt" as const }, payload: null, preview: null, unsupportedCharacters: 0 };
+    if (existing!.status === "failed") {
+      // Relance depuis la caisse après un échec : renvoyer la même tâche ferait rejouer l'échec mémorisé
+      // par le service local. On crée donc une réimpression liée, tracée comme les autres.
+      id = randomUUID();
+      reprintOf = existing!.id;
+      await db.insert(printJob).values({ id, businessId: context.businessId, deviceId: device.id, saleId: input.saleId, kind: "receipt", reprintOfJobId: reprintOf,
+        createdByUserId: context.actorUserId, createdAt: now, updatedAt: now });
+      job = { id, status: "pending", duplicate: false };
+    }
   }
   if (reprintOf) {
     await db.insert(auditEvent).values({ id: randomUUID(), businessId: context.businessId, actorUserId: context.actorUserId, eventType: "printer.receipt_reprinted", entityType: "sale", entityId: input.saleId, metadata: { jobId: id } });

@@ -12,7 +12,7 @@ export async function getSaleReceipt(db: CommercialDatabase, input: { businessId
     throw new CommercialError("Permission de lecture de vente refusée.", 403);
   }
   const [saleRecord] = await db.select({
-    id: sale.id, reference: sale.reference, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
+    id: sale.id, reference: sale.reference, status: sale.status, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
     subtotalXof: sale.subtotalXof, discountXof: sale.discountXof,
   }).from(sale).where(and(
     eq(sale.businessId, input.businessId), eq(sale.id, input.saleId),

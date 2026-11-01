@@ -8,7 +8,7 @@ import type { PushResult, PushSender, PushTarget } from "../notifications/web-pu
 import { createProduct, createSale } from "./commercial";
 import { closeCashSession, openCashSession } from "./cash-session";
 import {
-  createAnnouncementCampaign, enqueueExpiringSubscriptions, getNotificationActivity, listNotifications, listNotificationTemplates, markNotificationsRead,
+  createAnnouncementCampaign, enqueueExpiringSubscriptions, forgetPushEndpoint, getNotificationActivity, listNotifications, listNotificationTemplates, markNotificationsRead,
   processNotificationOutbox, registerPushSubscription, removePushSubscription, saveNotificationTemplate, sendTestNotification, setCampaignStatus,
   unreadNotificationCount, updateNotificationPreferences,
 } from "./notifications";
@@ -213,5 +213,29 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
     expect(JSON.stringify(activity)).not.toMatch(/Ciment|Bakary|payload/);
     expect(activity.deliveries.some((row) => row.status === "sent")).toBe(true);
     await expect(getNotificationActivity(db, owner)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("mission 11 : un appareil ne passe pas d'un compte à l'autre, ni à l'enregistrement ni par une relance ; liens « // » refusés", async () => {
+    const endpoint = "https://web.push.apple.com/admin-down";
+    await registerPushSubscription(db, admin, { endpoint, keys });
+    await sendTestNotification(db, admin, "sale.created");
+    await processNotificationOutbox(db, { sender: fakePush().sender });
+    const [pending] = (await client.query<{ id: string }>("select d.id from notification_delivery d join push_subscription s on s.id=d.subscription_id where s.endpoint=$1 and d.status='retry'", [endpoint])).rows;
+    expect(pending).toBeDefined();
+    // Adresse encore active pour l'administrateur : un autre compte ne peut ni la reprendre ni l'oublier.
+    await expect(registerPushSubscription(db, outsider, { endpoint, keys })).rejects.toMatchObject({ status: 409, code: "push_endpoint_taken" });
+    expect(await forgetPushEndpoint(db, outsider, { endpoint })).toEqual({ removed: false });
+    // Déconnexion de l'administrateur, puis un autre compte s'abonne sur le même navigateur.
+    expect(await forgetPushEndpoint(db, admin, { endpoint })).toEqual({ removed: true });
+    await registerPushSubscription(db, outsider, { endpoint, keys });
+    // La relance due de l'administrateur ne part pas vers le compte qui a repris l'appareil.
+    await client.query("update notification_delivery set next_attempt_at=now() - interval '1 minute' where id=$1", [pending!.id]);
+    const after = fakePush();
+    await processNotificationOutbox(db, { sender: after.sender });
+    expect(after.sent.filter((message) => message.endpoint === endpoint)).toHaveLength(0);
+
+    await expect(saveNotificationTemplate(db, admin, { key: "annonce-externe", kind: "announcement", category: "announcement", icon: "info", linkPath: "//2130706433", active: true,
+      titleFr: "x", titleEn: "x", titleAr: "x", bodyFr: "x", bodyEn: "x", bodyAr: "x" })).rejects.toMatchObject({ name: "ZodError" });
+    await expect(client.query("update notification_template set link_path='//2130706433' where key='annonce-nouveautes'")).rejects.toThrow(/notification_template_link_check/);
   });
 });

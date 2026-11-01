@@ -76,6 +76,27 @@ describe("module d'impression thermique (PGlite)", () => {
     expect(history[0]).toMatchObject({ reference: expect.stringMatching(/^V-/), deviceName: "Caisse 1" });
   });
 
+  it("après un échec, relancer depuis la caisse crée une réimpression liée au lieu de rejouer l'échec", async () => {
+    const variant = (await createProduct(db, { businessId: biz, actorUserId: owner, name: "Pagne", salePriceXof: "5000" })).variantId;
+    await client.query("update product_variant set on_hand='5' where id=$1", [variant]);
+    const failedSaleId = (await createSale(db, { businessId: biz, actorUserId: cashier, idempotencyKey: "p-sale-key-0003", lines: [{ variantId: variant, quantity: "1" }], payments: [{ method: "cash", amountXof: "5000" }] })).id;
+    const first = await createPrintJob(db, { businessId: biz, actorUserId: cashier }, { deviceId, kind: "receipt", saleId: failedSaleId });
+    await reportPrintResult(db, A, first.job.id, { status: "failed", errorCode: "paper_out" });
+    const retry = await createPrintJob(db, { businessId: biz, actorUserId: cashier }, { deviceId, kind: "receipt", saleId: failedSaleId });
+    expect(retry.job).toMatchObject({ status: "pending", duplicate: false });
+    expect(retry.job.id).not.toBe(first.job.id);
+    expect(retry.payload).not.toBeNull();
+    const row = await client.query<{ reprint_of_job_id: string }>("select reprint_of_job_id from print_job where id=$1", [retry.job.id]);
+    expect(row.rows[0]!.reprint_of_job_id).toBe(first.job.id);
+  });
+
+  it("le ticket d'une vente annulée porte le bandeau, depuis la base", async () => {
+    await client.query("update sale set status='voided' where id=$1", [saleId]);
+    const reprint = await createPrintJob(db, A, { deviceId, kind: "receipt", saleId, reprintOfJobId: (await listPrintJobs(db, A, { saleId })).at(-1)!.id });
+    expect(reprint.preview!.join("\n")).toContain("VENTE ANNULÉE");
+    await client.query("update sale set status='completed' where id=$1", [saleId]);
+  });
+
   it("une panne d'imprimante n'affecte jamais la vente", async () => {
     const test = await createPrintJob(db, A, { deviceId, kind: "test" });
     await reportPrintResult(db, A, test.job.id, { status: "failed", errorCode: "paper_out", deviceStatus: "paper_out" });

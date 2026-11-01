@@ -22,6 +22,8 @@ La vente n'est jamais touchée par l'impression : le serveur prépare le ticket 
 - Une seule impression d'origine par (vente, imprimante) : contrainte unique en base. Un double clic ou une impression automatique rejouée renvoie la même tâche ; si elle est déjà imprimée, rien n'est renvoyé à imprimer.
 - **Incertain** : délai dépassé ou coupure pendant l'envoi. Aucune relance automatique : l'historique demande « Le ticket est sorti » / « Il n'est pas sorti » ; dans le second cas, une réimpression (nouvelle tâche liée à l'originale, tracée dans l'audit) est lancée.
 - Impression automatique (option) : après la réponse du serveur à la vente, en arrière-plan, seulement sur l'ordinateur appairé.
+- **Échec** (papier, capot, hors ligne) : relancer l'impression depuis la caisse crée une réimpression liée à la tâche échouée (tracée dans l'audit), jamais la même tâche, que le service local refuserait de rejouer (mission 11).
+- **Vente annulée ou remboursée** : le ticket, à l'écran comme en ESC/POS, porte un bandeau « VENTE ANNULÉE », « VENTE REMBOURSÉE » ou « REMBOURSÉE EN PARTIE » et n'affiche plus de « reste à payer ». Les paiements remboursés sont libellés comme tels (mission 11).
 
 ## 3. Service local d'impression (`apps/print-agent`)
 

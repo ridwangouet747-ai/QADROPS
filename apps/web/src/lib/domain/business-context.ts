@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { and, eq } from "drizzle-orm";
-import { createDatabase } from "@/lib/db/client";
+import { getDatabase } from "@/lib/db/client";
 import { getAuth } from "@/lib/auth/server";
 import { businessMemberAccess, businessProfile, member } from "@/lib/db/schema";
 import type { CommercialDatabase } from "./commercial";
@@ -39,7 +39,7 @@ export async function getBusinessContext(headers: Headers): Promise<{ db: Commer
   if (!authSession) throw new BusinessContextError("Authentification requise.", 401);
   const businessId = authSession.session.activeOrganizationId;
   if (!businessId) throw new BusinessContextError("Sélectionnez d’abord un commerce.", 403);
-  const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : createDatabase();
+  const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : getDatabase();
   await assertActiveMembership(db, businessId, authSession.user.id);
   return { db, businessId, userId: authSession.user.id, actorUserId: authSession.user.id };
 }

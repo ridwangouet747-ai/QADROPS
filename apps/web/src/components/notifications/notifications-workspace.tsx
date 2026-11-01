@@ -20,7 +20,7 @@ type Category = (typeof categories)[number];
 type Preferences = {
   locale: "fr" | "en" | "ar"; pushEnabled: boolean; categories: Record<Category, { inApp: boolean; push: boolean }>;
   quietStartMinute: number | null; quietEndMinute: number | null;
-  devices: { id: string; deviceLabel: string | null; createdAt: string; lastSuccessAt: string | null }[];
+  devices: { id: string; endpoint: string; deviceLabel: string | null; createdAt: string; lastSuccessAt: string | null }[];
 };
 
 export function NotificationsWorkspace() {
@@ -153,6 +153,8 @@ function Settings() {
     setPreferences({ ...preferences, categories: { ...preferences.categories, [category]: { ...preferences.categories[category], [channel]: value } } });
   const transactional = (category: Category) => category === "security" || category === "subscription";
   const unavailable = support !== "supported" ? support : null;
+  // Abonné dans le navigateur ne suffit pas : l'appareil doit aussi être actif côté serveur (sinon on propose de le réactiver).
+  const thisDeviceActive = thisEndpoint !== null && preferences.devices.some((device) => device.endpoint === thisEndpoint);
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
@@ -161,7 +163,7 @@ function Settings() {
         <p className="m-0 text-sm text-fg-muted">{t("notifications.settings.pushLead")}</p>
         {notice && <Alert tone={notice.tone}>{notice.text}</Alert>}
         {unavailable ? <Alert tone="warning">{t(`notifications.settings.states.${unavailable}`)}</Alert>
-          : thisEndpoint ? <p className="m-0 flex items-center gap-2 text-sm font-semibold text-ok"><Icon name="check" className="size-4" />{t("notifications.settings.enabled")}</p>
+          : thisDeviceActive ? <p className="m-0 flex items-center gap-2 text-sm font-semibold text-ok"><Icon name="check" className="size-4" />{t("notifications.settings.enabled")}</p>
           : <Button variant="cta" size="lg" block loading={busy} onClick={() => void enable()} icon={<Icon name="bell" />}>{t("notifications.settings.enable")}</Button>}
         <div>
           <p className="m-0 mb-2 text-xs font-semibold text-fg-subtle">{t("notifications.settings.devices")}</p>
@@ -170,7 +172,7 @@ function Settings() {
               <li key={device.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-line bg-paper px-3 py-2">
                 <span className="min-w-0 text-sm"><span className="block font-semibold text-ink">{device.deviceLabel ?? "—"}</span>
                   <span className="block text-xs text-fg-subtle">{t("notifications.settings.since", { date: formatDateTime(device.createdAt, locale) })}</span></span>
-                <Button variant="ghost" onClick={async () => { await removeDevice(device.id, false); void load(); }}>{t("notifications.settings.removeDevice")}</Button>
+                <Button variant="ghost" onClick={async () => { const current = device.endpoint === thisEndpoint; await removeDevice(device.id, current); if (current) setThisEndpoint(null); void load(); }}>{t("notifications.settings.removeDevice")}</Button>
               </li>
             ))}</ul>
           )}

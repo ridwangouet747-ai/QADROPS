@@ -4,7 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { organization } from "better-auth/plugins";
 import { after } from "next/server";
-import { createDatabase } from "@/lib/db/client";
+import { getDatabase } from "@/lib/db/client";
 import { authSchema, businessProfile, receiptSettings } from "@/lib/db/schema";
 import { assertProductionAuthUrl, readEnvironment } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
@@ -173,6 +173,12 @@ export function createQadrAuth(options: AuthOptions) {
     },
     hooks: {
       before: createAuthMiddleware(async (context) => {
+        // Les routes HTTP du plugin Organization ignorent business_member_access, les quotas et l'audit :
+        // un membre désactivé pouvait retirer un propriétaire. Seuls les services de l'application
+        // (account.ts, appels serveur sans `request`) y accèdent, après leurs propres contrôles.
+        if (context.request && context.path.startsWith("/organization/")) {
+          throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
+        }
         // Sans session, Better Auth enverrait la vérification à n'importe quelle adresse non vérifiée :
         // seul le titulaire connecté peut demander la sienne.
         if (context.path === "/send-verification-email" && !(await getSessionFromCtx(context))) {
@@ -218,7 +224,7 @@ export function getAuth(): Promise<QadrAuth> {
         throw new Error("Better Auth nécessite DATABASE_URL et un BETTER_AUTH_SECRET d’au moins 32 caractères.");
       }
       if (env.NODE_ENV === "production") assertProductionAuthUrl(process.env.BETTER_AUTH_URL);
-      return createQadrAuth({ db: createDatabase(env.DATABASE_URL), secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL,
+      return createQadrAuth({ db: getDatabase(env.DATABASE_URL), secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL,
         isProduction: env.NODE_ENV === "production", emailTransport: resolveEmailTransport(), backgroundTask: runAfterResponse,
         turnstile: { secret: env.TURNSTILE_SECRET_KEY, siteKey: env.NEXT_PUBLIC_TURNSTILE_SITE_KEY } });
     })();

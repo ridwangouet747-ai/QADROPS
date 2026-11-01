@@ -125,6 +125,15 @@ Ordre fixé par la règle du projet : sécurité, puis exactitude, puis utilité
 | 1.4 Impression : statut de la vente, remboursements, relance depuis la caisse (I-1 à I-3) | Tests : vente annulée → bandeau ; paiement remboursé → libellé ; relance après échec → nouvelle tâche |
 | 1.5 Push : retrait de l'appareil courant, déconnexion, propriétaire dans les relances, `//` refusé (P-2 à P-4) | Tests unitaires et d'intégration correspondants |
 
+**État au 2026-11-01 : étapes 1.1 à 1.5 livrées** (commit local de la phase 1). Chaque test de régression a été vu en échec sans sa correction.
+
+- 1.1 : les routes HTTP `/api/auth/organization/*` répondent 404 ; les services de `account.ts` (appels serveur sans requête) passent toujours. Test : `auth-delivery.integration.test.ts`.
+- 1.2 : `src/lib/security-headers.ts` branché dans `next.config.ts` (CSP `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, HSTS en production seulement ; `/sw.js` sans cache). Vérifié dans le navigateur d'aperçu.
+- 1.3 : `getDatabase()` (`src/lib/db/client.ts`) garde un pool par URL et par processus, attaché par `attachDatabasePool` (`@vercel/functions`). **Non vérifié contre Neon** (blocage B-1).
+- 1.4 : bandeau « VENTE ANNULÉE / REMBOURSÉE » sur le ticket ESC/POS et le ticket à l'écran, sans « reste à payer » ; paiements remboursés libellés ; relance après échec = réimpression liée.
+- 1.5 : retrait de l'appareil courant, désabonnement à la déconnexion, relances limitées au propriétaire actuel de l'appareil, adresse active d'un autre compte refusée (409), liens `//` refusés (Zod, contrainte SQL, service worker). Migration locale `0013_push_link_paths.sql` (contraintes seulement), non appliquée à Neon.
+- Reportés : P-5 (`pushsubscriptionchange`) et P-6 (service worker enregistré partout) vont avec la phase 2 (PWA) ; S-5 (limitation de débit partagée) reste ouvert.
+
 ### Phase 2 : PWA et onboarding « All-in »
 
 Aucune définition d'« All-in » n'existe dans le dépôt. On retient donc celle de la mission : un parcours guidé de la découverte à l'installation.

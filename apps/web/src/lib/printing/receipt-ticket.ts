@@ -7,7 +7,7 @@ import { EscPosBuilder, leftRight, wrap, type PaperWidth } from "./escpos";
 
 export type ReceiptInput = {
   business: { name: string; displayName?: string | null; phone: string | null; address: string | null; footer: string | null; timezone?: string | null };
-  sale: { reference: string; occurredAt: Date | string; totalXof: bigint | string; subtotalXof?: bigint | string; discountXof?: bigint | string };
+  sale: { reference: string; status?: string; occurredAt: Date | string; totalXof: bigint | string; subtotalXof?: bigint | string; discountXof?: bigint | string };
   lines: { name: string; variant: string; quantity: string; unitPriceXof: bigint | string; totalXof: bigint | string; lineDiscountXof?: bigint | string }[];
   payments: { method: string; amountXof: bigint | string; status: string }[];
 };
@@ -15,9 +15,13 @@ export type TicketLanguage = "fr" | "en";
 
 const labels = {
   fr: { receipt: "Ticket", date: "Date", subtotal: "Sous-total", discount: "Remise", total: "TOTAL", due: "Reste à payer", pending: "en attente", failed: "échoué",
+    refunded: "remboursé", partiallyRefunded: "remboursé en partie",
+    saleStatus: { voided: "VENTE ANNULÉE", refunded: "VENTE REMBOURSÉE", partially_refunded: "REMBOURSÉE EN PARTIE" } as Record<string, string>,
     methods: { cash: "Espèces", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "Autre" } as Record<string, string>,
     test: "Page de test Qadr Ops", testLine: "Si ce texte est lisible, l'imprimante fonctionne.", accents: "Accents : é è ê à â ç ù û ô ï ë œ € °", width: "Largeur" },
   en: { receipt: "Receipt", date: "Date", subtotal: "Subtotal", discount: "Discount", total: "TOTAL", due: "Still due", pending: "pending", failed: "failed",
+    refunded: "refunded", partiallyRefunded: "partly refunded",
+    saleStatus: { voided: "SALE VOIDED", refunded: "SALE REFUNDED", partially_refunded: "PARTLY REFUNDED" } as Record<string, string>,
     methods: { cash: "Cash", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "Other" } as Record<string, string>,
     test: "Qadr Ops test page", testLine: "If you can read this, the printer works.", accents: "Accents: é è ê à â ç ù û ô ï ë œ € °", width: "Width" },
 };
@@ -51,6 +55,9 @@ export function buildReceiptTicket(input: ReceiptInput, width: PaperWidth, langu
   if (input.business.address) for (const line of wrap(input.business.address, columns)) ticket.line(line);
   if (input.business.phone) ticket.line(input.business.phone);
   ticket.align("left").rule();
+  // Une vente annulée ou remboursée ne doit jamais ressortir comme un ticket valide.
+  const statusBanner = input.sale.status ? text.saleStatus[input.sale.status] : undefined;
+  if (statusBanner) ticket.align("center").bold(true).size("tall").line(statusBanner).size("normal").bold(false).align("left").rule();
   for (const line of leftRight(text.receipt, input.sale.reference, columns)) ticket.line(line);
   for (const line of leftRight(text.date, formatDate(input.sale.occurredAt, input.business.timezone || "Africa/Abidjan", language), columns)) ticket.line(line);
   ticket.rule();
@@ -71,11 +78,13 @@ export function buildReceiptTicket(input: ReceiptInput, width: PaperWidth, langu
   ticket.size("normal").bold(false);
   let confirmed = 0n;
   for (const payment of input.payments) {
-    const status = payment.status === "pending" ? ` (${text.pending})` : payment.status === "failed" ? ` (${text.failed})` : "";
-    if (payment.status === "confirmed") confirmed += BigInt(payment.amountXof);
+    const label = ({ pending: text.pending, failed: text.failed, refunded: text.refunded, partially_refunded: text.partiallyRefunded } as Record<string, string>)[payment.status];
+    const status = label ? ` (${label})` : "";
+    if (payment.status === "confirmed" || payment.status === "partially_refunded") confirmed += BigInt(payment.amountXof);
     for (const line of leftRight(`${text.methods[payment.method] ?? payment.method}${status}`, formatAmount(payment.amountXof), columns)) ticket.line(line);
   }
-  const due = BigInt(input.sale.totalXof) - confirmed;
+  // Le « reste à payer » n'a de sens que pour une vente en cours ; après annulation ou remboursement il serait trompeur.
+  const due = statusBanner ? 0n : BigInt(input.sale.totalXof) - confirmed;
   if (due > 0n) { ticket.bold(true); for (const line of leftRight(text.due, formatAmount(due), columns)) ticket.line(line); ticket.bold(false); }
   if (input.business.footer) { ticket.feed().align("center"); for (const line of wrap(input.business.footer, columns)) ticket.line(line); }
   ticket.feed(2).cut();

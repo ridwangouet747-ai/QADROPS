@@ -9,7 +9,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { sql } from "drizzle-orm";
-import { createDatabase } from "../src/lib/db/client";
+import { getDatabase } from "../src/lib/db/client";
 import { user } from "../src/lib/db/schema";
 import type { CommercialDatabase } from "../src/lib/domain/commercial";
 import { grantPlatformAdmin, revokePlatformAdmin } from "../src/lib/domain/platform";
@@ -37,7 +37,7 @@ async function main() {
   prompt.close();
   if (confirmation !== "CONFIRMER") throw new Error("Confirmation incorrecte ; rien n’a été modifié.");
 
-  const db = createDatabase(url) as unknown as CommercialDatabase;
+  const db = getDatabase(url) as unknown as CommercialDatabase;
   const byEmail = argument("by");
   const [by] = byEmail ? await db.select({ id: user.id }).from(user).where(sql`lower(${user.email}) = ${byEmail.toLowerCase()}`).limit(1) : [];
   if (byEmail && !by) throw new Error("Le compte indiqué par --by est introuvable.");

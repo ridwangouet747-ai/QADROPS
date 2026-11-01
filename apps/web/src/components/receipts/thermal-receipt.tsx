@@ -8,6 +8,7 @@ type ReceiptData = Awaited<ReturnType<typeof import("@/lib/domain/receipt").getS
 const formatXof = (amount: bigint | string) => `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(BigInt(amount))} F`;
 const paymentNames: Record<string, string> = { cash: "Espèces", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "Autre" };
 const paymentStatuses: Record<string, string> = { pending: "· en attente", failed: "· échoué", refunded: "· remboursé", partially_refunded: "· partiellement remboursé" };
+const saleStatuses: Record<string, string | undefined> = { voided: "Vente annulée", refunded: "Vente remboursée", partially_refunded: "Vente remboursée en partie" };
 
 export function ThermalReceipt({ data }: { data: ReceiptData }) {
   const [width, setWidth] = useState<58 | 80>(data.business.paperWidthMm === 80 ? 80 : 58);
@@ -23,8 +24,9 @@ export function ThermalReceipt({ data }: { data: ReceiptData }) {
     }
   }
 
-  const paid = data.payments.filter((part) => part.status === "confirmed").reduce((sum, part) => sum + BigInt(part.amountXof), 0n);
-  const due = data.sale.totalXof - paid;
+  const saleStatus = saleStatuses[data.sale.status];
+  const paid = data.payments.filter((part) => part.status === "confirmed" || part.status === "partially_refunded").reduce((sum, part) => sum + BigInt(part.amountXof), 0n);
+  const due = saleStatus ? 0n : data.sale.totalXof - paid;
   const date = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(new Date(data.sale.occurredAt));
 
   return (
@@ -46,6 +48,7 @@ export function ThermalReceipt({ data }: { data: ReceiptData }) {
           {data.business.phone && <p>{data.business.phone}</p>}
           {data.business.email && <p>{data.business.email}</p>}
         </header>
+        {saleStatus && <p className="thermal-receipt-total" role="status"><strong>{saleStatus.toUpperCase()}</strong></p>}
         <div className="thermal-receipt-reference"><span>Vente</span><strong>{data.sale.reference}</strong></div>
         <p className="thermal-receipt-date">{date}</p>
         <table className="thermal-receipt-lines">

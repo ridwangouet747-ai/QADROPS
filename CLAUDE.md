@@ -119,6 +119,11 @@ Depuis la mission 03 (2026-10-30), voir `docs/design-system.md` :
 - **Hébergement : Vercel, Cloudflare devant** (décision D-01 du 2026-11-01, mission 11, `docs/architecture/cloudflare-vercel-ownership.md`). Vercel exécute Next.js ; ses crons sont dans `apps/web/vercel.json`, appelés avec `CRON_SECRET` (`src/lib/cron-auth.ts`, horaires dans `src/lib/cron-schedule.ts`). Cloudflare sert aux DNS, au WAF, à Turnstile et au stockage R2. `client-ip-headers.ts` lit `cf-connecting-ip` puis `x-forwarded-for`.
   - La préparation Workers du même jour est **conservée mais inutilisée** : `wrangler.jsonc`, `open-next.config.ts`, `cloudflare/worker.ts`, les scripts `cf:*` (jamais `cf:deploy` sans accord) et `docs/cloudflare-deployment.md`.
   - Décisions : `docs/engineering/decisions.md`. Audit et plan de la mission 11 : `docs/engineering/mission-11-plan.md`.
+- **Mission 11, phase 1** (socle) :
+  - **Base** : `getDatabase()` (`src/lib/db/client.ts`) renvoie un pool partagé par URL, attaché par `attachDatabasePool` de `@vercel/functions`. Ne recréez jamais de pool par requête (l'ancien `createDatabase` n'existe plus).
+  - **Organization** : les routes HTTP `/api/auth/organization/*` répondent 404 (hook `before` de `server.ts`), car elles ignoraient `business_member_access`, les quotas et l'audit. Toute action d'équipe passe par les services de `account.ts`, qui appellent `auth.api.*` côté serveur.
+  - **En-têtes** : `src/lib/security-headers.ts`, branché dans `next.config.ts`.
+  - **Push** : un appareil appartient à un seul compte (409 sinon). La déconnexion appelle `forgetThisDevice()`, et un lien de notification ne commence jamais par `//`.
 - **Problèmes encore ouverts** : domaine Resend, clé Resend et clés Turnstile de production ni créés ni vérifiés (voir `docs/authentication.md` § 7) ; limitation de débit Better Auth en mémoire (insuffisante sur plusieurs instances) ; 20 vulnérabilités modérées d'outils de développement documentées dans `docs/authentication.md` § 10 ; Neon jamais contacté ; politique non tranchée pour un commerce sans abonnement ou en abonnement `pending` (actuellement non bloqué) ; aucun fonctionnement hors ligne.
 - `next dev` crée `apps/web/AGENTS.md` (bloc Next.js de 9 lignes) à chaque lancement.
 

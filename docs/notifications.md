@@ -33,8 +33,9 @@ Les membres désactivés ne reçoivent rien ; un membre d'un autre commerce non 
 
 - Aucune variable de modèle ne porte de montant ni de donnée client. Variables autorisées : `business_name`, `user_name`, `event_date`, `event_type`, `status`, `product_name` (corps seulement).
 - Le **message push** ne contient que le titre (variables « sûres » uniquement), un texte générique (« Ouvrez Qadr Ops pour voir le détail. ») et un lien interne ; le détail reste derrière la connexion.
-- Les modèles sont du texte : remplacement littéral, balisage `<` `>` refusé, longueur limitée, lien interne seulement (`^/[A-Za-z0-9/_-]*$`).
+- Les modèles sont du texte : remplacement littéral, balisage `<` `>` refusé, longueur limitée, lien interne seulement (`^/([A-Za-z0-9_-][A-Za-z0-9/_-]*)?$` : « //hote » est refusé, car le navigateur y verrait une autre origine), vérifié par Zod, par une contrainte SQL (migration 0013) et par le service worker, qui n'ouvre jamais une autre origine au clic.
 - Les abonnements push ne sont acceptés que vers les services connus (FCM, Mozilla, Windows, Apple) en HTTPS : pas de requête serveur vers une adresse choisie par un tiers.
+- Un appareil appartient à un seul compte : une adresse push encore active pour un autre compte est refusée (409, le navigateur se réabonne alors pour obtenir une adresse neuve) ; les relances ne partent que si l'appareil appartient toujours au destinataire ; la déconnexion désabonne le navigateur et le désactive côté serveur (`DELETE /api/notifications/push-subscriptions`, raison `signed_out`).
 - La console Super Admin voit des types d'événements, des comptes et des codes d'erreur ; jamais le contenu des notifications ni des données commerciales.
 
 ## 4. Préférences
@@ -51,7 +52,7 @@ Configuration : `node scripts/generate-vapid-keys.mjs`, puis `VAPID_PUBLIC_KEY`,
 
 - Cloche dans l'en-tête (compteur interrogé toutes les 60 s, seulement onglet visible), panneau des 8 dernières, page `/business/notifications` (filtres non lues / catégorie, pagination par date, réglages, appareils).
 - Console : `/platform/notifications` (modèles fr/en/ar avec aperçu push et application, test réel, annonces segmentées pausables, statistiques et erreurs sur 30 jours, traitement manuel de la file).
-- API : `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/read`, `GET|PUT /api/notifications/preferences`, `POST /api/notifications/push-subscriptions`, `DELETE /api/notifications/push-subscriptions/:id`, `GET /api/notifications/push-config`, `POST /api/internal/notifications/process`, `GET|POST /api/platform/notifications/templates`, `POST /api/platform/notifications/templates/test`, `POST /api/platform/notifications/campaigns`, `POST /api/platform/notifications/campaigns/:id`, `GET|POST /api/platform/notifications/activity`.
+- API : `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/read`, `GET|PUT /api/notifications/preferences`, `POST|DELETE /api/notifications/push-subscriptions`, `DELETE /api/notifications/push-subscriptions/:id`, `GET /api/notifications/push-config`, `POST /api/internal/notifications/process`, `GET|POST /api/platform/notifications/templates`, `POST /api/platform/notifications/templates/test`, `POST /api/platform/notifications/campaigns`, `POST /api/platform/notifications/campaigns/:id`, `GET|POST /api/platform/notifications/activity`.
 
 ## 7. À valider en conditions réelles
 

@@ -69,6 +69,17 @@ describe("tickets de vente", () => {
     expect(text).not.toMatch(/Remise|Reste|Treichville|\+225/);
   });
 
+  it("une vente annulée ou remboursée porte un bandeau et n'affiche plus de reste à payer", () => {
+    const voided = buildReceiptTicket({ ...receipt, sale: { ...receipt.sale, status: "voided" } }, 80).preview.join("\n");
+    expect(voided).toContain("VENTE ANNULÉE");
+    expect(voided).not.toContain("Reste à payer");
+    const refunded = buildReceiptTicket({ ...receipt, sale: { ...receipt.sale, status: "refunded" },
+      payments: [{ method: "cash", amountXof: "21500", status: "refunded" }] }, 58, "en").preview.join("\n");
+    expect(refunded).toContain("SALE REFUNDED");
+    expect(refunded).toMatch(/Cash \(refunded\)\s+21 500 F/);
+    expect(buildReceiptTicket({ ...receipt, sale: { ...receipt.sale, status: "completed" } }, 80).preview.join("\n")).not.toMatch(/ANNULÉE|REMBOURSÉE/);
+  });
+
   it("formats exacts sans flottant, et page de test", () => {
     expect(formatAmount("123456789012345678")).toBe("123 456 789 012 345 678 F");
     expect(formatQuantity("0.250000")).toBe("0,25");

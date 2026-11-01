@@ -13,7 +13,7 @@ self.addEventListener("push", (event) => {
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
   const title = typeof data.title === "string" && data.title ? data.title.slice(0, 120) : "Qadr Ops";
   const body = typeof data.body === "string" ? data.body.slice(0, 240) : "";
-  const url = typeof data.url === "string" && /^\/[A-Za-z0-9/_-]*$/.test(data.url) ? data.url : "/business/notifications";
+  const url = typeof data.url === "string" && /^\/(?:[A-Za-z0-9_-][A-Za-z0-9/_-]*)?$/.test(data.url) ? data.url : "/business/notifications";
   event.waitUntil(self.registration.showNotification(title, {
     body, tag: typeof data.tag === "string" ? data.tag : undefined, icon: "/qadr-preview-mark.svg", badge: "/qadr-preview-mark.svg", data: { url },
   }));
@@ -21,7 +21,9 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data && event.notification.data.url ? event.notification.data.url : "/business/notifications", self.location.origin);
+  let target = new URL(event.notification.data && event.notification.data.url ? event.notification.data.url : "/business/notifications", self.location.origin);
+  // Dernier rempart : quoi que contienne la notification, on n'ouvre jamais une autre origine.
+  if (target.origin !== self.location.origin) target = new URL("/business/notifications", self.location.origin);
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windows) {

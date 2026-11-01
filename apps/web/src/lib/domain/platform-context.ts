@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { getAuth } from "../auth/server";
-import { createDatabase } from "../db/client";
+import { getDatabase } from "../db/client";
 import { platformAdmin } from "../db/schema";
 import type { CommercialDatabase } from "./commercial";
 import { BusinessContextError } from "./business-context";
@@ -14,7 +14,7 @@ export async function getPlatformContext(headers: Headers): Promise<{ db: Commer
 
   const session = await (await getAuth()).api.getSession({ headers });
   if (!session) throw new BusinessContextError("Authentification requise.", 401);
-  const db = createDatabase();
+  const db = getDatabase();
   const [grant] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin).where(and(
     eq(platformAdmin.userId, session.user.id), isNull(platformAdmin.revokedAt),
   )).limit(1);

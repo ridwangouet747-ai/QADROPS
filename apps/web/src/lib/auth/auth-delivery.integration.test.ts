@@ -266,4 +266,33 @@ describe("mission 07.1 : Turnstile et e-mails Resend branchés sur Better Auth",
       expect(written).toContain('"event":"turnstile.rejected"');
     });
   });
+
+  describe("mission 11 : routes HTTP du plugin Organization fermées", () => {
+    it("refuse en 404 toute route d’équipe appelée depuis le navigateur, sans rien modifier", async () => {
+      const signedIn = await call("/sign-in/email", { email: "awa@qadr.test", password: "mot-de-passe-solide" }, { [turnstileHeader]: token("login") });
+      const headers = sessionHeaders(signedIn);
+      // L'appel serveur de l'application passe toujours.
+      const business = await createBusiness(auth, headers, { name: "Boutique Awa", activity: "general" });
+      const cookie = headers.get("cookie")!;
+      const invitationsBefore = (await client.query("select id from invitation")).rows.length;
+
+      const writes: [string, unknown][] = [
+        ["/organization/update", { organizationId: business.id, data: { name: "Commerce pris" } }],
+        ["/organization/remove-member", { organizationId: business.id, memberIdOrEmail: "awa@qadr.test" }],
+        ["/organization/update-member-role", { organizationId: business.id, memberId: "inconnu", role: "member" }],
+        ["/organization/invite-member", { organizationId: business.id, email: "intrus@qadr.test", role: "owner" }],
+        ["/organization/create", { name: "Autre", slug: "autre-commerce" }],
+      ];
+      for (const [path, body] of writes) expect((await call(path, body, { cookie })).status, path).toBe(404);
+      for (const path of ["/organization/list-members", "/organization/get-full-organization"]) {
+        const response = await auth.handler(new Request(`${baseURL}/api/auth${path}?organizationId=${business.id}`, { headers: { cookie, origin: baseURL } }));
+        expect(response.status, path).toBe(404);
+      }
+
+      const name = await client.query<{ name: string }>("select name from organization where id = $1", [business.id]);
+      expect(name.rows[0]!.name).toBe("Boutique Awa");
+      expect((await client.query("select id from invitation")).rows.length).toBe(invitationsBefore);
+      expect((await client.query("select id from organization where slug = 'autre-commerce'")).rows).toHaveLength(0);
+    });
+  });
 });
