@@ -4,6 +4,7 @@ import { reportsAr } from "./reports";
 import { cashAr } from "./cash";
 import { notificationsAr, pfNotificationsAr } from "./notifications";
 import { printingAr } from "./printing";
+import { pwaAr } from "./pwa";
 import { wizardAr } from "./wizard";
 import { platformAr } from "./platform";
 import type { Messages } from "./fr";
@@ -80,6 +81,7 @@ export const ar: Messages = {
       notifications: { label: "الإشعارات", detail: "التنبيهات والإعدادات" },
       printing: { label: "الطابعة", detail: "إيصالات حرارية" },
       modules: { label: "الوحدات", detail: "كل الوحدات" },
+      install: { label: "التثبيت", detail: "التطبيق على هذا الجهاز" },
     },
   },
   inventory: {
@@ -732,5 +734,6 @@ export const ar: Messages = {
   notifications: notificationsAr,
   pfNotifications: pfNotificationsAr,
   printing: printingAr,
+  pwa: pwaAr,
   analytics: { consent: { title: "قياس الاستخدام", body: "هل توافق على أن يقيس Qadr Ops، بشكل مجهول، طريقة استخدام التطبيق لتحسينه؟ لا يُرسل أي مبلغ أو اسم أو محتوى بيع. يمكنك الرفض دون أي عواقب.", accept: "موافقة", refuse: "رفض" } },
 };

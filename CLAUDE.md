@@ -124,6 +124,9 @@ Depuis la mission 03 (2026-10-30), voir `docs/design-system.md` :
   - **Organization** : les routes HTTP `/api/auth/organization/*` répondent 404 (hook `before` de `server.ts`), car elles ignoraient `business_member_access`, les quotas et l'audit. Toute action d'équipe passe par les services de `account.ts`, qui appellent `auth.api.*` côté serveur.
   - **En-têtes** : `src/lib/security-headers.ts`, branché dans `next.config.ts`.
   - **Push** : un appareil appartient à un seul compte (409 sinon). La déconnexion appelle `forgetThisDevice()`, et un lien de notification ne commence jamais par `//`.
+- **Mission 11, phase 2** (application installable, `docs/pwa.md`) : manifest `src/app/manifest.ts`, icônes `public/icons/` (script `scripts/generate-pwa-icons.mjs`), service worker enregistré partout par `PwaRegistrar` (mise en page racine), page `/business/install`, bandeau réseau et invitation dans `components/pwa/`.
+  - `sw.js` n'intercepte que les navigations et ne met en cache que `/offline.html`. **Toute modification de `offline.html` impose d'incrémenter `OFFLINE_CACHE`.** Ne mettez jamais en cache une réponse d'API ou une page de l'application.
+  - Une requête d'écriture sans réponse (`TypeError`) ne doit jamais être présentée comme un échec certain ni comme un succès : voir le message `pwa.network.saleUnknown` de la caisse, qui garde la clé d'idempotence.
 - **Problèmes encore ouverts** : domaine Resend, clé Resend et clés Turnstile de production ni créés ni vérifiés (voir `docs/authentication.md` § 7) ; limitation de débit Better Auth en mémoire (insuffisante sur plusieurs instances) ; 20 vulnérabilités modérées d'outils de développement documentées dans `docs/authentication.md` § 10 ; Neon jamais contacté ; politique non tranchée pour un commerce sans abonnement ou en abonnement `pending` (actuellement non bloqué) ; aucun fonctionnement hors ligne.
 - `next dev` crée `apps/web/AGENTS.md` (bloc Next.js de 9 lignes) à chaque lancement.
 

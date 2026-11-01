@@ -146,6 +146,13 @@ Aucune définition d'« All-in » n'existe dans le dépôt. On retient donc cell
 
 La vente hors ligne avec synchronisation n'est **pas** dans cette phase. Elle demande une conception écrite à part (conflits de stock, chiffrement local).
 
+**État au 2026-11-01 : étapes 2.1 à 2.3 livrées** (commit local de la phase 2), avec P-5 et P-6. Détail : `docs/pwa.md`.
+
+- 2.1 : manifest, quatre icônes PNG (tailles vérifiées par test), service worker enregistré sur toutes les pages (P-6), `pushsubscriptionchange` (P-5). Dans l'aperçu : manifest en `application/manifest+json`, service worker actif sur `/`, `/sw.js` sans cache. **Lighthouse non lancé** (outil absent) : les critères d'installabilité sont vérifiés par test et dans le navigateur, pas par l'audit.
+- 2.2 : invitation refusable sous l'en-tête, page `/business/install` pour tous les rôles (menu « Plus » et page « Modules »). Vue en fr, en et ar (RTL, 375 px).
+- 2.3 : bandeau réseau (commerce et plateforme) ; page hors ligne servie seulement si une navigation échoue. Serveur d'aperçu arrêté pendant un encaissement : « Pas de réponse du serveur… », aucune vente annoncée, panier et clé d'idempotence conservés.
+- Non vérifié : installation sur un vrai téléphone, renouvellement push par un vrai navigateur.
+
 ### Phase 3 : Qadr Capture / Adapt, premier périmètre fiable
 
 | Étape | Critère |

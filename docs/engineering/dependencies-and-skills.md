@@ -22,6 +22,7 @@ sha256sum .claude/skills/karpathy-guidelines/SKILL.md
 | --- | --- | --- | --- |
 | `@opennextjs/cloudflare` | Adaptateur Workers | 1.20.15 | Inutilisée depuis D-01 ; 4 alertes élevées via `glob` (build seulement). Retrait soumis à D-06 |
 | `wrangler` | CLI Cloudflare | 4.156.0 | Inutilisée depuis D-01 |
+| `sharp` | Génère les icônes PNG de l'application installable (`scripts/generate-pwa-icons.mjs`, lancé à la main) | 0.35.5 (transitive) | Déjà installé comme dépendance facultative de Next.js : rien d'ajouté au `package.json`. Les PNG produits sont versionnés, le build n'en dépend pas |
 | `@vercel/functions` | `attachDatabasePool` : libère les connexions Neon inactives avant la mise en veille d'une instance Vercel (Fluid Compute) | 3.10.1 (exacte) | Paquet officiel Vercel, Apache-2.0, dépend de `@vercel/oidc` 4.0.5. Vérifié le 2026-11-01. Sans effet hors de Vercel |
 
 Les dépendances de Qadr Capture (lecture CSV/XLSX/PDF) et des exports seront ajoutées ici au moment de leur choix, avec version et date de vérification.

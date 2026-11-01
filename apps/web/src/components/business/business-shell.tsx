@@ -7,12 +7,14 @@ import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { InstallInvite } from "@/components/pwa/install-invite";
+import { NetworkStatus } from "@/components/pwa/network-status";
 import { track } from "@/lib/analytics/client";
 import { cn } from "@/components/ui/cn";
 import { Monogram } from "@/components/ui/data-display";
 import { Icon, type IconName } from "@/components/ui/icon";
 
-export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "subscription" | "cash" | "notifications" | "printing" | "modules";
+export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "subscription" | "cash" | "notifications" | "printing" | "install" | "modules";
 
 type NavItem = { key: BusinessArea; href: string; icon: IconName };
 const items: NavItem[] = [
@@ -32,6 +34,7 @@ const items: NavItem[] = [
   { key: "team", href: "/business/team", icon: "users" },
   { key: "subscription", href: "/business/subscription", icon: "tag" },
   { key: "printing", href: "/business/printing", icon: "printer" },
+  { key: "install", href: "/business/install", icon: "download" },
   { key: "settings", href: "/business/settings", icon: "settings" },
 ];
 // Ordre de priorité de la barre supérieure (bureau) et de la barre basse (téléphone).
@@ -40,10 +43,10 @@ const mobilePriority: BusinessArea[] = ["dashboard", "pos", "cash", "stock", "in
 
 const roleModules: Record<string, BusinessArea[]> = {
   owner: items.map((item) => item.key), admin: items.map((item) => item.key),
-  stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening"],
-  accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "cash", "subscription"],
-  cashier: ["pos", "cash", "products", "sales", "customers", "stock", "printing"],
-  member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "subscription"],
+  stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening", "install"],
+  accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "cash", "subscription", "install"],
+  cashier: ["pos", "cash", "products", "sales", "customers", "stock", "printing", "install"],
+  member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "subscription", "install"],
 };
 const BusinessRoleContext = createContext("member");
 export const useBusinessRole = () => useContext(BusinessRoleContext);
@@ -162,7 +165,9 @@ export function BusinessShell({ active, preview = false, children }: { active: B
             </div>
           </div>
           {preview && <p className="m-0 border-t border-warn-line bg-warn-soft px-4 py-1 text-center text-xs font-semibold text-warn 2xl:hidden">{t("shell.previewBadge")}</p>}
+          <NetworkStatus />
         </header>
+        <InstallInvite />
 
         <main id="main-content" className={`business-page ${active}-page mx-auto max-w-[1440px] px-4 pt-5 pb-32 sm:px-6 lg:px-8 lg:pt-7 lg:pb-12`}>
           {children}

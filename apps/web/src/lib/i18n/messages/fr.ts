@@ -4,6 +4,7 @@ import { reportsFr } from "./reports";
 import { cashFr } from "./cash";
 import { notificationsFr, pfNotificationsFr } from "./notifications";
 import { printingFr } from "./printing";
+import { pwaFr } from "./pwa";
 import { wizardFr } from "./wizard";
 import { platformFr } from "./platform";
 /** Source des clés de traduction. `en.ts` et `ar.ts` doivent reprendre exactement la même structure. */
@@ -78,6 +79,7 @@ export const fr = {
       notifications: { label: "Notifications", detail: "Alertes & réglages" },
       printing: { label: "Imprimante", detail: "Tickets thermiques" },
       modules: { label: "Modules", detail: "Tous les modules" },
+      install: { label: "Installer", detail: "Application sur cet appareil" },
     },
   },
   inventory: {
@@ -730,6 +732,7 @@ export const fr = {
   notifications: notificationsFr,
   pfNotifications: pfNotificationsFr,
   printing: printingFr,
+  pwa: pwaFr,
   analytics: { consent: { title: "Mesure d'audience", body: "Acceptez-vous que Qadr Ops mesure, de façon anonyme, l'usage de l'application pour l'améliorer ? Aucun montant, nom ou contenu de vente n'est envoyé. Vous pouvez refuser sans conséquence.", accept: "Accepter", refuse: "Refuser" } },
 };
 

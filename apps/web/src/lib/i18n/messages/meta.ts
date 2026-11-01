@@ -15,6 +15,7 @@ export const metaFr = {
   cash: "Ma caisse · QADR OPS",
   notifications: "Notifications · QADR OPS",
   printing: "Imprimante · QADR OPS",
+  install: "Installer l’application · QADR OPS",
 };
 
 type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };
@@ -36,6 +37,7 @@ export const metaEn: MetaMessages = {
   cash: "My till · QADR OPS",
   notifications: "Notifications · QADR OPS",
   printing: "Printer · QADR OPS",
+  install: "Install the app · QADR OPS",
 };
 
 export const metaAr: MetaMessages = {
@@ -54,4 +56,5 @@ export const metaAr: MetaMessages = {
   cash: "صندوقي · QADR OPS",
   notifications: "الإشعارات · QADR OPS",
   printing: "الطابعة · QADR OPS",
+  install: "تثبيت التطبيق · QADR OPS",
 };

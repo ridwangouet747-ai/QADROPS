@@ -140,7 +140,9 @@ export function PosWorkspace() {
       if (printSetup?.enabled && printSetup.autoPrint && readPairing()) void printReceipt(body.sale.id); setCart([]); setCustomerId(""); setPayments([{ method: "cash", amountXof: "" }]); setMobileView("catalog");
       const refreshed = await fetch("/api/business/products", { cache: "no-store" }).then((result) => result.json()) as { products?: Product[] };
       if (refreshed.products) setProducts(refreshed.products);
-    } catch (caught) { track("sale_failed", { reason: caught instanceof TypeError ? "network" : "other" }); setError(caught instanceof Error ? caught.message : t("pos.saleFailed")); }
+    } catch (caught) { track("sale_failed", { reason: caught instanceof TypeError ? "network" : "other" }); 
+      // Pas de réponse : la vente a pu passer. La clé d'idempotence est gardée, un nouvel essai ne la doublera pas.
+      setError(caught instanceof TypeError ? t("pwa.network.saleUnknown") : caught instanceof Error ? caught.message : t("pos.saleFailed")); }
     finally { setPending(false); }
   }
 

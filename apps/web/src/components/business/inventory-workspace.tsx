@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -12,6 +12,7 @@ import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { QuantityInput } from "@/components/ui/quantity-input";
 import { parseQuantityInput, toApiQuantity } from "@/lib/client/quantity";
 import { formatDateTime, formatQuantity, formatTime } from "@/lib/i18n/format";
+import { useOnline } from "@/lib/pwa/client";
 import type { Translate } from "@/lib/i18n/translate";
 import type { Locale } from "@/lib/i18n/config";
 
@@ -49,14 +50,6 @@ const without = (record: Record<string, string>, key: string) => {
 
 async function readJson<T>(response: Response): Promise<T & { error?: string }> {
   try { return await response.json() as T & { error?: string }; } catch { return {} as T & { error?: string }; }
-}
-
-function useOnline() {
-  return useSyncExternalStore(
-    (notify) => { window.addEventListener("online", notify); window.addEventListener("offline", notify); return () => { window.removeEventListener("online", notify); window.removeEventListener("offline", notify); }; },
-    () => navigator.onLine,
-    () => true,
-  );
 }
 
 const sessionFromUrl = () => (typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("session") ?? "");
@@ -219,7 +212,6 @@ export function InventoryWorkspace() {
       <PageHeader title={t("inventory.title")}>{t("inventory.intro")}</PageHeader>
 
       <div className="mb-3 grid gap-2 empty:hidden" aria-live="polite">
-        {!online && <Alert tone="warning">{t("common.offline")}</Alert>}
         {error && <Alert tone="danger" onDismiss={() => setError("")} dismissLabel={t("common.close")}>{error}</Alert>}
         {notice && <Alert tone="success" onDismiss={() => setNotice("")} dismissLabel={t("common.close")}>{notice}</Alert>}
       </div>

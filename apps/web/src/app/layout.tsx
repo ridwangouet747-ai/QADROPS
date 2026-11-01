@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { AnalyticsProvider } from "@/components/analytics-provider";
 import { I18nProvider } from "@/components/i18n/i18n-provider";
+import { PwaRegistrar } from "@/components/pwa/pwa-registrar";
 import { localeDirection } from "@/lib/i18n/config";
 import { getRequestLocale } from "@/lib/i18n/server";
 import { createTranslator } from "@/lib/i18n/translate";
@@ -12,7 +13,12 @@ const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], display: "swap", variabl
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = createTranslator(await getRequestLocale());
-  return { title: t("meta.siteTitle"), description: t("meta.siteDescription") };
+  return {
+    title: t("meta.siteTitle"), description: t("meta.siteDescription"),
+    icons: { icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }], apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }] },
+    // iOS : ouverture plein écran depuis l'écran d'accueil (Safari ne lit pas « display » du manifest partout).
+    appleWebApp: { capable: true, title: "QADR OPS", statusBarStyle: "default" },
+  };
 }
 
 export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#1b1a2e" };
@@ -25,6 +31,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <I18nProvider locale={locale}>
           <AnalyticsProvider>{children}</AnalyticsProvider>
         </I18nProvider>
+        <PwaRegistrar />
       </body>
     </html>
   );
