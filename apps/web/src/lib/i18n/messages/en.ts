@@ -5,6 +5,7 @@ import { cashEn } from "./cash";
 import { notificationsEn, pfNotificationsEn } from "./notifications";
 import { printingEn } from "./printing";
 import { pwaEn } from "./pwa";
+import { importsEn } from "./imports";
 import { wizardEn } from "./wizard";
 import { platformEn } from "./platform";
 import type { Messages } from "./fr";
@@ -81,6 +82,7 @@ export const en: Messages = {
       printing: { label: "Printer", detail: "Thermal receipts" },
       modules: { label: "Modules", detail: "All modules" },
       install: { label: "Install", detail: "App on this device" },
+      imports: { label: "Import", detail: "Catalogue from a file" },
     },
   },
   inventory: {
@@ -734,5 +736,6 @@ export const en: Messages = {
   pfNotifications: pfNotificationsEn,
   printing: printingEn,
   pwa: pwaEn,
+  imports: importsEn,
   analytics: { consent: { title: "Usage measurement", body: "Do you agree that Qadr Ops anonymously measures how the app is used, to improve it? No amount, name or sale content is sent. You can refuse with no consequence.", accept: "Accept", refuse: "Refuse" } },
 };

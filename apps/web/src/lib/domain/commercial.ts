@@ -40,29 +40,41 @@ export async function createProduct(db: CommercialDatabase, rawInput: unknown) {
     if (!membership) throw new CommercialError("Aucun accès à ce commerce.", 403);
     if (!hasBusinessPermission(membership.role, "product", "create")) throw new CommercialError("Permission de création de produit refusée.", 403);
     await assertBusinessOperational(tx, input.businessId);
-    await assertPlanQuota(tx, input.businessId, "products");
-
-    if (input.categoryId) {
-      const [category] = await tx.select({ id: productCategory.id }).from(productCategory).where(and(
-        eq(productCategory.businessId, input.businessId), eq(productCategory.id, input.categoryId), isNull(productCategory.archivedAt),
-      )).limit(1);
-      if (!category) throw new CommercialError("Catégorie introuvable dans ce commerce.", 404);
-    }
-
-    await tx.insert(product).values({
-      id, businessId: input.businessId, categoryId: input.categoryId ?? null,
-      name: input.name, description: input.description ?? null, baseUnit: input.baseUnit,
-    });
-    await tx.insert(productVariant).values({
-      id: variantId, businessId: input.businessId, productId: id, label: input.variantLabel,
-      sku: input.sku || null, salePriceXof: BigInt(input.salePriceXof), onHand: "0", averageCostXof: "0",
-    });
-    await tx.insert(auditEvent).values({
-      id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
-      eventType: "product.created", entityType: "product", entityId: id, metadata: {},
-    });
-    return { id, variantId };
+    return insertProduct(tx, { ...input, sku: input.sku || null, categoryId: input.categoryId ?? null, description: input.description ?? null }, { id, variantId });
   });
+}
+
+type ProductTransaction = Parameters<Parameters<CommercialDatabase["transaction"]>[0]>[0];
+
+/**
+ * Crée un produit et sa variante dans une transaction déjà ouverte (permission et état du commerce vérifiés par
+ * l'appelant) : quota du forfait, catégorie du même commerce, stock à zéro, audit. Partagé avec l'import de catalogue.
+ */
+export async function insertProduct(tx: ProductTransaction, input: {
+  businessId: string; actorUserId: string; name: string; categoryId: string | null; description: string | null; baseUnit: string;
+  variantLabel: string; salePriceXof: string; sku: string | null;
+}, ids: { id: string; variantId: string } = { id: randomUUID(), variantId: randomUUID() }, auditMetadata: Record<string, string> = {}) {
+  const { id, variantId } = ids;
+  await assertPlanQuota(tx, input.businessId, "products");
+  if (input.categoryId) {
+    const [category] = await tx.select({ id: productCategory.id }).from(productCategory).where(and(
+      eq(productCategory.businessId, input.businessId), eq(productCategory.id, input.categoryId), isNull(productCategory.archivedAt),
+    )).limit(1);
+    if (!category) throw new CommercialError("Catégorie introuvable dans ce commerce.", 404);
+  }
+  await tx.insert(product).values({
+    id, businessId: input.businessId, categoryId: input.categoryId,
+    name: input.name, description: input.description, baseUnit: input.baseUnit,
+  });
+  await tx.insert(productVariant).values({
+    id: variantId, businessId: input.businessId, productId: id, label: input.variantLabel,
+    sku: input.sku, salePriceXof: BigInt(input.salePriceXof), onHand: "0", averageCostXof: "0",
+  });
+  await tx.insert(auditEvent).values({
+    id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
+    eventType: "product.created", entityType: "product", entityId: id, metadata: auditMetadata,
+  });
+  return { id, variantId };
 }
 
 export async function listProducts(db: CommercialDatabase, input: { businessId: string; actorUserId: string }) {

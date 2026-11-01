@@ -9,7 +9,7 @@ import {
 import { parseQuantityMicros, QUANTITY_SCALE, UNIT_COST_SCALE } from "./costing";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { decodeCursor, encodeCursor, likePattern, pageLimit, productCursorSchema } from "./cursor";
-import { idempotencyKeySchema, runIdempotent } from "./operation-guard";
+import { idempotencyKeySchema, runIdempotent, type CommercialTransaction } from "./operation-guard";
 import { attachOpenCashSession } from "./cash-session";
 
 type Context = { businessId: string; actorUserId: string };
@@ -96,39 +96,47 @@ export async function postStockOpening(db: CommercialDatabase, raw: unknown, now
   const request = { referenceDate: input.referenceDate, note: input.note ?? null,
     lines: input.lines.map((line) => ({ variantId: line.variantId, quantityMicros: parseQuantityMicros(line.quantity).toString(), unitCostXof: line.unitCostXof ?? null })) };
   const id = randomUUID();
-  return runIdempotent(db, { ...input, operation: "stock.opening", request }, async (tx) => {
-    const sorted = [...ids].sort();
-    const variants = await tx.select({ id: productVariant.id, onHand: productVariant.onHand, stockRevision: productVariant.stockRevision })
-      .from(productVariant).innerJoin(product, and(eq(product.businessId, productVariant.businessId), eq(product.id, productVariant.productId)))
-      .where(and(eq(productVariant.businessId, input.businessId), inArray(productVariant.id, sorted), isNull(productVariant.archivedAt), isNull(product.archivedAt)))
-      .orderBy(asc(productVariant.id)).for("update", { of: productVariant });
-    if (variants.length !== sorted.length) throw new CommercialError("Un produit du stock d’ouverture est introuvable dans ce commerce.", 404);
-    const [activity] = await tx.select({ count: sql<string>`count(*)::text` }).from(stockMovement)
-      .where(and(eq(stockMovement.businessId, input.businessId), inArray(stockMovement.variantId, sorted)));
-    const [opened] = await tx.select({ count: sql<string>`count(*)::text` }).from(stockOpeningLine)
-      .where(and(eq(stockOpeningLine.businessId, input.businessId), inArray(stockOpeningLine.variantId, sorted)));
-    if (Number(activity?.count ?? 0) > 0 || Number(opened?.count ?? 0) > 0 || variants.some((variant) => parseQuantityMicros(variant.onHand) !== 0n)) {
-      throw new CommercialError("Un produit a déjà un stock ou des mouvements : utilisez un inventaire pour le corriger.", 409);
-    }
-    const occurredAt = new Date(`${input.referenceDate}T00:00:00Z`);
-    await tx.insert(stockOpening).values({ id, businessId: input.businessId, referenceDate: input.referenceDate, note: input.note || null, postedByUserId: input.actorUserId });
-    for (const line of input.lines) {
-      const variant = variants.find((row) => row.id === line.variantId)!;
-      const micros = parseQuantityMicros(line.quantity);
-      const lineId = randomUUID();
-      const cost = line.unitCostXof !== undefined ? BigInt(line.unitCostXof) : null;
-      await tx.insert(stockOpeningLine).values({ id: lineId, businessId: input.businessId, openingId: id, variantId: line.variantId, quantity: formatMicros(micros), unitCostXof: cost });
-      // Coût inconnu : on ne l'invente pas, le coût moyen reste « non renseigné ».
-      await tx.update(productVariant).set({ onHand: formatMicros(micros), stockRevision: variant.stockRevision + 1n,
-        ...(cost !== null ? { averageCostXof: formatCost(cost * UNIT_COST_SCALE), costKnown: true } : {}) })
-        .where(and(eq(productVariant.businessId, input.businessId), eq(productVariant.id, line.variantId)));
-      await tx.insert(stockMovement).values({ id: randomUUID(), businessId: input.businessId, variantId: line.variantId, quantityDelta: formatMicros(micros),
-        reason: "opening_stock", openingLineId: lineId, unitCostXof: cost !== null ? formatCost(cost * UNIT_COST_SCALE) : null, createdByUserId: input.actorUserId, occurredAt });
-    }
-    await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "stock.opening_posted",
-      entityType: "stock_opening", entityId: id, metadata: { lineCount: input.lines.length, referenceDate: input.referenceDate } });
-    return { id, lineCount: input.lines.length, referenceDate: input.referenceDate };
-  });
+  return runIdempotent(db, { ...input, operation: "stock.opening", request }, (tx) => writeStockOpening(tx, { ...input, note: input.note ?? null }, id));
+}
+
+/**
+ * Écrit un stock d'ouverture dans une transaction déjà ouverte (permission, idempotence et état du commerce
+ * vérifiés par l'appelant). Partagé par l'écran « Stock de départ » et l'import de catalogue : une seule règle.
+ */
+export async function writeStockOpening(tx: CommercialTransaction, input: Context & { referenceDate: string; note: string | null;
+  lines: { variantId: string; quantity: string; unitCostXof?: string }[] }, id: string = randomUUID()) {
+  const ids = input.lines.map((line) => line.variantId);
+  const sorted = [...ids].sort();
+  const variants = await tx.select({ id: productVariant.id, onHand: productVariant.onHand, stockRevision: productVariant.stockRevision })
+    .from(productVariant).innerJoin(product, and(eq(product.businessId, productVariant.businessId), eq(product.id, productVariant.productId)))
+    .where(and(eq(productVariant.businessId, input.businessId), inArray(productVariant.id, sorted), isNull(productVariant.archivedAt), isNull(product.archivedAt)))
+    .orderBy(asc(productVariant.id)).for("update", { of: productVariant });
+  if (variants.length !== sorted.length) throw new CommercialError("Un produit du stock d’ouverture est introuvable dans ce commerce.", 404);
+  const [activity] = await tx.select({ count: sql<string>`count(*)::text` }).from(stockMovement)
+    .where(and(eq(stockMovement.businessId, input.businessId), inArray(stockMovement.variantId, sorted)));
+  const [opened] = await tx.select({ count: sql<string>`count(*)::text` }).from(stockOpeningLine)
+    .where(and(eq(stockOpeningLine.businessId, input.businessId), inArray(stockOpeningLine.variantId, sorted)));
+  if (Number(activity?.count ?? 0) > 0 || Number(opened?.count ?? 0) > 0 || variants.some((variant) => parseQuantityMicros(variant.onHand) !== 0n)) {
+    throw new CommercialError("Un produit a déjà un stock ou des mouvements : utilisez un inventaire pour le corriger.", 409);
+  }
+  const occurredAt = new Date(`${input.referenceDate}T00:00:00Z`);
+  await tx.insert(stockOpening).values({ id, businessId: input.businessId, referenceDate: input.referenceDate, note: input.note || null, postedByUserId: input.actorUserId });
+  for (const line of input.lines) {
+    const variant = variants.find((row) => row.id === line.variantId)!;
+    const micros = parseQuantityMicros(line.quantity);
+    const lineId = randomUUID();
+    const cost = line.unitCostXof !== undefined ? BigInt(line.unitCostXof) : null;
+    await tx.insert(stockOpeningLine).values({ id: lineId, businessId: input.businessId, openingId: id, variantId: line.variantId, quantity: formatMicros(micros), unitCostXof: cost });
+    // Coût inconnu : on ne l'invente pas, le coût moyen reste « non renseigné ».
+    await tx.update(productVariant).set({ onHand: formatMicros(micros), stockRevision: variant.stockRevision + 1n,
+      ...(cost !== null ? { averageCostXof: formatCost(cost * UNIT_COST_SCALE), costKnown: true } : {}) })
+      .where(and(eq(productVariant.businessId, input.businessId), eq(productVariant.id, line.variantId)));
+    await tx.insert(stockMovement).values({ id: randomUUID(), businessId: input.businessId, variantId: line.variantId, quantityDelta: formatMicros(micros),
+      reason: "opening_stock", openingLineId: lineId, unitCostXof: cost !== null ? formatCost(cost * UNIT_COST_SCALE) : null, createdByUserId: input.actorUserId, occurredAt });
+  }
+  await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "stock.opening_posted",
+    entityType: "stock_opening", entityId: id, metadata: { lineCount: input.lines.length, referenceDate: input.referenceDate } });
+  return { id, lineCount: input.lines.length, referenceDate: input.referenceDate };
 }
 
 /* ------------------------------------------------------------------ Soldes d'ouverture */

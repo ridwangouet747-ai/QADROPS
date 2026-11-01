@@ -16,6 +16,7 @@ export const metaFr = {
   notifications: "Notifications · QADR OPS",
   printing: "Imprimante · QADR OPS",
   install: "Installer l’application · QADR OPS",
+  imports: "Importer un catalogue · QADR OPS",
 };
 
 type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };
@@ -38,6 +39,7 @@ export const metaEn: MetaMessages = {
   notifications: "Notifications · QADR OPS",
   printing: "Printer · QADR OPS",
   install: "Install the app · QADR OPS",
+  imports: "Import a catalogue · QADR OPS",
 };
 
 export const metaAr: MetaMessages = {
@@ -57,4 +59,5 @@ export const metaAr: MetaMessages = {
   notifications: "الإشعارات · QADR OPS",
   printing: "الطابعة · QADR OPS",
   install: "تثبيت التطبيق · QADR OPS",
+  imports: "استيراد كتالوج · QADR OPS",
 };

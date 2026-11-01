@@ -324,7 +324,7 @@ export const idempotencyRecord = pgTable("idempotency_record", {
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), idempotencyKey: text("idempotency_key").notNull(),
   operation: text("operation").notNull(), requestHash: text("request_hash").notNull(), actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
   result: jsonb("result").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment','cash_session.open','cash_session.movement','cash_session.close','cash_session.validate')`)]);
+}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment','cash_session.open','cash_session.movement','cash_session.close','cash_session.validate','import.apply')`)]);
 
 /* ------------------------------------------------------------------ Notifications (mission 10) */
 
@@ -437,10 +437,61 @@ export const printJob = pgTable("print_job", {
   check("print_job_kind_check", sql`${t.kind} in ('receipt','test')`), check("print_job_status_check", sql`${t.status} in ('pending','printed','failed','uncertain','canceled')`),
   check("print_job_receipt_sale_check", sql`(${t.kind} = 'receipt') = (${t.saleId} is not null)`)]);
 
+/* ------------------------------------------------------------------ Qadr Capture / Adapt (mission 11, phase 3) */
+
+// Un import = un fichier lu (CSV ou XLSX), relu ligne par ligne, puis appliqué par les services métier.
+// Les cellules d'origine restent sur chaque ligne (provenance) ; le fichier lui-même n'est pas conservé.
+export const importBatch = pgTable("import_batch", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  kind: text("kind").notNull().default("catalog"), status: text("status").notNull().default("review"),
+  fileName: text("file_name").notNull(), fileType: text("file_type").notNull(), fileSha256: text("file_sha256").notNull(), fileSize: integer("file_size").notNull(),
+  sheetName: text("sheet_name"), headerRowNumber: integer("header_row_number"), columnCount: integer("column_count").notNull(), rowCount: integer("row_count").notNull(),
+  mapping: jsonb("mapping").notNull(), mappingConfirmedAt: timestamp("mapping_confirmed_at", { withTimezone: true }), summary: jsonb("summary"),
+  createdByUserId: text("created_by_user_id").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(), appliedAt: timestamp("applied_at", { withTimezone: true }),
+}, (t) => [unique("import_batch_business_id_unique").on(t.businessId, t.id),
+  foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "import_batch_actor_membership_fk" }),
+  // Le même fichier envoyé deux fois rouvre l'import existant au lieu d'en créer un second.
+  uniqueIndex("import_batch_same_file_unique").on(t.businessId, t.kind, t.fileSha256).where(sql`${t.status} <> 'discarded'`),
+  index("import_batch_business_idx").on(t.businessId, t.createdAt),
+  check("import_batch_kind_check", sql`${t.kind} in ('catalog')`), check("import_batch_status_check", sql`${t.status} in ('review','applying','applied','discarded')`),
+  check("import_batch_file_type_check", sql`${t.fileType} in ('csv','xlsx')`), check("import_batch_file_name_length", sql`char_length(${t.fileName}) between 1 and 200`),
+  check("import_batch_sha_check", sql`${t.fileSha256} ~ '^[0-9a-f]{64}$'`), check("import_batch_counts_check", sql`${t.rowCount} between 0 and 1000 and ${t.columnCount} between 1 and 30 and ${t.fileSize} > 0`)]);
+
+export const importRow = pgTable("import_row", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  batchId: text("batch_id").notNull(), rowNumber: integer("row_number").notNull(), cells: jsonb("cells").notNull(), edits: jsonb("edits").notNull().default({}),
+  values: jsonb("values").notNull(), issues: jsonb("issues").notNull().default([]), candidates: jsonb("candidates").notNull().default([]),
+  decision: text("decision"), decisionSource: text("decision_source"), matchVariantId: text("match_variant_id"), status: text("status").notNull(),
+  appliedVariantId: text("applied_variant_id"), appliedAt: timestamp("applied_at", { withTimezone: true }), stockOpeningId: text("stock_opening_id"), stockNote: text("stock_note"),
+}, (t) => [unique("import_row_business_id_unique").on(t.businessId, t.id),
+  foreignKey({ columns: [t.businessId, t.batchId], foreignColumns: [importBatch.businessId, importBatch.id], name: "import_row_batch_tenant_fk" }),
+  foreignKey({ columns: [t.businessId, t.matchVariantId], foreignColumns: [productVariant.businessId, productVariant.id], name: "import_row_match_variant_tenant_fk" }),
+  foreignKey({ columns: [t.businessId, t.appliedVariantId], foreignColumns: [productVariant.businessId, productVariant.id], name: "import_row_applied_variant_tenant_fk" }),
+  foreignKey({ columns: [t.businessId, t.stockOpeningId], foreignColumns: [stockOpening.businessId, stockOpening.id], name: "import_row_stock_opening_tenant_fk" }),
+  unique("import_row_batch_number_unique").on(t.businessId, t.batchId, t.rowNumber),
+  check("import_row_decision_check", sql`${t.decision} is null or ${t.decision} in ('create','match','skip')`),
+  check("import_row_decision_source_check", sql`(${t.decision} is null) = (${t.decisionSource} is null) and (${t.decisionSource} is null or ${t.decisionSource} in ('auto','user'))`),
+  check("import_row_match_check", sql`(${t.decision} = 'match') = (${t.matchVariantId} is not null)`),
+  check("import_row_status_check", sql`${t.status} in ('ready','needs_review','invalid','skipped','applied')`),
+  check("import_row_applied_check", sql`(${t.status} = 'applied') = (${t.appliedAt} is not null) and (${t.appliedAt} is null) = (${t.appliedVariantId} is null)`)]);
+
+// Mots du commerçant confirmés pour un produit (« ciment cimaf » → « Ciment CIMAF 50 kg »), propres à ce commerce.
+export const productAlias = pgTable("product_alias", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  variantId: text("variant_id").notNull(), alias: text("alias").notNull(), normalized: text("normalized").notNull(),
+  createdByUserId: text("created_by_user_id").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("product_alias_business_id_unique").on(t.businessId, t.id),
+  foreignKey({ columns: [t.businessId, t.variantId], foreignColumns: [productVariant.businessId, productVariant.id], name: "product_alias_variant_tenant_fk" }),
+  foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "product_alias_actor_membership_fk" }),
+  uniqueIndex("product_alias_normalized_unique").on(t.businessId, t.normalized),
+  check("product_alias_length_check", sql`char_length(${t.alias}) between 1 and 160 and char_length(${t.normalized}) between 1 and 160`)]);
+
 export const authSchema = { user, session, account, verification, organization, member, invitation };
 export const databaseSchema = {
   ...authSchema, businessProfile, businessMemberAccess, platformAdmin, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
   promotionCode, promotionEligibleBusiness, businessSubscription, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
+  importBatch, importRow, productAlias,
 };

@@ -127,6 +127,18 @@ Depuis la mission 03 (2026-10-30), voir `docs/design-system.md` :
 - **Mission 11, phase 2** (application installable, `docs/pwa.md`) : manifest `src/app/manifest.ts`, icônes `public/icons/` (script `scripts/generate-pwa-icons.mjs`), service worker enregistré partout par `PwaRegistrar` (mise en page racine), page `/business/install`, bandeau réseau et invitation dans `components/pwa/`.
   - `sw.js` n'intercepte que les navigations et ne met en cache que `/offline.html`. **Toute modification de `offline.html` impose d'incrémenter `OFFLINE_CACHE`.** Ne mettez jamais en cache une réponse d'API ou une page de l'application.
   - Une requête d'écriture sans réponse (`TypeError`) ne doit jamais être présentée comme un échec certain ni comme un succès : voir le message `pwa.network.saleUnknown` de la caisse, qui garde la clé d'idempotence.
+- **Mission 11, phase 3** (Qadr Capture / Adapt, `docs/imports.md`) : import de catalogue CSV/XLSX.
+  - Fichiers : lecture dans `lib/imports/spreadsheet.ts` ; interprétation et rapprochement, sans base, dans `lib/imports/adapt.ts` ; services dans `lib/domain/imports.ts` (migrations 0014-0015).
+  - Écrans : `/business/imports` et `/business/imports/[id]`.
+  - Règles :
+    - rien n'est écrit au catalogue avant la confirmation ;
+    - seul un rapprochement « certain » est automatique ;
+    - une décision `user` n'est jamais écrasée ;
+    - un produit existant n'est jamais modifié ;
+    - les quantités deviennent un stock de départ via `writeStockOpening`, jamais sur un produit qui a déjà du stock.
+  - Les créations passent par `insertProduct` (partagé avec `createProduct`).
+  - Le test `adapt.test.ts` fige les mesures du jeu d'essai : toute dégradation le fait échouer.
+  - PDF et photos : `lib/imports/document-text.ts` est **désactivé** (D-03). Ne l'activez pas sans décision du propriétaire.
 - **Problèmes encore ouverts** : domaine Resend, clé Resend et clés Turnstile de production ni créés ni vérifiés (voir `docs/authentication.md` § 7) ; limitation de débit Better Auth en mémoire (insuffisante sur plusieurs instances) ; 20 vulnérabilités modérées d'outils de développement documentées dans `docs/authentication.md` § 10 ; Neon jamais contacté ; politique non tranchée pour un commerce sans abonnement ou en abonnement `pending` (actuellement non bloqué) ; aucun fonctionnement hors ligne.
 - `next dev` crée `apps/web/AGENTS.md` (bloc Next.js de 9 lignes) à chaque lancement.
 

@@ -164,6 +164,15 @@ La vente hors ligne avec synchronisation n'est **pas** dans cette phase. Elle de
 | 3.5 Application via les services existants, idempotente par ligne, avec audit | Test : rejouer un import ne crée aucun doublon ; isolation entre deux commerces |
 | 3.6 Photos et PDF scannés : adaptateur `DocumentTextExtractor`, désactivé sans fournisseur validé | Décision D-03 requise avant toute activation |
 
+**État au 2026-11-01 : étapes 3.1 à 3.6 livrées** (commit local de la phase 3), pour un seul type d'import, le catalogue avec stock de départ. Détail et limites : `docs/imports.md`.
+
+- 3.1 : migrations `0014` (tables `import_batch`, `import_row` et `product_alias`) et `0015` (opération `import.apply`). **Écart** : pas de table `source_reference`. Pour les tableurs, la provenance (numéro de ligne, cellules d'origine) est portée par `import_row`. La table sera à créer avec les documents scannés.
+- 3.2 : `read-excel-file` 9.3.12 (MIT). 17 tests de lecture, dont une bombe zip, des macros, un CSV mal formé et des encodages arabe et Windows-1252.
+- 3.3 : jeu d'essai synthétique de 63 cas. Résultat : 0 faux rapprochement certain, 1 fausse proposition sur 16, soumise au commerçant. Ce jeu a été écrit après l'algorithme : il est donc biaisé et ne remplace pas une évaluation sur de vrais fichiers.
+- 3.4 : parcours envoi, revue, correction, reprise et application vérifié dans l'aperçu (PGlite) en fr, en et ar, en RTL et à 375 px. La fenêtre était masquée, donc les actions ont été déclenchées par script sur les vrais boutons et formulaires, pas à la souris. Ce parcours est aussi couvert par 11 tests d'intégration sur PGlite.
+- 3.5 : application par paquets idempotents de 200 lignes, avec verrou par ligne et audit. Tests : rejeu avec la même clé et avec une autre clé, isolation A/B, permissions.
+- 3.6 : `src/lib/imports/document-text.ts`, adaptateur désactivé, sans aucune lecture de variable d'environnement. Les PDF et les photos sont reconnus par leur contenu et refusés avec un message clair.
+
 ### Phase 4 : exports
 
 - XLSX : feuilles Ventes, Produits, Stock, Clients, Dettes, Fournisseurs, Achats, Dépenses, Paiements, Synthèse.

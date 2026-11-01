@@ -14,7 +14,7 @@ import { cn } from "@/components/ui/cn";
 import { Monogram } from "@/components/ui/data-display";
 import { Icon, type IconName } from "@/components/ui/icon";
 
-export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "subscription" | "cash" | "notifications" | "printing" | "install" | "modules";
+export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "subscription" | "cash" | "notifications" | "printing" | "install" | "imports" | "modules";
 
 type NavItem = { key: BusinessArea; href: string; icon: IconName };
 const items: NavItem[] = [
@@ -31,6 +31,7 @@ const items: NavItem[] = [
   { key: "expenses", href: "/business/expenses", icon: "wallet" },
   { key: "reports", href: "/business/reports", icon: "chart" },
   { key: "opening", href: "/business/opening", icon: "flag" },
+  { key: "imports", href: "/business/imports", icon: "layers" },
   { key: "team", href: "/business/team", icon: "users" },
   { key: "subscription", href: "/business/subscription", icon: "tag" },
   { key: "printing", href: "/business/printing", icon: "printer" },
@@ -43,7 +44,7 @@ const mobilePriority: BusinessArea[] = ["dashboard", "pos", "cash", "stock", "in
 
 const roleModules: Record<string, BusinessArea[]> = {
   owner: items.map((item) => item.key), admin: items.map((item) => item.key),
-  stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening", "install"],
+  stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening", "imports", "install"],
   accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "cash", "subscription", "install"],
   cashier: ["pos", "cash", "products", "sales", "customers", "stock", "printing", "install"],
   member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "subscription", "install"],

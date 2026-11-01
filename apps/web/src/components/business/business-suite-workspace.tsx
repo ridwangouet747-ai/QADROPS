@@ -34,6 +34,7 @@ const links = [
   ["inventory", "Inventaires", "Comptage, écarts, validation à deux personnes."], ["suppliers", "Fournisseurs", "Contacts d’approvisionnement."],
   ["purchases", "Achats reçus", "Réception des lignes et mise à jour du coût moyen."], ["expenses", "Dépenses", "Enregistrement des charges d’exploitation."],
   ["reports", "Rapports", "Périodes, flux financiers et export CSV."], ["opening", "Démarrage", "Stock de départ et anciennes dettes."], ["settings", "Paramètres", "Identité du commerce et format de reçu."],
+  ["imports", "Importer un catalogue", "Fichier CSV ou Excel, relu avant enregistrement."],
   ["install", "Installer l’application", "Icône sur l’écran d’accueil, ouverture plein écran."],
 ] as const;
 
@@ -132,7 +133,7 @@ export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessA
   }
 
   if (section === "modules") {
-    const permissions: Record<string, string[]> = { owner: links.map(([key]) => key), admin: links.map(([key]) => key), stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening", "install"], accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "install"], cashier: ["pos", "products", "sales", "customers", "stock", "install"], member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "install"] };
+    const permissions: Record<string, string[]> = { owner: links.map(([key]) => key), admin: links.map(([key]) => key), stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening", "imports", "install"], accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "install"], cashier: ["pos", "products", "sales", "customers", "stock", "install"], member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "install"] };
     const allowed = permissions[role] ?? permissions.member;
     return <><PageHeading section={section} /><div className="suite-module-grid">{links.filter(([key]) => allowed.includes(key)).map(([key, label, description], index) => <Link className="suite-module-link" href={`/business/${key}`} key={key}><span className="suite-module-index">{String(index + 1).padStart(2, "0")}</span><strong>{label}</strong><span>{description}</span><b aria-hidden="true">↗</b></Link>)}</div></>;
   }

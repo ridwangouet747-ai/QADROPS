@@ -1,0 +1,2 @@
+ALTER TABLE "idempotency_record" DROP CONSTRAINT "idempotency_operation_check";--> statement-breakpoint
+ALTER TABLE "idempotency_record" ADD CONSTRAINT "idempotency_operation_check" CHECK ("idempotency_record"."operation" in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment','cash_session.open','cash_session.movement','cash_session.close','cash_session.validate','import.apply'));
