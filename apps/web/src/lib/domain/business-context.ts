@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { and, eq } from "drizzle-orm";
 import { createDatabase } from "@/lib/db/client";
 import { getAuth } from "@/lib/auth/server";
@@ -66,5 +67,8 @@ export function errorResponse(error: unknown): Response {
   const status = knownError && "status" in error && typeof error.status === "number" ? error.status : validationError ? 400 : 500;
   const message = knownError && error instanceof Error ? error.message : validationError ? "Les données de la requête sont invalides." : "Une erreur empêche le traitement de la requête.";
   const code = knownError && "code" in error && typeof error.code === "string" ? error.code : validationError ? "validation" : undefined;
+  // Erreur imprévue : la réponse reste générique, mais Sentry la reçoit (sans message ni données, voir
+  // sentry.server.config.ts) ; sinon une panne en production passerait inaperçue.
+  if (status === 500) Sentry.captureException(error);
   return Response.json(code ? { error: message, code } : { error: message }, { status });
 }

@@ -12,5 +12,5 @@ export default defineConfig([
     plugins: { "@next/next": nextPlugin },
     rules: nextPlugin.configs.recommended.rules,
   },
-  globalIgnores([".next/**", ".next-preview/**", "out/**", "build/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", ".next-preview/**", ".open-next/**", ".wrangler/**", "out/**", "build/**", "next-env.d.ts", "cloudflare-env.d.ts"]),
 ]);

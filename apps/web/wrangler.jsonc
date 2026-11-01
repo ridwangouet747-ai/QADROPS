@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Application QADR OPS (landing, espace commerçant, console Super Admin) sur Cloudflare Workers via OpenNext.
+  // Secrets : `npx wrangler secret put NOM` (jamais ici). Voir docs/cloudflare-deployment.md.
+  "name": "qadr-ops",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true
+  },
+  // Horaires UTC, identiques à src/lib/cron-schedule.ts (vérifié par cron-schedule.test.ts).
+  "triggers": {
+    "crons": ["0 1 * * *", "0 7 * * *"]
+  }
+}

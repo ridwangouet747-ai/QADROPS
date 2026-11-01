@@ -38,6 +38,9 @@
     ".next-preview/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".open-next",
+    ".wrangler",
+    "cloudflare"
   ]
 }

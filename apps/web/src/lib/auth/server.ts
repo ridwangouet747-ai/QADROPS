@@ -6,9 +6,10 @@ import { organization } from "better-auth/plugins";
 import { after } from "next/server";
 import { createDatabase } from "@/lib/db/client";
 import { authSchema, businessProfile, receiptSettings } from "@/lib/db/schema";
-import { readEnvironment } from "@/lib/env";
+import { assertProductionAuthUrl, readEnvironment } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { defaultLocale, localeCookie, resolveLocale, type Locale } from "@/lib/i18n/config";
+import { clientIpHeaders } from "./client-ip-headers";
 import { deliverEmail, emailRequestScope, resolveEmailTransport, type EmailLogger, type EmailMessage, type EmailTransport } from "./email";
 import { renderInvitationEmail, renderPasswordResetEmail, renderVerificationEmail } from "./email-templates";
 import { businessAccess, businessRoles } from "./permissions";
@@ -167,6 +168,7 @@ export function createQadrAuth(options: AuthOptions) {
     })],
     advanced: {
       useSecureCookies: options.isProduction,
+      ipAddress: { ipAddressHeaders: clientIpHeaders() },
       ...(options.backgroundTask ? { backgroundTasks: { handler: options.backgroundTask } } : {}),
     },
     hooks: {
@@ -215,6 +217,7 @@ export function getAuth(): Promise<QadrAuth> {
       if (!env.DATABASE_URL || !env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.length < 32) {
         throw new Error("Better Auth nécessite DATABASE_URL et un BETTER_AUTH_SECRET d’au moins 32 caractères.");
       }
+      if (env.NODE_ENV === "production") assertProductionAuthUrl(process.env.BETTER_AUTH_URL);
       return createQadrAuth({ db: createDatabase(env.DATABASE_URL), secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL,
         isProduction: env.NODE_ENV === "production", emailTransport: resolveEmailTransport(), backgroundTask: runAfterResponse,
         turnstile: { secret: env.TURNSTILE_SECRET_KEY, siteKey: env.NEXT_PUBLIC_TURNSTILE_SITE_KEY } });

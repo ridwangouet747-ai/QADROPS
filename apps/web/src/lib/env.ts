@@ -42,6 +42,19 @@ export function readEnvironment(source: NodeJS.ProcessEnv = process.env): AppEnv
   return values;
 }
 
+/**
+ * En production, l'URL publique (cookies, origine de confiance, liens des e-mails, contrôle Turnstile)
+ * doit être déclarée explicitement et servie en HTTPS : la valeur par défaut http://localhost:3000
+ * casserait silencieusement connexions et e-mails. `localhost` reste admis pour un `next start` local.
+ */
+export function assertProductionAuthUrl(value: string | undefined) {
+  const url = value?.trim() && URL.canParse(value.trim()) ? new URL(value.trim()) : null;
+  const local = url !== null && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (!url || (url.protocol !== "https:" && !local)) {
+    throw new Error("En production, BETTER_AUTH_URL doit être l’adresse publique HTTPS de l’application.");
+  }
+}
+
 export function requireDatabaseUrl(source: NodeJS.ProcessEnv = process.env): string {
   const value = readEnvironment(source).DATABASE_URL;
   if (!value) throw new Error("DATABASE_URL n’est pas configurée.");

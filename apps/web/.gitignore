@@ -1,6 +1,11 @@
 node_modules/
 .next/
 .next-preview/
+# Cloudflare (OpenNext / Wrangler) : sorties de build et état local.
+.open-next/
+.wrangler/
+.dev.vars*
+cloudflare-env.d.ts
 out/
 coverage/
 .tmp/

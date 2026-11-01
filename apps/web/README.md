@@ -72,7 +72,7 @@ Utiliser des environnements et bases distincts pour développement, preview et p
 
 ## Sentry
 
-L'intégration SDK est préparée pour le navigateur, Node.js et Edge via `instrumentation-client.ts`, `instrumentation.ts`, `sentry.server.config.ts` et `sentry.edge.config.ts`. Elle est désactivée si le DSN correspondant est absent. `sendDefaultPii` est désactivé, les transactions, breadcrumbs, utilisateur, requête, extra, tags et contextes sont supprimés des erreurs capturées et le message d'exception est remplacé par un libellé générique. Ne pas ajouter de payload métier aux messages, tags, breadcrumbs ou contextes.
+L'intégration SDK est préparée pour le navigateur, Node.js et Edge via `src/instrumentation-client.ts`, `src/instrumentation.ts` (dans `src/`, sinon Next.js les ignore), `sentry.server.config.ts` et `sentry.edge.config.ts`. Elle est désactivée si le DSN correspondant est absent. `sendDefaultPii` est désactivé, les transactions, breadcrumbs, utilisateur, requête, extra, tags et contextes sont supprimés des erreurs capturées et le message d'exception est remplacé par un libellé générique. Ne pas ajouter de payload métier aux messages, tags, breadcrumbs ou contextes.
 
 Configurer des DSN/projets séparés pour le développement, la preview et la production via les environnements locaux et Vercel. Garder `SENTRY_ENVIRONMENT` cohérent. Aucun projet/DSN n'est fourni dans ce dépôt ; le code n'est donc pas déclaré opérationnel ni confirmé comme ayant envoyé un événement.
 

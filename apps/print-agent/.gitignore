@@ -1,0 +1,2 @@
+# Configuration locale de chaque ordinateur (origines, adresses des imprimantes) : jamais dans Git.
+agent-config.json

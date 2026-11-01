@@ -13,12 +13,16 @@
     "test:db": "vitest run src/lib/db/pglite-migrations.integration.test.ts src/lib/domain/commercial.integration.test.ts",
     "db:check": "tsx scripts/check-database.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "@gsap/react": "2.1.2",
     "@hookform/resolvers": "5.9.1",
     "@neondatabase/serverless": "1.2.0",
+    "@opennextjs/cloudflare": "1.20.15",
     "@react-three/fiber": "9.8.1",
     "@sentry/nextjs": "10.78.0",
     "better-auth": "1.7.7",
@@ -49,7 +53,8 @@
     "tsx": "4.20.6",
     "typescript": "5.9.3",
     "typescript-eslint": "8.56.0",
-    "vitest": "4.1.12"
+    "vitest": "4.1.12",
+    "wrangler": "4.156.0"
   },
   "engines": {
     "node": "24.x"

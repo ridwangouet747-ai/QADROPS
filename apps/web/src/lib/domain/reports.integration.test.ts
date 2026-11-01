@@ -65,6 +65,8 @@ describe("rapports commerciaux sur PGlite isolé", () => {
   const saleAt = async (saleId: string, iso: string) => {
     await at("sale", saleId, iso);
     await client.query("update payment set occurred_at=$2, confirmed_at=case when status='confirmed' then $2::timestamptz else null end where sale_id=$1", [saleId, iso]);
+    // Sorties de stock de la vente à la même date : sinon elles gardent la date réelle d'exécution du test.
+    await client.query("update stock_movement set occurred_at=$2 where sale_line_id in (select id from sale_line where sale_id=$1)", [saleId, iso]);
   };
 
   beforeAll(async () => {
