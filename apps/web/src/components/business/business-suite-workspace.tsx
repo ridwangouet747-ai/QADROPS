@@ -33,7 +33,7 @@ const links = [
   ["customers", "Clients & crédits", "Comptes clients et soldes à régler."], ["stock", "Stock", "Quantités disponibles et mouvements."],
   ["inventory", "Inventaires", "Comptage, écarts, validation à deux personnes."], ["suppliers", "Fournisseurs", "Contacts d’approvisionnement."],
   ["purchases", "Achats reçus", "Réception des lignes et mise à jour du coût moyen."], ["expenses", "Dépenses", "Enregistrement des charges d’exploitation."],
-  ["reports", "Rapports", "Périodes, flux financiers et export CSV."], ["opening", "Démarrage", "Stock de départ et anciennes dettes."], ["settings", "Paramètres", "Identité du commerce et format de reçu."],
+  ["reports", "Rapports", "Périodes, flux financiers, exports Excel, PDF et CSV."], ["opening", "Démarrage", "Stock de départ et anciennes dettes."], ["settings", "Paramètres", "Identité du commerce et format de reçu."],
   ["imports", "Importer un catalogue", "Fichier CSV ou Excel, relu avant enregistrement."],
   ["install", "Installer l’application", "Icône sur l’écran d’accueil, ouverture plein écran."],
 ] as const;

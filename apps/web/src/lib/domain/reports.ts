@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "../auth/permissions";
 import { businessProfile, member } from "../db/schema";
+import { csvDocument } from "../exports/csv";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 
 /*
@@ -365,12 +366,6 @@ async function reportDetails(db: CommercialDatabase, b: string, start: Date, end
 
 export type CommercialReport = Awaited<ReturnType<typeof getCommercialReport>>;
 
-/** Cellule CSV neutralisée : une valeur qui commence par = + - @ (ou une tabulation) ne peut pas devenir une formule. */
-export function csvCell(value: string) {
-  const safe = /^[\s]*[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-  return `"${safe.replaceAll('"', '""')}"`;
-}
-
 export function reportCsv(report: CommercialReport) {
   const methodLabel = (method: string | null) => method ?? "non précisé";
   const rowsOut: string[][] = [
@@ -410,5 +405,5 @@ export function reportCsv(report: CommercialReport) {
     [],
     ["Employé", "Ventes", "CA (XOF)", "Encaissé (XOF)", "Dépenses (XOF)"], ...report.employees.map((row) => [row.name, row.saleCount, row.revenueXof, row.collectedXof, row.expensesXof]),
   ];
-  return `\uFEFF${rowsOut.map((row) => row.map(csvCell).join(",")).join("\r\n")}`;
+  return csvDocument(rowsOut);
 }

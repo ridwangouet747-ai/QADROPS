@@ -13,6 +13,7 @@ import { QuantityInput } from "@/components/ui/quantity-input";
 import { parseQuantityInput, toApiQuantity } from "@/lib/client/quantity";
 import { formatDateTime, formatQuantity, formatTime } from "@/lib/i18n/format";
 import { useOnline } from "@/lib/pwa/client";
+import { csvDocument } from "@/lib/exports/csv";
 import type { Translate } from "@/lib/i18n/translate";
 import type { Locale } from "@/lib/i18n/config";
 
@@ -193,13 +194,13 @@ export function InventoryWorkspace() {
 
   const downloadCsv = () => {
     if (!detail) return;
-    const quote = (value: string) => `"${(/^[\s]*[=+\-@\t\r]/.test(value) ? `'${value}` : value).replaceAll('"', '""')}"`;
     const rows = [[t("inventory.csv.product"), t("inventory.csv.variant"), t("inventory.csv.reference"), t("inventory.csv.counted"), t("inventory.csv.difference"), t("inventory.csv.reason")], ...detail.lines.map((line) => {
       const delta = savedDelta(line);
       return [line.productName, line.variantLabel, line.theoreticalQty ?? t("inventory.csv.notCounted"), line.countedQty ?? t("inventory.csv.notCounted"),
         delta === null ? "" : `${delta < 0n ? "-" : ""}${microsLabel(delta, "en")}`, line.adjustmentReason ?? ""];
     })];
-    const blob = new Blob([`\uFEFF${rows.map((row) => row.map(quote).join(",")).join("\r\n")}`], { type: "text/csv;charset=utf-8" });
+    // csvDocument laisse \u00AB -3.5 \u00BB en nombre (\u00E9cart n\u00E9gatif) et neutralise les textes qui ressemblent \u00E0 une formule.
+    const blob = new Blob([csvDocument(rows)], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `${t("inventory.csv.fileName")}-${detail.id.slice(0, 8)}.csv`; link.click(); URL.revokeObjectURL(link.href);
   };
 

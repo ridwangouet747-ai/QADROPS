@@ -6,6 +6,7 @@ import { notificationsFr, pfNotificationsFr } from "./notifications";
 import { printingFr } from "./printing";
 import { pwaFr } from "./pwa";
 import { importsFr } from "./imports";
+import { exportsFr } from "./exports";
 import { wizardFr } from "./wizard";
 import { platformFr } from "./platform";
 /** Source des clés de traduction. `en.ts` et `ar.ts` doivent reprendre exactement la même structure. */
@@ -736,6 +737,7 @@ export const fr = {
   printing: printingFr,
   pwa: pwaFr,
   imports: importsFr,
+  exports: exportsFr,
   analytics: { consent: { title: "Mesure d'audience", body: "Acceptez-vous que Qadr Ops mesure, de façon anonyme, l'usage de l'application pour l'améliorer ? Aucun montant, nom ou contenu de vente n'est envoyé. Vous pouvez refuser sans conséquence.", accept: "Accepter", refuse: "Refuser" } },
 };
 

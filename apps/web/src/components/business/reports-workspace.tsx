@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Segmented } from "@/components/ui/controls";
 import { BarChart, StatCard } from "@/components/ui/data-display";
@@ -95,7 +95,6 @@ export function ReportsWorkspace() {
     <div>
       <PageHeader title={t("reports.title")} actions={report && (
         <div className="flex flex-wrap gap-2 print:hidden">
-          <a className={buttonClasses({ variant: "secondary" })} href={`/api/business/reports/export?${query}&format=csv`} download onClick={() => track("report_exported", { format: "csv", period })}><Icon name="download" />{t("reports.exportCsv")}</a>
           <Button variant="ghost" onClick={() => window.print()} icon={<Icon name="print" />}>{t("reports.print")}</Button>
         </div>
       )}>{t("reports.intro")}</PageHeader>
@@ -128,6 +127,8 @@ export function ReportsWorkspace() {
         )}
       </Card>
 
+      {report && <ExportCard query={query} period={period} />}
+
       {failure === "load" && <Alert tone="danger" className="mb-4">{message || t("reports.loadFailed")}</Alert>}
       {!report ? (ready ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-36 rounded-xl" />)}</div> : null) : (
         <div className={cn("grid gap-4 transition-opacity [&>*]:min-w-0", loading && "opacity-60")} aria-busy={loading}>
@@ -137,6 +138,73 @@ export function ReportsWorkspace() {
         </div>
       )}
     </div>
+  );
+}
+
+type ExportFormat = "xlsx" | "pdf" | "csv";
+
+/**
+ * Téléchargements préparés par le serveur (docs/exports.md). Le fichier est demandé par fetch pour
+ * afficher une erreur claire (période trop longue, rôle) au lieu d'enregistrer une page d'erreur.
+ */
+function ExportCard({ query, period }: { query: string; period: Period }) {
+  const { t, locale } = useI18n();
+  const [busy, setBusy] = useState<ExportFormat | null>(null);
+  const [notice, setNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  // Le PDF serveur n'existe qu'en français et en anglais : en arabe, il est demandé en français, et l'écran le dit.
+  const pdfLang = locale === "ar" ? "fr" : locale;
+
+  const download = async (format: ExportFormat) => {
+    setBusy(format);
+    setNotice(null);
+    const params = new URLSearchParams(query);
+    params.set("format", format);
+    params.set("lang", format === "pdf" ? pdfLang : locale);
+    try {
+      const response = await fetch(`/api/business/reports/export?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { code?: string } | null;
+        const key: MessageKey = response.status === 403 ? "exports.errors.forbidden"
+          : body?.code === "export_too_large" ? "exports.errors.tooLarge"
+            : body?.code === "pdf_language_unsupported" ? "exports.errors.language" : "exports.errors.failed";
+        setNotice({ tone: "danger", text: t(key) });
+        return;
+      }
+      const blob = await response.blob();
+      const name = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1] ?? `qadr-ops.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      track("report_exported", { format, period });
+      setNotice({ tone: "success", text: t("exports.ready") });
+    } catch {
+      setNotice({ tone: "danger", text: t("exports.errors.network") });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card className="mb-4 grid gap-3 print:hidden" aria-labelledby="report-exports-title">
+      <div>
+        <CardTitle id="report-exports-title" title={t("exports.title")} />
+        <p className="-mt-2 mb-0 text-sm text-fg-muted">{t("exports.intro")}</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" onClick={() => void download("xlsx")} loading={busy === "xlsx"} disabled={busy !== null} icon={<Icon name="download" />}>{t("exports.xlsx")}</Button>
+        <Button variant="secondary" onClick={() => void download("pdf")} loading={busy === "pdf"} disabled={busy !== null} icon={<Icon name="download" />}>{t(locale === "ar" ? "exports.pdfFrench" : "exports.pdf")}</Button>
+        <Button variant="ghost" onClick={() => void download("csv")} loading={busy === "csv"} disabled={busy !== null} icon={<Icon name="download" />}>{t("exports.csv")}</Button>
+      </div>
+      <p className="m-0 text-xs text-fg-subtle">{t("exports.xlsxHint")}</p>
+      {locale === "ar" && <p className="m-0 text-xs text-fg-subtle">{t("exports.pdfArabicNote")}</p>}
+      {busy && <p className="sr-only" role="status">{t("exports.preparing")}</p>}
+      {notice && <Alert tone={notice.tone} onDismiss={() => setNotice(null)} dismissLabel={t("common.close")}>{notice.text}</Alert>}
+    </Card>
   );
 }
 

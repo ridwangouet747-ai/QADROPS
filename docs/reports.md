@@ -40,8 +40,11 @@ Code : `apps/web/src/lib/domain/reports.ts` (rapports), `apps/web/src/lib/domain
 
 ## 3. Exports
 
-- **CSV** : `GET /api/business/reports/export?format=csv&period=…` (même permission). BOM UTF-8, toute cellule qui commence par `=`, `+`, `-`, `@`, une tabulation ou un retour chariot est préfixée d'une apostrophe (`csvCell`, testé).
-- **PDF** : non généré par le serveur. Le bouton « Imprimer » ouvre la fenêtre du navigateur, qui permet d'enregistrer en PDF ; ce n'est pas un export PDF au sens strict.
+Depuis la mission 11, phase 4 : classeur Excel, rapport PDF et résumé CSV, détaillés dans `docs/exports.md`.
+
+- **CSV** : `GET /api/business/reports/export?format=csv&period=…` (même permission). BOM UTF-8. `csvCell` est partagé (`src/lib/exports/csv.ts`) : un nombre simple, même négatif, reste un nombre ; tout autre texte qui commence par `=`, `+`, `-`, `@`, une tabulation ou un retour chariot est préfixé d'une apostrophe (testé).
+- **XLSX** : `format=xlsx`, une feuille Synthèse et neuf feuilles détaillées, sans aucune formule.
+- **PDF** : `format=pdf`, généré par le serveur en français ou en anglais. En arabe, le bouton « Imprimer » reste la voie pour un rapport en arabe : le navigateur peut l'enregistrer en PDF.
 
 ## 4. Clôture de caisse
 

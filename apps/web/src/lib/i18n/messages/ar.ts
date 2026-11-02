@@ -6,6 +6,7 @@ import { notificationsAr, pfNotificationsAr } from "./notifications";
 import { printingAr } from "./printing";
 import { pwaAr } from "./pwa";
 import { importsAr } from "./imports";
+import { exportsAr } from "./exports";
 import { wizardAr } from "./wizard";
 import { platformAr } from "./platform";
 import type { Messages } from "./fr";
@@ -738,5 +739,6 @@ export const ar: Messages = {
   printing: printingAr,
   pwa: pwaAr,
   imports: importsAr,
+  exports: exportsAr,
   analytics: { consent: { title: "قياس الاستخدام", body: "هل توافق على أن يقيس Qadr Ops، بشكل مجهول، طريقة استخدام التطبيق لتحسينه؟ لا يُرسل أي مبلغ أو اسم أو محتوى بيع. يمكنك الرفض دون أي عواقب.", accept: "موافقة", refuse: "رفض" } },
 };

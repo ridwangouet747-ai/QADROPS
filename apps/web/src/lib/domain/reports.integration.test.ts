@@ -7,7 +7,8 @@ import { databaseSchema } from "../db/schema";
 import { createProduct, createSale } from "./commercial";
 import { createBusinessCustomer, createBusinessExpense, recordCustomerPayment } from "./business-data";
 import { createOpeningBalance, postStockOpening, recordOpeningBalancePayment } from "./opening";
-import { changeBasisPoints, csvCell, getCommercialReport, reportCsv, reportRange } from "./reports";
+import { csvCell } from "../exports/csv";
+import { changeBasisPoints, getCommercialReport, reportCsv, reportRange } from "./reports";
 
 describe("périodes des rapports (fonctions pures)", () => {
   const now = new Date("2026-10-31T12:00:00Z");

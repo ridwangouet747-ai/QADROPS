@@ -23,7 +23,7 @@ Noms en anglais, `objet_action` au passé, propriétés en `snake_case`.
 | `sale_failed` | `reason` | Abandons et erreurs à la caisse |
 | `cart_abandoned` | `line_count` | Abandons de parcours |
 | `feature_viewed` | `feature` (dashboard, pos, stock, inventory, reports, cash, sales, notifications, printing, subscription, team) | Adoption des fonctionnalités, fréquence |
-| `report_exported` | `format`, `period` | Usage des rapports |
+| `report_exported` | `format` (csv, xlsx, pdf), `period` (daily, weekly, monthly, yearly, custom) | Usage des rapports et des exports |
 | `printer_module_toggled` | `enabled` | Activation des modules |
 | `printer_test_printed` | `result` | Mise en service de l'imprimante |
 | `print_failed` | `error` (code) | Erreurs d'impression |

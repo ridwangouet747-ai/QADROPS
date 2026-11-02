@@ -180,6 +180,13 @@ La vente hors ligne avec synchronisation n'est **pas** dans cette phase. Elle de
 - `csvCell` partagé et corrigé.
 - Critère : fichiers ouverts sans alerte, aucune formule active, isolation testée.
 
+**État au 2026-11-01 : exports livrés** (commit local de la phase 4), sans dépendance ni migration. Détail et limites : `docs/exports.md`.
+
+- XLSX : classeur écrit par le dépôt (`src/lib/exports/xlsx.ts`, zip par `node:zlib`), sans aucun élément de formule. Montants en entiers, quantités `numeric` sans perte, négatifs conservés en nombres, texte « à risque » écrit en texte avec `quotePrefix`, feuilles en RTL pour l'arabe. Chaque feuille exige la permission de lecture de son domaine, en plus de `report:read`. **Écarts** : la Synthèse est la première feuille, pas la dernière ; au-delà de 5 000 lignes, une feuille de la période (ventes, stock, achats, dépenses, paiements) refuse l'export (422) au lieu d'être tronquée, alors que les listes de référence sont tronquées et le signalent.
+- PDF : `src/lib/exports/pdf.ts`, polices standard, **français et anglais seulement**. En arabe, le serveur répond 422 et l'écran propose le PDF en français ou l'impression du navigateur.
+- X-1 corrigé : `csvCell` partagé (`src/lib/exports/csv.ts`) par le résumé CSV et l'export d'inventaire ; un nombre négatif reste un nombre.
+- Tests : unitaires (csv, xlsx relu par `read-excel-file`, pdf ; le zip est aussi utilisé par les tests de lecture des imports) et 8 tests d'intégration PGlite (commerces A et B, identifiants de requête ignorés, sommes égales aux totaux du rapport, caissier 403, sans session 401, périodes invalides, plafond). **Non vérifié** : ouverture dans Excel, LibreOffice ou un lecteur PDF réel, et l'écran dans un navigateur.
+
 ### Phase 5 : impression, consolidation
 
 Un modèle unique `ReceiptDocument`, des profils d'imprimante (colonnes, code page), un ticket à l'écran traduit avec RTL, et l'arabe et le logo en trame ESC/POS. Le matériel réel doit être testé sur place par le propriétaire.

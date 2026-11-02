@@ -139,6 +139,7 @@ Depuis la mission 03 (2026-10-30), voir `docs/design-system.md` :
   - Les créations passent par `insertProduct` (partagé avec `createProduct`).
   - Le test `adapt.test.ts` fige les mesures du jeu d'essai : toute dégradation le fait échouer.
   - PDF et photos : `lib/imports/document-text.ts` est **désactivé** (D-03). Ne l'activez pas sans décision du propriétaire.
+- **Mission 11, phase 4** (exports, `docs/exports.md`) : `GET /api/business/reports/export?format=xlsx|pdf|csv`, générés en mémoire sans dépendance (`src/lib/exports/`), données lues par `lib/domain/exports.ts`. Tout export CSV passe par `csvCell`/`csvDocument` de `lib/exports/csv.ts` (un nombre négatif reste un nombre) ; une cellule XLSX de texte ne contient jamais de formule. Chaque feuille exige `report:read` plus la lecture de son domaine ; plafond `EXPORT_LIMITS.rowsPerSheet` (5 000). Le PDF n'existe qu'en fr/en (422 en arabe).
 - **Problèmes encore ouverts** : domaine Resend, clé Resend et clés Turnstile de production ni créés ni vérifiés (voir `docs/authentication.md` § 7) ; limitation de débit Better Auth en mémoire (insuffisante sur plusieurs instances) ; 20 vulnérabilités modérées d'outils de développement documentées dans `docs/authentication.md` § 10 ; Neon jamais contacté ; politique non tranchée pour un commerce sans abonnement ou en abonnement `pending` (actuellement non bloqué) ; aucun fonctionnement hors ligne.
 - `next dev` crée `apps/web/AGENTS.md` (bloc Next.js de 9 lignes) à chaque lancement.
 

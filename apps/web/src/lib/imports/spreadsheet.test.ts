@@ -1,33 +1,6 @@
-import { crc32, deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
+import { createZip as zip } from "../exports/zip";
 import { cellText, IMPORT_LIMITS, parseCsv, readSpreadsheet } from "./spreadsheet";
-
-/** Archive ZIP minimale (méthode deflate) ; `declaredSize` permet de simuler une archive qui ment sur ses tailles. */
-function zip(files: { name: string; content: string | Buffer; declaredSize?: number }[]) {
-  const locals: Buffer[] = [];
-  const central: Buffer[] = [];
-  let offset = 0;
-  for (const file of files) {
-    const data = Buffer.from(file.content);
-    const compressed = deflateRawSync(data);
-    const name = Buffer.from(file.name);
-    const size = file.declaredSize ?? data.length;
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(8, 8); local.writeUInt32LE(crc32(data), 14);
-    local.writeUInt32LE(compressed.length, 18); local.writeUInt32LE(size, 22); local.writeUInt16LE(name.length, 26);
-    const entry = Buffer.alloc(46);
-    entry.writeUInt32LE(0x02014b50, 0); entry.writeUInt16LE(20, 4); entry.writeUInt16LE(20, 6); entry.writeUInt16LE(8, 10); entry.writeUInt32LE(crc32(data), 16);
-    entry.writeUInt32LE(compressed.length, 20); entry.writeUInt32LE(size, 24); entry.writeUInt16LE(name.length, 28); entry.writeUInt32LE(offset, 42);
-    locals.push(local, name, compressed);
-    central.push(entry, name);
-    offset += local.length + name.length + compressed.length;
-  }
-  const directory = Buffer.concat(central);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10);
-  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...locals, directory, end]);
-}
 
 type SheetCell = string | number | null;
 const escapeXml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

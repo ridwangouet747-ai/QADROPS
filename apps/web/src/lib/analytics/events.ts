@@ -17,7 +17,7 @@ export const analyticsCatalog = {
   cart_abandoned: { line_count: bucket },
   product_created: {},
   feature_viewed: { feature: ["dashboard", "pos", "stock", "inventory", "reports", "cash", "sales", "notifications", "printing", "subscription", "team"] },
-  report_exported: { format: ["csv"], period: ["daily", "weekly", "monthly", "yearly", "custom"] },
+  report_exported: { format: ["csv", "xlsx", "pdf"], period: ["daily", "weekly", "monthly", "yearly", "custom"] },
   printer_module_toggled: { enabled: "boolean" },
   printer_test_printed: { result },
   print_failed: { error: ["not_paired", "agent_unreachable", "timeout", "paper_out", "disconnected", "connection_refused", "communication_error", "other"] },
