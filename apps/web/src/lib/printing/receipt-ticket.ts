@@ -64,6 +64,8 @@ export function layoutReceipt(document: ReceiptDocument): TicketLayout {
   }
   pair(labels.total, amount(totals.totalXof), { bold: true, size: "tall" });
   for (const payment of document.payments) pair(payment.statusLabel ? `${payment.methodLabel} (${payment.statusLabel})` : payment.methodLabel, amount(payment.amountXof));
+  // Total encaissé seulement s'il apporte une information : plusieurs paiements ou un reste à payer.
+  if (document.payments.length > 1 || totals.dueXof) pair(labels.paid, amount(totals.paidXof));
   if (totals.dueXof) pair(labels.due, amount(totals.dueXof), { bold: true });
   if (business.footer) { blocks.push({ type: "feed", lines: 1 }); text(business.footer, "center"); }
   blocks.push({ type: "feed", lines: 2 }, { type: "cut" });

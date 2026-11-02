@@ -70,8 +70,12 @@ describe("ReceiptDocument : modèle unique du ticket", () => {
       { method: "mtn_momo", amountXof: "9500", status: "pending" },
     ] });
     expect(document.totals).toMatchObject({ paidXof: "12000", dueXof: "9500" });
+    // Plusieurs paiements : le total encaissé est imprimé avant le reste à payer (il figurait sur l'ancien ticket à l'écran).
+    expect(text(layoutReceipt(document))).toMatch(/Encaissé \| 12 000 F\nReste à payer \| 9 500 F/);
     const settled = buildReceiptDocument({ ...source, payments: [{ method: "cash", amountXof: "21500", status: "confirmed" }] });
     expect(settled.totals.dueXof).toBeNull();
+    // Un seul paiement réglant tout : la ligne « Espèces » suffit, pas de doublon « Encaissé ».
+    expect(text(layoutReceipt(settled))).not.toContain("Encaissé");
   });
 
   it("montants très grands sans perte (bigint)", () => {
