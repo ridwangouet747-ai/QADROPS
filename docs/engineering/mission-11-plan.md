@@ -191,6 +191,19 @@ La vente hors ligne avec synchronisation n'est **pas** dans cette phase. Elle de
 
 Un modèle unique `ReceiptDocument`, des profils d'imprimante (colonnes, code page), un ticket à l'écran traduit avec RTL, et l'arabe et le logo en trame ESC/POS. Le matériel réel doit être testé sur place par le propriétaire.
 
+**État au 2026-11-01 : livrée en logiciel, non vérifiée sur une imprimante réelle (B-2).** Détail et liste des contrôles à faire sur place : `docs/printing.md` § 7.
+
+- I-4 : ticket à l'écran traduit en fr, en et ar (`?lang=`), `dir="rtl"` en arabe, montants et références isolés (`<bdi>`, LRI/PDI), aperçu 58 / 80 mm. Test de rendu (`thermal-receipt.test.ts`).
+- I-5 : `buildReceiptDocument` construit un seul document côté serveur. L'écran, l'ESC/POS texte et l'image affichent `layoutReceipt(document)` sans recalcul. Un test d'intégration vérifie que la tâche d'impression et le ticket à l'écran ont les mêmes blocs.
+- I-6 : date au fuseau du commerce (`Africa/Abidjan` par défaut ou si le fuseau est invalide), suivie de « GMT ».
+- I-7 : le statut `printed` s'affiche « Transmis », avec la mention que seul le papier prouve la sortie.
+- I-8 : réimpression par `runIdempotent` (opération `print.reprint`, migration 0016). La clé est obligatoire sur la route, et un double clic ne crée qu'une tâche et qu'un audit.
+- I-9 : erreurs renvoyées par un code stable et traduites (fr/en/ar). Un code inconnu affiche « erreur inconnue ».
+- I-10 : le service local 0.2.0 contrôle l'en-tête `Host` (421) et limite la durée des appairages (`tokenTtlDays`, 90 jours, `401 pairing_expired`). Les anciens appairages reçoivent une échéance d'au moins 30 jours, annoncée dans la console. Couvert par 6 tests `node --test`.
+- Profils : 58 mm (32 colonnes) et 80 mm (48 colonnes), pages de codes PC858, PC850 et WPC1252, mode d'écriture auto, texte ou image (migration `0016_printer_profiles`).
+- Arabe et logo : trame GS v 0 par bandes de 128 lignes. Le logo est tramé selon Atkinson. Les fonctions pures d'image sont testées octet par octet. **Écart** : le dessin sur canvas (`raster-canvas.ts`) n'est couvert par aucun test automatique, car Vitest n'a pas de canvas.
+- Vérifications : `tsc` et `lint` sans erreur. Vitest complet : 50 fichiers et 396 tests réussis. Service local : 14 tests réussis. `drizzle-kit check`, puis un second `generate`, répond « No schema changes ». **`npm run build` non concluant** : deux essais ont échoué en téléchargeant la police `Plus Jakarta Sans` depuis Google Fonts (« socket hang up », puis `NextFontError: Failed to fetch`), avant la compilation du code. C'est une panne réseau, pas une erreur du code ; le build est à relancer quand le réseau sera rétabli.
+
 ### Phase 6 : performance et base
 
 - Migration d'index (D-4).

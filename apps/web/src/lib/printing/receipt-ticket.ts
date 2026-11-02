@@ -1,105 +1,134 @@
-import { EscPosBuilder, leftRight, wrap, type PaperWidth } from "./escpos";
+import { createTranslator } from "../i18n/translate";
+import { cutCommand, EscPosBuilder, initCommands, leftRight, rasterCommands, wrap, type PaperWidth } from "./escpos";
+import { resolveProfile, type PrinterProfile } from "./profiles";
+import type { MonoBitmap } from "./raster";
+import { buildReceiptDocument, formatAmount, formatQuantity, formatReceiptDate, type ReceiptDocument, type ReceiptLanguage, type ReceiptSource } from "./receipt-document";
 
 /*
- * Modèles de tickets (mission 10) : à partir des données d'une vente déjà validée par le serveur, sans
- * rien inventer (un champ absent n'est pas imprimé). Montants XOF entiers, jamais de flottant.
+ * Mise en page du ticket thermique (mission 10, refondue en mission 11 phase 5).
+ *
+ * Un `ReceiptDocument` (montants déjà calculés par le serveur) devient une liste de blocs logiques
+ * (texte, paire libellé/montant, filet, logo, coupe). Deux encodeurs les affichent sans rien calculer :
+ * - `encodeTicketText` : ESC/POS en texte, repli à la largeur du profil (32 ou 48 colonnes) ;
+ * - le rendu en image du navigateur (`raster-canvas.ts`), pour l'arabe, puis `encodeRasterTicket`.
+ * Un champ absent n'est pas imprimé ; rien n'est inventé.
  */
 
-export type ReceiptInput = {
-  business: { name: string; displayName?: string | null; phone: string | null; address: string | null; footer: string | null; timezone?: string | null };
-  sale: { reference: string; status?: string; occurredAt: Date | string; totalXof: bigint | string; subtotalXof?: bigint | string; discountXof?: bigint | string };
-  lines: { name: string; variant: string; quantity: string; unitPriceXof: bigint | string; totalXof: bigint | string; lineDiscountXof?: bigint | string }[];
-  payments: { method: string; amountXof: bigint | string; status: string }[];
-};
-export type TicketLanguage = "fr" | "en";
+export { formatAmount, formatQuantity };
+export type ReceiptInput = ReceiptSource;
+export type TicketLanguage = ReceiptLanguage;
 
-const labels = {
-  fr: { receipt: "Ticket", date: "Date", subtotal: "Sous-total", discount: "Remise", total: "TOTAL", due: "Reste à payer", pending: "en attente", failed: "échoué",
-    refunded: "remboursé", partiallyRefunded: "remboursé en partie",
-    saleStatus: { voided: "VENTE ANNULÉE", refunded: "VENTE REMBOURSÉE", partially_refunded: "REMBOURSÉE EN PARTIE" } as Record<string, string>,
-    methods: { cash: "Espèces", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "Autre" } as Record<string, string>,
-    test: "Page de test Qadr Ops", testLine: "Si ce texte est lisible, l'imprimante fonctionne.", accents: "Accents : é è ê à â ç ù û ô ï ë œ € °", width: "Largeur" },
-  en: { receipt: "Receipt", date: "Date", subtotal: "Subtotal", discount: "Discount", total: "TOTAL", due: "Still due", pending: "pending", failed: "failed",
-    refunded: "refunded", partiallyRefunded: "partly refunded",
-    saleStatus: { voided: "SALE VOIDED", refunded: "SALE REFUNDED", partially_refunded: "PARTLY REFUNDED" } as Record<string, string>,
-    methods: { cash: "Cash", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "Other" } as Record<string, string>,
-    test: "Qadr Ops test page", testLine: "If you can read this, the printer works.", accents: "Accents: é è ê à â ç ù û ô ï ë œ € °", width: "Width" },
-};
+type Style = { bold?: boolean; size?: "normal" | "tall" };
+export type TicketBlock =
+  | ({ type: "text"; text: string; align: "start" | "center" } & Style)
+  | ({ type: "pair"; start: string; end: string; indent?: boolean } & Style)
+  | { type: "rule"; char: "-" | "=" }
+  | { type: "feed"; lines: number }
+  | { type: "logo" }
+  | { type: "cut" };
+/** Ticket prêt à afficher : blocs, sens de lecture et logo éventuel (adresse de données déjà validée à l'enregistrement). */
+export type TicketLayout = { language: ReceiptLanguage; direction: "ltr" | "rtl"; logo: string | null; blocks: TicketBlock[] };
 
-/** « 12 500 F » : groupes de trois chiffres séparés par une espace simple (lisible par toutes les imprimantes). */
-export function formatAmount(value: bigint | string) {
-  const amount = BigInt(value);
-  const digits = (amount < 0n ? -amount : amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return `${amount < 0n ? "-" : ""}${digits} F`;
+/**
+ * Isolation bidirectionnelle (LRI … PDI) des fragments de gauche à droite (montants, références, dates,
+ * téléphones) dans un ticket en arabe : « 12 500 F » ne doit jamais se lire « F 500 12 ». Le mode texte
+ * retire ces caractères invisibles (voir `encodeText`).
+ */
+const isolate = (direction: "ltr" | "rtl", value: string) => (direction === "rtl" ? `⁦${value}⁩` : value);
+
+export function layoutReceipt(document: ReceiptDocument): TicketLayout {
+  const { business, sale, labels, totals } = document;
+  const ltr = (value: string) => isolate(document.direction, value);
+  const amount = (value: bigint | string) => ltr(formatAmount(value));
+  const blocks: TicketBlock[] = [];
+  const text = (value: string, align: "start" | "center" = "start", style: Style = {}) => blocks.push({ type: "text", text: value, align, ...style });
+  const pair = (start: string, end: string, style: Style & { indent?: boolean } = {}) => blocks.push({ type: "pair", start, end, ...style });
+  if (business.logo) blocks.push({ type: "logo" });
+  text(business.name, "center", { bold: true, size: "tall" });
+  if (business.address) text(business.address, "center");
+  for (const value of [business.phone, business.email]) if (value) text(ltr(value), "center");
+  blocks.push({ type: "rule", char: "-" });
+  if (sale.banner) { text(sale.banner, "center", { bold: true, size: "tall" }); blocks.push({ type: "rule", char: "-" }); }
+  pair(labels.ticket, ltr(sale.reference));
+  pair(labels.date, ltr(`${sale.dateText} ${sale.timeZoneLabel}`));
+  blocks.push({ type: "rule", char: "-" });
+  for (const line of document.lines) {
+    text(line.label);
+    pair(ltr(`${line.quantityText} x ${formatAmount(line.unitPriceXof)}`), amount(line.totalXof), { indent: true });
+    if (line.lineDiscountXof) pair(labels.discount, amount(-BigInt(line.lineDiscountXof)), { indent: true });
+  }
+  blocks.push({ type: "rule", char: "-" });
+  if (totals.subtotalXof && totals.discountXof) {
+    pair(labels.subtotal, amount(totals.subtotalXof));
+    pair(labels.discount, amount(-BigInt(totals.discountXof)));
+  }
+  pair(labels.total, amount(totals.totalXof), { bold: true, size: "tall" });
+  for (const payment of document.payments) pair(payment.statusLabel ? `${payment.methodLabel} (${payment.statusLabel})` : payment.methodLabel, amount(payment.amountXof));
+  if (totals.dueXof) pair(labels.due, amount(totals.dueXof), { bold: true });
+  if (business.footer) { blocks.push({ type: "feed", lines: 1 }); text(business.footer, "center"); }
+  blocks.push({ type: "feed", lines: 2 }, { type: "cut" });
+  return { language: document.language, direction: document.direction, logo: business.logo, blocks };
 }
 
-/** Quantité décimale exacte (« 2.500000 » → « 2,5 »). */
-export function formatQuantity(value: string) {
-  const [whole, fraction = ""] = value.split(".");
-  const trimmed = fraction.replace(/0+$/, "");
-  return trimmed ? `${whole},${trimmed}` : whole!;
+/** Page de test : vérifie la largeur, les accents (mode texte) ou l'écriture arabe (mode image). */
+export function layoutTestTicket(input: { businessName: string; language: ReceiptLanguage; profile: Pick<PrinterProfile, "paperWidthMm" | "columns">; render: "text" | "raster"; now?: Date }): TicketLayout {
+  const t = createTranslator(input.language);
+  const date = formatReceiptDate(input.now ?? new Date(), "Africa/Abidjan");
+  const direction = input.language === "ar" ? "rtl" : "ltr";
+  const blocks: TicketBlock[] = [
+    { type: "text", text: t("printing.receipt.testTitle"), align: "center", bold: true, size: "tall" },
+    { type: "text", text: input.businessName, align: "center" },
+    { type: "text", text: isolate(direction, `${date.text} ${date.zone}`), align: "center" },
+    { type: "rule", char: "-" },
+    { type: "text", text: t("printing.receipt.testLine"), align: "start" },
+    { type: "text", text: t("printing.receipt.testCharacters"), align: "start" },
+    { type: "text", text: t("printing.receipt.testWidth", { width: input.profile.paperWidthMm, columns: input.profile.columns }), align: "start" },
+    { type: "text", text: t("printing.receipt.testMode", { mode: t(input.render === "raster" ? "printing.receipt.modeRaster" : "printing.receipt.modeText") }), align: "start" },
+    { type: "text", text: "1234567890".repeat(Math.ceil(input.profile.columns / 10)).slice(0, input.profile.columns), align: "start" },
+    { type: "rule", char: "=" },
+    { type: "feed", lines: 2 },
+    { type: "cut" },
+  ];
+  return { language: input.language, direction, logo: null, blocks };
 }
 
-function formatDate(value: Date | string, timeZone: string, language: TicketLanguage) {
-  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "fr-FR", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(value));
-}
-
-export function buildReceiptTicket(input: ReceiptInput, width: PaperWidth, language: TicketLanguage = "fr") {
-  const text = labels[language];
-  const ticket = new EscPosBuilder(width);
+/**
+ * ESC/POS en texte. `logo` : image déjà réduite à 1 bit par le navigateur ; sans elle, le bloc logo est
+ * simplement sauté (le ticket reste complet). Les caractères hors de la page de codes sortent en « ? » et
+ * sont comptés : `chooseRender` bascule alors le ticket en image.
+ */
+export function encodeTicketText(layout: TicketLayout, profile: Pick<PrinterProfile, "paperWidthMm" | "codePage">, options: { logo?: MonoBitmap | null } = {}) {
+  const ticket = new EscPosBuilder(profile.paperWidthMm, profile.codePage);
   const columns = ticket.columns;
-  const name = (input.business.displayName?.trim() || input.business.name).slice(0, 80);
-  ticket.align("center").bold(true).size("tall");
-  for (const line of wrap(name, columns)) ticket.line(line);
-  ticket.size("normal").bold(false);
-  if (input.business.address) for (const line of wrap(input.business.address, columns)) ticket.line(line);
-  if (input.business.phone) ticket.line(input.business.phone);
-  ticket.align("left").rule();
-  // Une vente annulée ou remboursée ne doit jamais ressortir comme un ticket valide.
-  const statusBanner = input.sale.status ? text.saleStatus[input.sale.status] : undefined;
-  if (statusBanner) ticket.align("center").bold(true).size("tall").line(statusBanner).size("normal").bold(false).align("left").rule();
-  for (const line of leftRight(text.receipt, input.sale.reference, columns)) ticket.line(line);
-  for (const line of leftRight(text.date, formatDate(input.sale.occurredAt, input.business.timezone || "Africa/Abidjan", language), columns)) ticket.line(line);
-  ticket.rule();
-  for (const item of input.lines) {
-    const label = item.variant && item.variant !== "Standard" ? `${item.name} (${item.variant})` : item.name;
-    for (const line of wrap(label, columns)) ticket.line(line);
-    for (const line of leftRight(`  ${formatQuantity(item.quantity)} x ${formatAmount(item.unitPriceXof)}`, formatAmount(item.totalXof), columns)) ticket.line(line);
-    if (item.lineDiscountXof && BigInt(item.lineDiscountXof) > 0n) for (const line of leftRight(`  ${text.discount}`, formatAmount(-BigInt(item.lineDiscountXof)), columns)) ticket.line(line);
+  const state = { align: "left" as "left" | "center", bold: false, size: "normal" as "normal" | "tall" };
+  const apply = (align: "left" | "center", style: Style) => {
+    if (state.align !== align) { ticket.align(align); state.align = align; }
+    if (state.bold !== Boolean(style.bold)) { ticket.bold(Boolean(style.bold)); state.bold = Boolean(style.bold); }
+    const size = style.size ?? "normal";
+    if (state.size !== size) { ticket.size(size); state.size = size; }
+  };
+  for (const block of layout.blocks) {
+    if (block.type === "logo") { if (options.logo) { apply("left", {}); ticket.image(options.logo); } continue; }
+    if (block.type === "text") { apply(block.align === "center" ? "center" : "left", block); for (const line of wrap(block.text, columns)) ticket.line(line); continue; }
+    if (block.type === "pair") { apply("left", block); for (const line of leftRight(`${block.indent ? "  " : ""}${block.start}`, block.end, columns)) ticket.line(line); continue; }
+    if (block.type === "rule") { apply("left", {}); ticket.rule(block.char); continue; }
+    if (block.type === "feed") { ticket.feed(block.lines); continue; }
+    ticket.cut();
   }
-  ticket.rule();
-  const discount = input.sale.discountXof ? BigInt(input.sale.discountXof) : 0n;
-  if (discount > 0n && input.sale.subtotalXof !== undefined) {
-    for (const line of leftRight(text.subtotal, formatAmount(input.sale.subtotalXof), columns)) ticket.line(line);
-    for (const line of leftRight(text.discount, formatAmount(-discount), columns)) ticket.line(line);
-  }
-  ticket.bold(true).size("tall");
-  for (const line of leftRight(text.total, formatAmount(input.sale.totalXof), columns)) ticket.line(line);
-  ticket.size("normal").bold(false);
-  let confirmed = 0n;
-  for (const payment of input.payments) {
-    const label = ({ pending: text.pending, failed: text.failed, refunded: text.refunded, partially_refunded: text.partiallyRefunded } as Record<string, string>)[payment.status];
-    const status = label ? ` (${label})` : "";
-    if (payment.status === "confirmed" || payment.status === "partially_refunded") confirmed += BigInt(payment.amountXof);
-    for (const line of leftRight(`${text.methods[payment.method] ?? payment.method}${status}`, formatAmount(payment.amountXof), columns)) ticket.line(line);
-  }
-  // Le « reste à payer » n'a de sens que pour une vente en cours ; après annulation ou remboursement il serait trompeur.
-  const due = statusBanner ? 0n : BigInt(input.sale.totalXof) - confirmed;
-  if (due > 0n) { ticket.bold(true); for (const line of leftRight(text.due, formatAmount(due), columns)) ticket.line(line); ticket.bold(false); }
-  if (input.business.footer) { ticket.feed().align("center"); for (const line of wrap(input.business.footer, columns)) ticket.line(line); }
-  ticket.feed(2).cut();
   return { bytes: ticket.build(), preview: ticket.preview, unsupportedCharacters: ticket.unsupported };
+}
+
+/** Ticket entièrement en image (arabe) : initialisation, bandes GS v 0, avance et coupe. */
+export function encodeRasterTicket(bitmap: MonoBitmap) {
+  return Uint8Array.from([...initCommands(), ...rasterCommands(bitmap), 0x0a, 0x0a, ...cutCommand]);
+}
+
+/** Compatibilité (mission 10) : vente → document → ticket texte, PC858. */
+export function buildReceiptTicket(input: ReceiptInput, width: PaperWidth, language: TicketLanguage = "fr") {
+  return encodeTicketText(layoutReceipt(buildReceiptDocument(input, { language })), resolveProfile({ paperWidthMm: width }));
 }
 
 export function buildTestTicket(width: PaperWidth, businessName: string, language: TicketLanguage = "fr", now = new Date()) {
-  const text = labels[language];
-  const ticket = new EscPosBuilder(width);
-  ticket.align("center").bold(true).size("tall").line(text.test).size("normal").bold(false);
-  for (const line of wrap(businessName, ticket.columns)) ticket.line(line);
-  ticket.line(formatDate(now, "Africa/Abidjan", language)).align("left").rule();
-  for (const line of wrap(text.testLine, ticket.columns)) ticket.line(line);
-  for (const line of wrap(text.accents, ticket.columns)) ticket.line(line);
-  ticket.line(`${text.width} : ${width} mm / ${ticket.columns} col.`);
-  ticket.line("1234567890".repeat(Math.ceil(ticket.columns / 10)).slice(0, ticket.columns)).rule("=").feed(2).cut();
-  return { bytes: ticket.build(), preview: ticket.preview, unsupportedCharacters: ticket.unsupported };
+  const profile = resolveProfile({ paperWidthMm: width });
+  return encodeTicketText(layoutTestTicket({ businessName, language, profile, render: "text", now }), profile);
 }

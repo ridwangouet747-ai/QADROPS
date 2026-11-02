@@ -1,5 +1,6 @@
 {
   "port": 17777,
+  "tokenTtlDays": 90,
   "allowedOrigins": ["http://localhost:3001", "https://app.qadrops.example"],
   "printers": [
     { "id": "comptoir", "name": "Imprimante réseau du comptoir", "transport": "tcp", "host": "192.168.1.50", "port": 9100, "paperWidthMm": 80, "profile": "epson" },

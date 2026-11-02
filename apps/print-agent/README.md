@@ -27,9 +27,13 @@ Imprimante USB sous Windows : installer le pilote du fabricant, puis partager l'
 - N'accepte que les origines listées et les navigateurs appairés (jeton conservé sous forme d'empreinte uniquement).
 - N'exécute aucune commande reçue : seulement l'envoi d'octets vers une imprimante déclarée.
 - Une même tâche n'est jamais imprimée deux fois.
+- **En-tête `Host` contrôlé** (version 0.2.0) : seuls `127.0.0.1:<port>`, `localhost:<port>` et `[::1]:<port>` sont acceptés. Une page qui ferait pointer son propre domaine vers cet ordinateur (« DNS rebinding ») reçoit `421 host_not_allowed` avant toute autre vérification.
+- **Appairage à durée limitée** : réglage `tokenTtlDays` (90 jours par défaut, entre 1 et 365). Passé ce délai, le navigateur reçoit `401 pairing_expired` une fois, le jeton est effacé et Qadr Ops affiche « appairage expiré » : il faut relancer le service pour obtenir un nouveau code. `GET /status` répond alors `pairingExpired: true`.
+- **Appairages antérieurs à la version 0.2.0** (sans échéance) : au premier démarrage, ils reçoivent une échéance égale à la date d'appairage + `tokenTtlDays`, et jamais moins de 30 jours après ce démarrage. La date est affichée dans la console. Aucun poste n'est donc coupé sans préavis.
+- Un ticket ne dépasse pas 1 Mio d'octets ESC/POS (`413 too_large`) : un ticket en image (arabe, logo) pèse 48 octets (58 mm) ou 72 octets (80 mm) par ligne de points, soit de l'ordre de 50 à 250 Kio selon sa longueur.
 
 Pour révoquer tous les appairages : arrêter le service et supprimer `~/.qadr-print-agent/agent-state.json`.
 
 ## Tests
 
-`node --test "test/**/*.test.mjs"` : imprimante réseau simulée (TCP 9100 avec réponses d'état), imprimante fichier, pannes, reconnexion, appairage et refus d'origine.
+`node --test "test/**/*.test.mjs"` : imprimante réseau simulée (TCP 9100 avec réponses d'état), imprimante fichier, pannes, reconnexion, appairage, refus d'origine, refus d'en-tête `Host` étranger, expiration de l'appairage (horloge simulée), délai de grâce des anciens appairages et taille maximale d'un ticket.

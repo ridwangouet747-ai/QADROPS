@@ -1,0 +1,6 @@
+ALTER TABLE "idempotency_record" DROP CONSTRAINT "idempotency_operation_check";--> statement-breakpoint
+ALTER TABLE "print_device" ADD COLUMN "code_page" text DEFAULT 'pc858' NOT NULL;--> statement-breakpoint
+ALTER TABLE "print_device" ADD COLUMN "render_mode" text DEFAULT 'auto' NOT NULL;--> statement-breakpoint
+ALTER TABLE "idempotency_record" ADD CONSTRAINT "idempotency_operation_check" CHECK ("idempotency_record"."operation" in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment','cash_session.open','cash_session.movement','cash_session.close','cash_session.validate','import.apply','print.reprint'));--> statement-breakpoint
+ALTER TABLE "print_device" ADD CONSTRAINT "print_device_code_page_check" CHECK ("print_device"."code_page" in ('pc858','pc850','wpc1252'));--> statement-breakpoint
+ALTER TABLE "print_device" ADD CONSTRAINT "print_device_render_mode_check" CHECK ("print_device"."render_mode" in ('auto','text','raster'));

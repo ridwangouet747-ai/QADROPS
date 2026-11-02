@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies the fourteen committed migrations and creates the expected tables", async () => {
+  it("applies the seventeen committed migrations (0000-0016) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,7 +24,7 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("16");
+    expect(applied.rows[0]?.count).toBe("17");
     expect(tables.rows[0]?.count).toBe("57");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
@@ -62,6 +62,14 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from pg_constraint where conrelid='subscription_payment'::regclass and contype='u' and conname='subscription_payment_business_id_unique'",
     );
     expect(uniqueTarget.rows[0]?.count).toBe("1");
+    // Migration 0016 : profil d'imprimante (page de codes, mode d'écriture) avec valeurs par défaut sûres.
+    const printerProfile = await client.query<{ column_name: string; column_default: string }>(
+      "select column_name,column_default from information_schema.columns where table_schema='public' and table_name='print_device' and column_name in ('code_page','render_mode') order by column_name",
+    );
+    expect(printerProfile.rows).toEqual([
+      { column_name: "code_page", column_default: "'pc858'::text" },
+      { column_name: "render_mode", column_default: "'auto'::text" },
+    ]);
   });
 
   it("does not reapply migrations on a second migrate() call", async () => {
@@ -69,6 +77,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("16");
+    expect(applied.rows[0]?.count).toBe("17");
   });
 });

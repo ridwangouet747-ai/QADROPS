@@ -7,6 +7,9 @@
  * le résultat. En cas de doute (réponse perdue), la tâche est « incertaine » : pas de relance automatique.
  */
 
+import { bytesForPrinter, RenderError, type TicketProfile } from "./raster-canvas";
+import type { TicketLayout } from "./receipt-ticket";
+
 const storageKey = "qadr-print-pairing";
 export type Pairing = { agentUrl: string; agentId: string; token: string; deviceId: string; printerId: string };
 export type AgentPrinter = { id: string; name: string; transport: string; paperWidthMm: 58 | 80; profile: string };
@@ -35,7 +38,7 @@ export async function agentStatus(agentUrl: string, token?: string) {
   try {
     const response = await agentFetch(`${agentUrl}/status`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
     if (response.status === 403) return { reachable: true as const, allowed: false as const };
-    const body = await response.json() as { agentId: string; paired: boolean; version: string };
+    const body = await response.json() as { agentId: string; paired: boolean; version: string; pairingExpired?: boolean };
     return { reachable: true as const, allowed: true as const, ...body };
   } catch { return { reachable: false as const }; }
 }
@@ -47,9 +50,15 @@ export async function pairWithAgent(agentUrl: string, code: string) {
   return { ok: true as const, agentId: body.agentId, token: body.token };
 }
 
+/** Code stable d'un refus 401 du service local : appairage échu (« pairing_expired ») ou absent. */
+async function unpairedCode(response: Response) {
+  const body = await response.json().catch(() => ({})) as { error?: string };
+  return body.error === "pairing_expired" ? "pairing_expired" : "not_paired";
+}
+
 export async function listAgentPrinters(agentUrl: string, token: string) {
   const response = await agentFetch(`${agentUrl}/printers`, { headers: { authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error(response.status === 401 ? "not_paired" : "agent_error");
+  if (!response.ok) throw new Error(response.status === 401 ? await unpairedCode(response) : "agent_error");
   return ((await response.json()) as { printers: AgentPrinter[] }).printers;
 }
 
@@ -71,30 +80,59 @@ export async function sendToAgent(pairing: Pairing, jobId: string, payload: stri
     return (error as Error).name === "TimeoutError" ? { status: "uncertain", error: "timeout" } : { status: "failed", error: "agent_unreachable" };
   }
   const body = await response.json().catch(() => ({})) as { status?: string; error?: string };
-  if (response.status === 401) return { status: "failed", error: "not_paired" };
+  // 401 : jeton inconnu ou échu ; dans les deux cas rien n'est parti vers l'imprimante.
+  if (response.status === 401) return { status: "failed", error: body.error === "pairing_expired" ? "pairing_expired" : "not_paired" };
   if (body.status === "printed" || body.status === "failed") return { status: body.status, error: body.error };
+  // Requête refusée avant tout envoi à l'imprimante (ticket trop gros, mal formé) : échec certain, pas incertain.
+  if (response.status >= 400 && response.status < 500) return { status: "failed", error: body.error ?? "invalid_job" };
   return { status: "uncertain", error: body.error ?? "unknown" };
 }
 
-type JobResponse = { job: { id: string; status: string; duplicate: boolean }; payload: string | null; preview: string[] | null; unsupportedCharacters: number };
+type JobResponse = {
+  job: { id: string; status: string; duplicate: boolean };
+  deliver: boolean; render: "text" | "raster" | null; layout: TicketLayout | null; profile: TicketProfile | null;
+  payload: string | null; preview: string[] | null; unsupportedCharacters: number;
+};
+export type PrintRequest = { kind: "receipt" | "test"; saleId?: string; reprintOfJobId?: string; language?: "fr" | "en" | "ar"; idempotencyKey?: string };
+const errorCode = (value: unknown) => (typeof value === "string" && /^[a-z_]{1,40}$/.test(value) ? value : undefined);
+
+async function reportResult(jobId: string, status: PrintStatus, error?: string) {
+  const code = errorCode(error);
+  await fetch(`/api/business/printing/jobs/${encodeURIComponent(jobId)}`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status, ...(code ? { errorCode: code } : {}) }) }).catch(() => undefined);
+}
 
 /**
- * Parcours complet : le serveur prépare la tâche (vente validée), le service local imprime, le résultat
- * est enregistré. Ne lève jamais d'exception vers la caisse : une panne d'impression ne bloque pas la vente.
+ * Parcours complet : le serveur prépare la tâche (vente validée), le navigateur compose les octets (logo
+ * ou ticket en image si besoin), le service local les transmet, le résultat est enregistré. « printed »
+ * veut dire transmis sans erreur signalée, pas « vu sorti ». Ne lève jamais d'exception vers la caisse :
+ * une panne d'impression ne bloque pas la vente. Les erreurs sont des codes stables, traduits par l'interface.
  */
-export async function printThroughAgent(request: { kind: "receipt" | "test"; saleId?: string; reprintOfJobId?: string; language?: "fr" | "en" }) {
+export async function printThroughAgent(request: PrintRequest) {
   const pairing = readPairing();
   if (!pairing) return { status: "failed" as const, error: "not_paired", preview: null, jobId: null };
   let prepared: JobResponse;
   try {
     const response = await fetch("/api/business/printing/jobs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...request, deviceId: pairing.deviceId }) });
-    const body = await response.json() as JobResponse & { code?: string };
-    if (!response.ok) return { status: "failed" as const, error: body.code ?? "server", preview: null, jobId: null };
+    const body = await response.json().catch(() => ({})) as JobResponse & { code?: string };
+    // 403 sans code : refus de `assertBusinessOperational` (commerce suspendu ou abonnement expiré).
+    if (!response.ok) return { status: "failed" as const, error: errorCode(body.code) ?? (response.status === 403 ? "business_blocked" : "server"), preview: null, jobId: null };
     prepared = body;
   } catch { return { status: "failed" as const, error: "network", preview: null, jobId: null }; }
-  if (!prepared.payload) return { status: "printed" as const, error: "already_printed", preview: null, jobId: prepared.job.id };
-  const result = await sendToAgent(pairing, prepared.job.id, prepared.payload);
-  await fetch(`/api/business/printing/jobs/${encodeURIComponent(prepared.job.id)}`, { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status: result.status, ...(result.error && /^[a-z_]{1,40}$/.test(result.error) ? { errorCode: result.error } : {}) }) }).catch(() => undefined);
+  if (!prepared.deliver || !prepared.layout || !prepared.profile || !prepared.render) {
+    return prepared.job.status === "failed" ? { status: "failed" as const, error: "job_final", preview: null, jobId: prepared.job.id }
+      : { status: "printed" as const, error: "already_printed", preview: null, jobId: prepared.job.id };
+  }
+  let payload: string;
+  try {
+    payload = await bytesForPrinter({ render: prepared.render, layout: prepared.layout, profile: prepared.profile, payload: prepared.payload });
+  } catch (error) {
+    // Rien n'a été envoyé à l'imprimante : échec certain, la tâche est close et une réimpression reste possible.
+    const code = error instanceof RenderError ? error.code : "raster_unavailable";
+    await reportResult(prepared.job.id, "failed", code);
+    return { status: "failed" as const, error: code, preview: prepared.preview, jobId: prepared.job.id };
+  }
+  const result = await sendToAgent(pairing, prepared.job.id, payload);
+  await reportResult(prepared.job.id, result.status, result.error);
   return { ...result, preview: prepared.preview, jobId: prepared.job.id };
 }

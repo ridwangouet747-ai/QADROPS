@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -114,5 +116,113 @@ describe("service local d'impression", () => {
     assert.equal(text.status, 415);
     await call("/print", { method: "POST", body: { jobId: "job-gggggggg", printerId: "demo", data: Buffer.from("ok").toString("base64") } });
     assert.equal((await readFile(simulatedFile)).toString(), "ok");
+  });
+});
+
+/** Requête brute avec un en-tête `Host` choisi (fetch le fixe lui-même et ne permet pas de le changer). */
+function rawRequest(port, { host, path = "/status", headers = {} }) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({ host: "127.0.0.1", port, path, method: "GET", headers: { host, origin, ...headers } }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") }));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+describe("service local d'impression : en-tête Host et expiration de l'appairage (mission 11, phase 5)", () => {
+  const DAY = 24 * 60 * 60_000;
+  let dir, agent, port, clock;
+  const call = (path, { method = "GET", body, auth } = {}) => fetch(`http://127.0.0.1:${port}${path}`, {
+    method, headers: { origin, ...(auth ? { authorization: `Bearer ${auth}` } : {}), ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const pair = async () => {
+    const code = agent.newPairingCode();
+    const response = await call("/pair", { method: "POST", body: { code } });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+
+  before(async () => {
+    dir = await mkdtemp(join(tmpdir(), "qadr-agent-phase5-"));
+    clock = Date.parse("2026-11-01T08:00:00Z");
+    agent = await createAgent({ stateDir: dir, now: () => clock, config: { tokenTtlDays: 30, allowedOrigins: [origin], printers: [
+      { id: "demo", name: "Simulée", transport: "simulated", file: join(dir, "tickets.bin") },
+    ] } });
+    await new Promise((resolve) => agent.server.listen(0, "127.0.0.1", resolve));
+    port = agent.server.address().port;
+  });
+  after(async () => { agent.server.close(); await rm(dir, { recursive: true, force: true }); });
+
+  it("refuse un nom d'hôte étranger (DNS rebinding) avant toute autre vérification", async () => {
+    for (const host of ["evil.example", `evil.example:${port}`, "127.0.0.1", `127.0.0.1:${port + 1}`, `localhost.evil.example:${port}`]) {
+      const response = await rawRequest(port, { host });
+      assert.equal(response.status, 421, host);
+      assert.deepEqual(response.body, { error: "host_not_allowed" });
+    }
+  });
+
+  it("accepte 127.0.0.1, localhost et [::1] avec le port écouté", async () => {
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `LOCALHOST:${port}`, `[::1]:${port}`]) {
+      assert.equal((await rawRequest(port, { host })).status, 200, host);
+    }
+  });
+
+  it("un appairage expire après tokenTtlDays : 401 pairing_expired, puis jeton oublié", async () => {
+    const { token, expiresAt } = await pair();
+    assert.equal(expiresAt, new Date(clock + 30 * DAY).toISOString());
+    assert.equal((await call("/printers", { auth: token })).status, 200);
+    clock += 29 * DAY;
+    assert.equal((await call("/printers", { auth: token })).status, 200, "encore valable la veille de l'échéance");
+    clock += 2 * DAY;
+    const expired = await call("/print", { method: "POST", auth: token, body: { jobId: "job-expire01", printerId: "demo", data: "AA==" } });
+    assert.equal(expired.status, 401);
+    assert.deepEqual(await expired.json(), { error: "pairing_expired" });
+    const again = await call("/printers", { auth: token });
+    assert.deepEqual([again.status, await again.json()], [401, { error: "not_paired" }]);
+    const status = await (await call("/status", { auth: token })).json();
+    assert.equal(status.paired, false);
+  });
+
+  it("/status signale l'expiration pour que l'interface demande un nouveau code", async () => {
+    const { token } = await pair();
+    clock += 31 * DAY;
+    const status = await (await call("/status", { auth: token })).json();
+    assert.equal(status.paired, false);
+    assert.equal(status.pairingExpired, true);
+  });
+
+  it("refuse un ticket de plus de 1 Mio", async () => {
+    const { token } = await pair();
+    const data = Buffer.alloc(1024 * 1024 + 1, 0x41).toString("base64");
+    const response = await call("/print", { method: "POST", auth: token, body: { jobId: "job-tropgros", printerId: "demo", data } });
+    assert.equal(response.status, 413);
+  });
+});
+
+describe("service local d'impression : appairages créés avant la version 0.2.0", () => {
+  it("reçoivent une échéance avec au moins 30 jours de délai, sans coupure immédiate", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "qadr-agent-legacy-"));
+    try {
+      const token = "a".repeat(43);
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const now = Date.parse("2026-11-01T08:00:00Z");
+      // Appairage vieux d'un an : la durée de 90 jours est déjà dépassée, le délai de grâce s'applique.
+      await writeFile(join(dir, "agent-state.json"), JSON.stringify({ agentId: "ancien", jobs: {}, pairings: [
+        { origin, tokenHash, createdAt: "2025-11-01T08:00:00.000Z" },
+      ] }));
+      const lines = [];
+      const agent = await createAgent({ stateDir: dir, now: () => now, log: (line) => lines.push(line), config: { allowedOrigins: [origin], printers: [] } });
+      const saved = JSON.parse(await readFile(join(dir, "agent-state.json"), "utf8"));
+      assert.equal(saved.pairings[0].expiresAt, new Date(now + 30 * 24 * 60 * 60_000).toISOString());
+      assert.ok(lines.some((line) => line.includes("2026-12-01")), "l'échéance est annoncée dans la console");
+      await new Promise((resolve) => agent.server.listen(0, "127.0.0.1", resolve));
+      const response = await fetch(`http://127.0.0.1:${agent.server.address().port}/printers`, { headers: { origin, authorization: `Bearer ${token}` } });
+      assert.equal(response.status, 200);
+      agent.server.close();
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

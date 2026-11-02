@@ -62,9 +62,14 @@ export function PosWorkspace() {
     setHasPairing(Boolean(readPairing()));
     fetch("/api/business/printing", { cache: "no-store" }).then(async (response) => { if (response.ok) setPrintSetup(await response.json() as { enabled: boolean; autoPrint: boolean }); }).catch(() => undefined);
   }, []);
+  // Clé d'intention par vente : si un échec mène à une réimpression, un double envoi retrouve la même tâche (I-8).
+  const printKeys = useRef(new Map<string, string>());
   const printReceipt = async (saleId: string) => {
     setPrintState("printing");
-    const result = await printThroughAgent({ kind: "receipt", saleId });
+    const idempotencyKey = printKeys.current.get(saleId) ?? crypto.randomUUID();
+    printKeys.current.set(saleId, idempotencyKey);
+    const result = await printThroughAgent({ kind: "receipt", saleId, language: locale, idempotencyKey });
+    if (result.jobId) printKeys.current.delete(saleId);
     if (result.status === "failed") track("print_failed", { error: (["not_paired", "agent_unreachable", "timeout", "paper_out", "disconnected", "connection_refused", "communication_error"] as const).find((code) => code === result.error) ?? "other" });
     const errorKey = `printing.errors.${result.error ?? "generic"}` as MessageKey;
     const errorText = t(errorKey) === errorKey ? t("printing.errors.generic") : t(errorKey);

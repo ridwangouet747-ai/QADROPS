@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { Alert, Badge, EmptyState, Skeleton } from "@/components/ui/feedback";
@@ -14,23 +14,29 @@ import {
   type AgentPrinter, type Pairing,
 } from "@/lib/printing/agent-client";
 import { parseStatus } from "@/lib/printing/escpos";
+import { codePages, renderModes, type CodePage, type RenderMode } from "@/lib/printing/profiles";
 import { track } from "@/lib/analytics/client";
 
-type Setup = { enabled: boolean; autoPrint: boolean; permissions: { configure: boolean; print: boolean };
-  devices: { id: string; name: string; transport: string; paperWidthMm: number; agentId: string | null; lastStatus: string | null; lastSeenAt: string | null }[] };
+type Device = { id: string; name: string; transport: string; paperWidthMm: number; codePage: CodePage; renderMode: RenderMode; agentId: string | null; lastStatus: string | null; lastSeenAt: string | null };
+type Setup = { enabled: boolean; autoPrint: boolean; permissions: { configure: boolean; print: boolean }; devices: Device[] };
 type Job = { id: string; kind: "receipt" | "test"; status: "pending" | "printed" | "failed" | "uncertain" | "canceled"; errorCode: string | null; saleId: string | null; reference: string | null; deviceName: string; createdAt: string };
 
-const errorKeys = new Set(["not_paired", "agent_unreachable", "timeout", "module_disabled", "not_found", "connection_refused", "disconnected", "paper_out", "unreachable", "communication_error", "busy", "unsupported_platform", "network", "server"]);
+/** Codes d'erreur stables (serveur, service local, navigateur) traduits ; tout autre code devient « erreur inconnue » (I-9). */
+const errorKeys = new Set(["not_paired", "pairing_expired", "agent_unreachable", "timeout", "module_disabled", "not_found", "connection_refused", "disconnected", "paper_out", "unreachable", "communication_error",
+  "busy", "unsupported_platform", "network", "server", "forbidden", "validation", "job_final", "idempotency_key_required", "raster_unavailable", "too_large", "invalid_job", "business_blocked", "not_printed"]);
 const statusTone = { pending: "info", printed: "success", failed: "danger", uncertain: "warning", canceled: "neutral" } as const;
 
 export function PrintingWorkspace() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [setup, setSetup] = useState<Setup | null>(null);
   const [failure, setFailure] = useState<"load" | "forbidden" | null>(null);
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "danger" | "warning" | "info"; text: string } | null>(null);
-  const [preview, setPreview] = useState<string[] | null>(null);
+  const [preview, setPreview] = useState<{ lines: string[]; dir: "ltr" | "rtl" } | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  /** Une clé par intention de réimprimer (I-8) : un double clic réutilise la même clé, donc la même tâche. */
+  const reprintKeys = useRef(new Map<string, string>());
+  const [busyJob, setBusyJob] = useState<string | null>(null);
   const errorText = (code?: string) => t(`printing.errors.${code && errorKeys.has(code) ? code : "generic"}` as MessageKey);
 
   const load = useCallback(async () => {
@@ -57,16 +63,41 @@ export function PrintingWorkspace() {
     if (response.ok) setSetup(await response.json() as Setup);
     void load();
   };
-  const report = (result: { status: string; error?: string; preview?: string[] | null }) => {
-    if (result.preview) setPreview(result.preview);
+  const report = (result: { status: string; error?: string; preview?: string[] | null }, dir: "ltr" | "rtl" = "ltr") => {
+    if (result.preview) setPreview({ lines: result.preview, dir });
     setNotice(result.status === "printed" ? { tone: "success", text: result.error === "already_printed" ? t("printing.results.already") : t("printing.results.printed") }
       : result.status === "uncertain" ? { tone: "warning", text: t("printing.results.uncertain") } : { tone: "danger", text: t("printing.results.failed", { error: errorText(result.error) }) });
     void load();
   };
+  /** Réimpression : même clé tant que la demande précédente pour cette tâche n'a pas abouti ; bouton bloqué pendant l'envoi. */
+  const reprint = async (job: Job) => {
+    if (!job.saleId || busyJob === job.id) return;
+    setBusyJob(job.id);
+    const key = reprintKeys.current.get(job.id) ?? crypto.randomUUID();
+    reprintKeys.current.set(job.id, key);
+    try {
+      const result = await printThroughAgent({ kind: "receipt", saleId: job.saleId, reprintOfJobId: job.id, language: locale, idempotencyKey: key });
+      // Clé gardée si la demande n'est pas arrivée au serveur (réseau) : un nouvel essai retrouvera la même tâche.
+      if (result.jobId) reprintKeys.current.delete(job.id);
+      report(result, locale === "ar" ? "rtl" : "ltr");
+    } finally { setBusyJob(null); }
+  };
   const resolveJob = async (job: Job, printed: boolean) => {
     await fetch(`/api/business/printing/jobs/${encodeURIComponent(job.id)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: printed ? "printed" : "failed", errorCode: printed ? undefined : "not_printed" }) });
-    if (!printed && job.saleId) report(await printThroughAgent({ kind: "receipt", saleId: job.saleId, reprintOfJobId: job.id }));
+    if (!printed && job.saleId) await reprint(job);
     else void load();
+  };
+  const saveProfile = async (device: Device, values: { codePage: CodePage; renderMode: RenderMode }) => {
+    const response = await fetch(`/api/business/printing/devices/${encodeURIComponent(device.id)}`, { method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paperWidthMm: device.paperWidthMm === 58 ? 58 : 80, ...values }) });
+    const body = await response.json().catch(() => ({})) as { code?: string };
+    setNotice(response.ok ? { tone: "success", text: t("printing.profile.saved") } : { tone: "danger", text: t("printing.results.failed", { error: errorText(body.code ?? "server") }) });
+    void load();
+  };
+  const printTest = async (language: "fr" | "en" | "ar") => {
+    const result = await printThroughAgent({ kind: "test", language });
+    track("printer_test_printed", { result: result.status === "printed" ? "success" : "failure" });
+    report(result, language === "ar" ? "rtl" : "ltr");
   };
   const device = setup?.devices.find((item) => item.id === pairing?.deviceId) ?? null;
 
@@ -101,12 +132,13 @@ export function PrintingWorkspace() {
                     setNotice(problems.length ? { tone: "warning", text: problems.map((key) => t(`printing.test.states.${key}`)).join(" ") }
                       : Object.values(state).every((value) => value === null) ? { tone: "info", text: t("printing.test.states.unknown") } : { tone: "success", text: t("printing.test.states.ok") });
                   }} icon={<Icon name="activity" />}>{t("printing.test.status")}</Button>
-                  <Button variant="primary" onClick={async () => { const result = await printThroughAgent({ kind: "test" }); track("printer_test_printed", { result: result.status === "printed" ? "success" : "failure" }); report(result); }} icon={<Icon name="printer" />}>{t("printing.test.print")}</Button>
+                  <Button variant="primary" onClick={() => void printTest(locale === "ar" ? "fr" : locale)} icon={<Icon name="printer" />}>{t("printing.test.print")}</Button>
+                  <Button variant="secondary" className="sm:col-span-2" onClick={() => void printTest("ar")} icon={<Icon name="printer" />}>{t("printing.test.printImage")}</Button>
                 </div>
                 {preview && (
                   <figure className="m-0">
                     <figcaption className="mb-2 text-xs font-semibold text-fg-subtle">{t("printing.test.preview")}</figcaption>
-                    <pre dir="ltr" className="m-0 overflow-x-auto rounded-[14px] border border-line bg-white p-3 font-mono text-[0.72rem] leading-snug text-ink">{preview.join("\n")}</pre>
+                    <pre dir={preview.dir} className="m-0 overflow-x-auto rounded-[14px] border border-line bg-white p-3 font-mono text-[0.72rem] leading-snug text-ink">{preview.lines.join("\n")}</pre>
                   </figure>
                 )}
                 <p className="m-0 text-xs text-fg-subtle">{t("printing.arabic")}</p>
@@ -118,16 +150,20 @@ export function PrintingWorkspace() {
               <CardTitle id="printing-devices" title={t("printing.devices.title")} />
               {setup.devices.length === 0 ? <p className="m-0 mt-3 text-sm text-fg-muted">{t("printing.devices.empty")}</p> : (
                 <ul className="m-0 mt-3 grid list-none gap-2 p-0">{setup.devices.map((item) => (
-                  <li key={item.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-line bg-paper px-3 py-2">
-                    <span className="min-w-0 text-sm"><span className="block font-semibold text-ink" dir="auto">{item.name}</span>
-                      <span className="block text-xs text-fg-subtle">{t(`printing.printer.transports.${item.transport as "tcp"}`)} · {item.paperWidthMm} mm{item.id === pairing?.deviceId ? ` · ${t("printing.devices.thisBrowser")}` : ""}</span></span>
-                    {setup.permissions.configure && <Button variant="ghost" onClick={async () => { await fetch(`/api/business/printing/devices/${encodeURIComponent(item.id)}`, { method: "DELETE" }); if (item.id === pairing?.deviceId) { forgetPairing(); setPairing(null); } void load(); }}>{t("printing.devices.remove")}</Button>}
+                  <li key={item.id} className="grid gap-2 rounded-[14px] border border-line bg-paper px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 text-sm"><span className="block font-semibold text-ink" dir="auto">{item.name}</span>
+                        <span className="block text-xs text-fg-subtle">{t(`printing.printer.transports.${item.transport as "tcp"}`)} · {item.paperWidthMm} mm · {t(`printing.profile.modes.${item.renderMode}`)}{item.id === pairing?.deviceId ? ` · ${t("printing.devices.thisBrowser")}` : ""}</span></span>
+                      {setup.permissions.configure && <Button variant="ghost" onClick={async () => { await fetch(`/api/business/printing/devices/${encodeURIComponent(item.id)}`, { method: "DELETE" }); if (item.id === pairing?.deviceId) { forgetPairing(); setPairing(null); } void load(); }}>{t("printing.devices.remove")}</Button>}
+                    </div>
+                    {setup.permissions.configure && <DeviceProfile key={`${item.id}-${item.renderMode}-${item.codePage}`} device={item} onSave={(values) => saveProfile(item, values)} />}
                   </li>
                 ))}</ul>
               )}
             </Card>}
             {setup.enabled && <Card aria-labelledby="printing-history">
               <CardTitle id="printing-history" title={t("printing.history.title")} />
+              <p className="m-0 mt-2 text-xs text-fg-subtle">{t("printing.history.sentHint")}</p>
               {!jobs ? <Skeleton className="mt-3 h-24 rounded-[14px]" /> : jobs.length === 0 ? <p className="m-0 mt-3 text-sm text-fg-muted">{t("printing.history.empty")}</p> : (
                 <ul className="m-0 mt-3 grid list-none gap-2 p-0">{jobs.map((job) => (
                   <li key={job.id} className="rounded-[14px] border border-line bg-paper px-3 py-2.5">
@@ -135,7 +171,7 @@ export function PrintingWorkspace() {
                       <span className="text-sm font-semibold text-ink">{t(`printing.kinds.${job.kind}`)}{job.reference ? ` · ${job.reference}` : ""}</span>
                       <Badge tone={statusTone[job.status]}>{t(`printing.statuses.${job.status}`)}</Badge>
                     </div>
-                    <p className="m-0 text-xs text-fg-subtle">{job.deviceName} · {formatDateTime(job.createdAt, "fr")}{job.errorCode ? ` · ${errorText(job.errorCode)}` : ""}</p>
+                    <p className="m-0 text-xs text-fg-subtle"><bdi>{job.deviceName}</bdi> · {formatDateTime(job.createdAt, locale)}{job.errorCode ? ` · ${errorText(job.errorCode)}` : ""}</p>
                     {job.status === "uncertain" && <div className="mt-2 grid gap-2">
                       <p className="m-0 text-xs text-warn">{t("printing.history.uncertainHint")}</p>
                       <div className="flex flex-wrap gap-2">
@@ -143,7 +179,7 @@ export function PrintingWorkspace() {
                         <Button variant="ghost" onClick={() => void resolveJob(job, false)}>{t("printing.history.notPrinted")}</Button>
                       </div></div>}
                     {job.kind === "receipt" && job.saleId && (job.status === "printed" || job.status === "failed") && pairing &&
-                      <Button variant="ghost" className="mt-1" onClick={async () => report(await printThroughAgent({ kind: "receipt", saleId: job.saleId!, reprintOfJobId: job.id }))} icon={<Icon name="printer" />}>{t("printing.history.reprint")}</Button>}
+                      <Button variant="ghost" className="mt-1" loading={busyJob === job.id} disabled={busyJob !== null} onClick={() => void reprint(job)} icon={<Icon name="printer" />}>{t("printing.history.reprint")}</Button>}
                   </li>
                 ))}</ul>
               )}
@@ -151,6 +187,26 @@ export function PrintingWorkspace() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Profil d'une imprimante : mode d'écriture et page de codes (la largeur se choisit à l'appairage). */
+function DeviceProfile({ device, onSave }: { device: Device; onSave: (values: { codePage: CodePage; renderMode: RenderMode }) => Promise<void> }) {
+  const { t } = useI18n();
+  const [values, setValues] = useState({ codePage: device.codePage, renderMode: device.renderMode });
+  const [busy, setBusy] = useState(false);
+  const changed = values.codePage !== device.codePage || values.renderMode !== device.renderMode;
+  return (
+    <div className="grid gap-2 border-t border-line pt-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field label={t("printing.profile.renderMode")}>{(props) => <Select {...props} value={values.renderMode} onChange={(event) => setValues({ ...values, renderMode: event.target.value as RenderMode })}>
+          {renderModes.map((mode) => <option key={mode} value={mode}>{t(`printing.profile.modes.${mode}`)}</option>)}</Select>}</Field>
+        <Field label={t("printing.profile.codePage")}>{(props) => <Select {...props} value={values.codePage} onChange={(event) => setValues({ ...values, codePage: event.target.value as CodePage })}>
+          {codePages.map((page) => <option key={page} value={page}>{t(`printing.profile.codePages.${page}`)}</option>)}</Select>}</Field>
+      </div>
+      <p className="m-0 text-xs text-fg-subtle">{t("printing.profile.hint")}</p>
+      {changed && <Button variant="secondary" loading={busy} onClick={async () => { setBusy(true); try { await onSave(values); } finally { setBusy(false); } }}>{t("printing.profile.save")}</Button>}
     </div>
   );
 }
