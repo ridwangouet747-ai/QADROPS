@@ -12,6 +12,7 @@ import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { intlLocale } from "@/lib/i18n/config";
 import { formatDateTime, formatQuantity, formatXof } from "@/lib/i18n/format";
 import { SubscriptionNotice } from "./subscription-workspace";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 type Amount = string | null | undefined;
 type Overview = {
@@ -42,6 +43,7 @@ function weekDays(week: Overview["week"]) {
 
 export function DashboardWorkspace() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [selectedSale, setSelectedSale] = useState("");
@@ -161,7 +163,7 @@ export function DashboardWorkspace() {
                           <div className="min-w-0">
                             <p className="m-0 text-xs text-white/75">{t("dashboard.detailTitle")}</p>
                             <p className="numeric m-0 mt-1 text-start text-[1.5rem] font-bold tracking-[-0.02em] rtl:text-end"># {selected.reference}</p>
-                            <p className="m-0 text-xs text-white/75">{formatDateTime(selected.occurredAt, locale)}</p>
+                            <p className="m-0 text-xs text-white/75">{formatDateTime(selected.occurredAt, locale, timeZone)}</p>
                           </div>
                           <div className="flex items-center gap-2.5">
                             <Monogram text={selected.customerName ?? "?"} className="size-9 bg-white/20 text-white" />

@@ -11,6 +11,7 @@ import { Icon } from "@/components/ui/icon";
 import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { formatDateTime, formatTime, formatXof } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/translate";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 type Breakdown = Record<"openingFloatXof" | "cashSalesXof" | "receivableCashXof" | "openingDebtCashXof" | "movementsInXof" | "expensesCashXof" | "supplierCashXof" | "refundsCashXof" | "movementsOutXof" | "inflowsXof" | "outflowsXof" | "expectedXof", string>;
 type Session = {
@@ -147,10 +148,11 @@ const lines: { key: keyof Breakdown; label: MessageKey; sign: "+" | "−" | "" }
 
 function CurrentSession({ session, onRefresh, onMovement, onClose }: { session: Session; onRefresh: () => Promise<void>; onMovement: (direction: "in" | "out") => void; onClose: () => void }) {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const breakdown = session.breakdown;
   return (
     <Card tone="night" aria-labelledby="cash-current-title" className="grid gap-4">
-      <CardTitle inverse id="cash-current-title" eyebrow={t("cash.current.since", { time: formatTime(session.openedAt, locale) })} title={t("cash.current.title")}
+      <CardTitle inverse id="cash-current-title" eyebrow={t("cash.current.since", { time: formatTime(session.openedAt, locale, timeZone) })} title={t("cash.current.title")}
         aside={<button type="button" onClick={() => void onRefresh()} aria-label={t("cash.current.refresh")} className="grid size-11 cursor-pointer place-items-center rounded-full border-0 bg-white/10 text-white hover:bg-white/20"><Icon name="activity" /></button>} />
       <div className="rounded-[18px] bg-night-soft/70 p-4">
         <p className="m-0 text-sm text-night-fg">{t("cash.current.expected")}</p>
@@ -346,6 +348,7 @@ function Comparison({ rows }: { rows: Overview["comparison"] }) {
 
 function History({ overview, onValidate, onCloseFor }: { overview: Overview | null; onValidate: (session: Session) => void; onCloseFor: (session: Session) => void }) {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   return (
     <Card aria-labelledby="cash-history-title">
       <CardTitle id="cash-history-title" title={overview?.permissions.audit ? t("cash.history.titleAll") : t("cash.history.title")} />
@@ -360,7 +363,7 @@ function History({ overview, onValidate, onCloseFor }: { overview: Overview | nu
                   <p className="m-0 font-semibold text-ink" dir="auto">{session.userName}{mine && <span className="text-fg-subtle"> · {t("cash.history.you")}</span>}</p>
                   <Badge tone={statusTone[session.status]}>{t(`cash.status.${session.status}`)}</Badge>
                 </div>
-                <p className="m-0 mt-1 text-xs text-fg-subtle">{session.closedAt ? t("cash.history.closed", { date: formatDateTime(session.closedAt, locale) }) : t("cash.history.opened", { date: formatDateTime(session.openedAt, locale) })}</p>
+                <p className="m-0 mt-1 text-xs text-fg-subtle">{session.closedAt ? t("cash.history.closed", { date: formatDateTime(session.closedAt, locale, timeZone) }) : t("cash.history.opened", { date: formatDateTime(session.openedAt, locale, timeZone) })}</p>
                 {difference !== null && (
                   <dl className="m-0 mt-2 grid grid-cols-3 gap-2 text-sm">
                     <div><dt className="text-xs text-fg-subtle">{t("cash.history.expected")}</dt><dd className="numeric m-0 font-semibold">{formatXof(session.expectedCashXof, locale)}</dd></div>

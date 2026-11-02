@@ -14,6 +14,7 @@ import { formatDateTime } from "@/lib/i18n/format";
 import { track } from "@/lib/analytics/client";
 import { currentPushEndpoint, deviceLabel, enablePushOnThisDevice, pushSupport, removeDevice, type PushSupport } from "@/lib/notifications/client";
 import { notificationIcon, type NotificationItem } from "./notification-bell";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 const categories = ["commercial", "security", "subscription", "system", "announcement"] as const;
 type Category = (typeof categories)[number];
@@ -37,6 +38,7 @@ export function NotificationsWorkspace() {
 
 function Inbox() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const [unread, setUnread] = useState(false);
   const [category, setCategory] = useState<"" | Category>("");
   const [items, setItems] = useState<NotificationItem[] | null>(null);
@@ -88,7 +90,7 @@ function Inbox() {
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <span className="font-semibold text-ink" dir="auto">{item.title}</span>
-                    <span className="text-xs text-fg-subtle">{formatDateTime(item.createdAt, locale)}</span>
+                    <span className="text-xs text-fg-subtle">{formatDateTime(item.createdAt, locale, timeZone)}</span>
                   </span>
                   <span className="block text-sm text-fg-muted" dir="auto">{item.body}</span>
                   <span className="block text-xs text-fg-subtle">{t(`notifications.categories.${(categories as readonly string[]).includes(item.category) ? item.category as Category : "system"}`)}</span>
@@ -108,6 +110,7 @@ const timeToMinute = (value: string) => { const [h, m] = value.split(":").map(Nu
 
 function Settings() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const [preferences, setPreferences] = useState<Preferences | null>(null);
   const [failed, setFailed] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "danger" | "warning"; text: string } | null>(null);
@@ -171,7 +174,7 @@ function Settings() {
             <ul className="m-0 grid list-none gap-2 p-0">{preferences.devices.map((device) => (
               <li key={device.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-line bg-paper px-3 py-2">
                 <span className="min-w-0 text-sm"><span className="block font-semibold text-ink">{device.deviceLabel ?? "—"}</span>
-                  <span className="block text-xs text-fg-subtle">{t("notifications.settings.since", { date: formatDateTime(device.createdAt, locale) })}</span></span>
+                  <span className="block text-xs text-fg-subtle">{t("notifications.settings.since", { date: formatDateTime(device.createdAt, locale, timeZone) })}</span></span>
                 <Button variant="ghost" onClick={async () => { const current = device.endpoint === thisEndpoint; await removeDevice(device.id, current); if (current) setThisEndpoint(null); void load(); }}>{t("notifications.settings.removeDevice")}</Button>
               </li>
             ))}</ul>

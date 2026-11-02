@@ -9,7 +9,9 @@ import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { InstallInvite } from "@/components/pwa/install-invite";
 import { NetworkStatus } from "@/components/pwa/network-status";
+import { BusinessTimeZoneContext } from "@/components/business/business-time-zone";
 import { track } from "@/lib/analytics/client";
+import { BUSINESS_DEFAULT_TIME_ZONE, safeTimeZone } from "@/lib/i18n/format";
 import { cn } from "@/components/ui/cn";
 import { Monogram } from "@/components/ui/data-display";
 import { Icon, type IconName } from "@/components/ui/icon";
@@ -101,6 +103,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
   const router = useRouter();
   const [businessName, setBusinessName] = useState<string | null>(preview ? "Commerce Démo QADR" : null);
   const [role, setRole] = useState(preview ? "owner" : "member");
+  const [timeZone, setTimeZone] = useState(BUSINESS_DEFAULT_TIME_ZONE);
   const displayName = businessName ?? t("shell.defaultBusiness");
   useEffect(() => {
     const features = ["dashboard", "pos", "stock", "inventory", "reports", "cash", "sales", "notifications", "printing", "subscription", "team"] as const;
@@ -110,8 +113,9 @@ export function BusinessShell({ active, preview = false, children }: { active: B
   useEffect(() => {
     void fetch("/api/business/settings", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return;
-      const data = await response.json() as { settings?: { name?: string; role?: string } };
+      const data = await response.json() as { settings?: { name?: string; role?: string; timezone?: string } };
       if (data.settings?.name) setBusinessName(data.settings.name);
+      setTimeZone(safeTimeZone(data.settings?.timezone));
       if (data.settings?.role && roleModules[data.settings.role]) setRole(data.settings.role);
     }).catch(() => undefined);
   }, []);
@@ -127,6 +131,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
 
   return (
     <BusinessRoleContext.Provider value={role}>
+      <BusinessTimeZoneContext.Provider value={timeZone}>
       <div className="min-h-dvh bg-canvas text-fg">
         <header className="sticky top-0 z-20 border-b border-line/70 bg-canvas/90 backdrop-blur-md">
           <div className="mx-auto flex h-[68px] max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:h-[76px] lg:px-8">
@@ -190,6 +195,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
           })}
         </nav>
       </div>
+      </BusinessTimeZoneContext.Provider>
     </BusinessRoleContext.Provider>
   );
 }

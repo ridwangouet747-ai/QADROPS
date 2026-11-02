@@ -16,6 +16,7 @@ import {
 import { parseStatus } from "@/lib/printing/escpos";
 import { codePages, renderModes, type CodePage, type RenderMode } from "@/lib/printing/profiles";
 import { track } from "@/lib/analytics/client";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 type Device = { id: string; name: string; transport: string; paperWidthMm: number; codePage: CodePage; renderMode: RenderMode; agentId: string | null; lastStatus: string | null; lastSeenAt: string | null };
 type Setup = { enabled: boolean; autoPrint: boolean; permissions: { configure: boolean; print: boolean }; devices: Device[] };
@@ -28,6 +29,7 @@ const statusTone = { pending: "info", printed: "success", failed: "danger", unce
 
 export function PrintingWorkspace() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const [setup, setSetup] = useState<Setup | null>(null);
   const [failure, setFailure] = useState<"load" | "forbidden" | null>(null);
   const [pairing, setPairing] = useState<Pairing | null>(null);
@@ -171,7 +173,7 @@ export function PrintingWorkspace() {
                       <span className="text-sm font-semibold text-ink">{t(`printing.kinds.${job.kind}`)}{job.reference ? ` · ${job.reference}` : ""}</span>
                       <Badge tone={statusTone[job.status]}>{t(`printing.statuses.${job.status}`)}</Badge>
                     </div>
-                    <p className="m-0 text-xs text-fg-subtle"><bdi>{job.deviceName}</bdi> · {formatDateTime(job.createdAt, locale)}{job.errorCode ? ` · ${errorText(job.errorCode)}` : ""}</p>
+                    <p className="m-0 text-xs text-fg-subtle"><bdi>{job.deviceName}</bdi> · {formatDateTime(job.createdAt, locale, timeZone)}{job.errorCode ? ` · ${errorText(job.errorCode)}` : ""}</p>
                     {job.status === "uncertain" && <div className="mt-2 grid gap-2">
                       <p className="m-0 text-xs text-warn">{t("printing.history.uncertainHint")}</p>
                       <div className="flex flex-wrap gap-2">

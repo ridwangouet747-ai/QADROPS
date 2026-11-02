@@ -11,12 +11,25 @@ export function formatQuantity(value: string | null, locale: Locale) {
   return `${negative ? "−" : ""}${whole}${trimmed ? `${decimalSeparator[locale]}${trimmed}` : ""}`;
 }
 
-export function formatDateTime(value: string | Date, locale: Locale) {
-  return new Date(value).toLocaleString(intlLocale[locale], { dateStyle: "medium", timeStyle: "short" });
+/** Fuseau d'un commerce sans réglage particulier (colonne `business_profile.timezone`). */
+export const BUSINESS_DEFAULT_TIME_ZONE = "Africa/Abidjan";
+
+/** Fuseau utilisable par `Intl` ; un fuseau absent ou inconnu retombe sur celui par défaut au lieu de lever une erreur. */
+export function safeTimeZone(value: string | null | undefined) {
+  const zone = value?.trim() || BUSINESS_DEFAULT_TIME_ZONE;
+  try { new Intl.DateTimeFormat("en", { timeZone: zone }); return zone; } catch { return BUSINESS_DEFAULT_TIME_ZONE; }
 }
 
-export function formatTime(value: string | Date, locale: Locale) {
-  return new Date(value).toLocaleTimeString(intlLocale[locale], { hour: "2-digit", minute: "2-digit" });
+/**
+ * Date et heure au fuseau du commerce, jamais à celui de l'appareil : un PC réglé en GMT+1 afficherait
+ * sinon une heure de plus que ce qui s'est passé à la boutique.
+ */
+export function formatDateTime(value: string | Date, locale: Locale, timeZone?: string | null) {
+  return new Date(value).toLocaleString(intlLocale[locale], { dateStyle: "medium", timeStyle: "short", timeZone: safeTimeZone(timeZone) });
+}
+
+export function formatTime(value: string | Date, locale: Locale, timeZone?: string | null) {
+  return new Date(value).toLocaleTimeString(intlLocale[locale], { hour: "2-digit", minute: "2-digit", timeZone: safeTimeZone(timeZone) });
 }
 
 /** Montant XOF entier (chaîne ou bigint) formaté sans flottant : « 12 500 F CFA », isolé pour le texte bidirectionnel. */

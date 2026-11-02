@@ -15,6 +15,7 @@ import { errorMessageFor } from "@/lib/client/errors";
 import { movementDirection, roundXof, signedMicros, stockStatus, type MovementDirection, type StockStatus } from "@/lib/client/stock";
 import { formatDateTime, formatQuantity, formatXof } from "@/lib/i18n/format";
 import { useDebounced, usePagedList, type RequestError } from "./use-paged-list";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 type StockItem = { id: string; name: string; categoryId: string | null; categoryName: string | null; baseUnit: string; variantId: string; variantLabel: string; sku: string | null; onHand: string; averageCostXof: string; costKnown: boolean; lowStockThreshold: string };
 type Movement = { id: string; variantId: string; product: string; variant: string | null; sku: string | null; unit: string; delta: string; reason: string; unitCostXof: string | null; occurredAt: string };
@@ -37,6 +38,7 @@ function gaugeFor(onHand: string, threshold: string) {
 
 export function StockWorkspace() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const [view, setView] = useState<View>("levels");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | StockStatus>("all");
@@ -190,7 +192,7 @@ export function StockWorkspace() {
                       <strong dir="auto" className="block truncate text-sm text-white">{movement.product}{showVariant(movement.variant, movement.unit) ? ` · ${movement.variant}` : ""}</strong>
                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-night-fg">
                         <Badge tone={known ? reasonTone[movement.reason as Reason] : "neutral"} className={movement.reason === "opening_stock" ? "border-brand-tint" : undefined}>{t(known ? `stock.movements.reasons.${movement.reason as Reason}` : "stock.movements.reasons.unknown")}</Badge>
-                        <time dateTime={movement.occurredAt}>{formatDateTime(movement.occurredAt, locale)}</time>
+                        <time dateTime={movement.occurredAt}>{formatDateTime(movement.occurredAt, locale, timeZone)}</time>
                         {cost && cost !== "0" && <span>{t("stock.movements.unitCost", { amount: money(cost) })}</span>}
                       </div>
                     </div>

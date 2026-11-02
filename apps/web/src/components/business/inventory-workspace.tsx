@@ -16,6 +16,7 @@ import { useOnline } from "@/lib/pwa/client";
 import { csvDocument } from "@/lib/exports/csv";
 import type { Translate } from "@/lib/i18n/translate";
 import type { Locale } from "@/lib/i18n/config";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 type InventoryLine = {
   variantId: string; productName: string; variantLabel: string; baseUnit: string; currentQty: string;
@@ -57,6 +58,7 @@ const sessionFromUrl = () => (typeof window === "undefined" ? "" : new URLSearch
 
 export function InventoryWorkspace() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const online = useOnline();
   const [workspace, setWorkspace] = useState<Workspace>({ sessions: [], categories: [] });
   const [selectedSession, setSelectedSession] = useState("");
@@ -258,7 +260,7 @@ export function InventoryWorkspace() {
                       <span className="flex items-start justify-between gap-2">
                         <span className="min-w-0">
                           <strong className="block truncate">{session.categoryName ?? t("inventory.sessions.allProducts")}</strong>
-                          <small className="text-white/75">{formatDateTime(session.createdAt, locale)}</small>
+                          <small className="text-white/75">{formatDateTime(session.createdAt, locale, timeZone)}</small>
                         </span>
                         <Badge tone={statusTone[session.status]}>{t(`inventory.status.${session.status}`)}</Badge>
                       </span>
@@ -287,7 +289,7 @@ export function InventoryWorkspace() {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h2 id="inventory-detail-title" className="m-0 text-xl font-bold text-ink">{selected?.categoryName ?? detail.categoryName ?? t("inventory.sessions.allProducts")}</h2>
-                    <p className="m-0 text-sm text-fg-muted">{formatDateTime(detail.createdAt, locale)}</p>
+                    <p className="m-0 text-sm text-fg-muted">{formatDateTime(detail.createdAt, locale, timeZone)}</p>
                   </div>
                   <Badge tone={statusTone[detail.status]}>{t(`inventory.status.${detail.status}`)}</Badge>
                 </div>
@@ -368,6 +370,7 @@ function InventoryLineCard({ line, counting, t, locale, draft, reasonDraft, erro
   line: InventoryLine; counting: boolean; t: Translate; locale: Locale; draft?: string; reasonDraft?: string; error?: string;
   saving: boolean; disabled: boolean; onDraft: (value: string) => void; onReason: (value: string) => void; onSave: () => void;
 }) {
+  const timeZone = useBusinessTimeZone();
   const savedValue = line.countedQty !== null ? formatQuantity(line.countedQty, locale) : "";
   const value = draft ?? savedValue;
   const dirty = draft !== undefined && parseQuantityInput(draft) !== (line.countedQty !== null ? parseQuantityInput(line.countedQty) : null);
@@ -382,7 +385,7 @@ function InventoryLineCard({ line, counting, t, locale, draft, reasonDraft, erro
 
   const state = error ? { tone: "danger" as const, label: t("inventory.line.stateError") }
     : dirty ? { tone: "warning" as const, label: t("inventory.line.stateDirty") }
-    : line.countedAt ? { tone: "success" as const, label: t("inventory.line.stateSaved", { time: formatTime(line.countedAt, locale) }) }
+    : line.countedAt ? { tone: "success" as const, label: t("inventory.line.stateSaved", { time: formatTime(line.countedAt, locale, timeZone) }) }
     : { tone: "neutral" as const, label: t("inventory.line.stateUncounted") };
 
   const varianceText = delta === null ? null : delta === 0n ? t("inventory.line.conform")

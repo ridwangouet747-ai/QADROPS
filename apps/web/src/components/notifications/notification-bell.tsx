@@ -7,6 +7,7 @@ import { cn } from "@/components/ui/cn";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { formatDateTime } from "@/lib/i18n/format";
 import { track } from "@/lib/analytics/client";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 export type NotificationItem = { id: string; category: string; icon: string; title: string; body: string; linkPath: string | null; createdAt: string; readAt: string | null };
 
@@ -19,6 +20,7 @@ export const notificationIcon = (icon: string): IconName => (iconNames.has(icon 
  */
 export function NotificationBell() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const [count, setCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[] | null>(null);
@@ -94,7 +96,7 @@ export function NotificationBell() {
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-ink" dir="auto">{item.title}</span>
                       <span className="block text-sm text-fg-muted" dir="auto">{item.body}</span>
-                      <span className="block text-xs text-fg-subtle">{formatDateTime(item.createdAt, locale)}</span>
+                      <span className="block text-xs text-fg-subtle">{formatDateTime(item.createdAt, locale, timeZone)}</span>
                     </span>
                   </Link>
                 </li>

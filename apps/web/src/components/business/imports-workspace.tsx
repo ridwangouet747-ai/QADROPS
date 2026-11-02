@@ -15,6 +15,7 @@ import { errorMessageFor } from "@/lib/client/errors";
 import { formatDateTime, formatQuantity, formatXof } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { useDebounced } from "./use-paged-list";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 /* Qadr Capture (mission 11, phase 3) : envoi d'un fichier, revue ligne par ligne, puis import confirmé. */
 
@@ -77,6 +78,7 @@ function useDescribe() {
 
 export function ImportsWorkspace() {
   const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const router = useRouter();
   const describe = useDescribe();
   const [batches, setBatches] = useState<BatchItem[] | null>(null);
@@ -130,7 +132,7 @@ export function ImportsWorkspace() {
                         <span className="grid size-10 shrink-0 place-items-center rounded-[13px] bg-brand-soft text-xs font-bold text-brand uppercase">{batch.fileType}</span>
                         <span className="min-w-0 flex-1">
                           <strong dir="auto" className="block truncate text-sm">{batch.fileName}</strong>
-                          <small className="block text-xs text-fg-subtle">{formatDateTime(batch.createdAt, locale)} · {t("imports.list.rows", { count: batch.rowCount })}</small>
+                          <small className="block text-xs text-fg-subtle">{formatDateTime(batch.createdAt, locale, timeZone)} · {t("imports.list.rows", { count: batch.rowCount })}</small>
                         </span>
                         <span className="flex shrink-0 flex-col items-end gap-1">
                           <Badge tone={batchTone[batch.status]}>{t(`imports.status.${batch.status}`)}</Badge>

@@ -134,7 +134,7 @@ export function ReportsWorkspace() {
         <div className={cn("grid gap-4 transition-opacity [&>*]:min-w-0", loading && "opacity-60")} aria-busy={loading}>
           {loading && <p className="sr-only" role="status">{t("reports.loading")}</p>}
           <ReportBody report={report} money={money} />
-          <p className="m-0 text-xs text-fg-subtle">{t("reports.definitions")} {t("reports.printHint")} · {t("reports.updated", { date: formatDateTime(report.generatedAt, locale) })}</p>
+          <p className="m-0 text-xs text-fg-subtle">{t("reports.definitions")} {t("reports.printHint")} · {t("reports.updated", { date: formatDateTime(report.generatedAt, locale, report.timezone) })}</p>
         </div>
       )}
     </div>
@@ -381,7 +381,7 @@ function ReportBody({ report, money }: { report: Report; money: (value: string |
             </table></div>
           )}
           {report.stock.notable.length > 0 && <div><p className="m-0 mb-2 text-xs font-semibold text-fg-subtle">{t("reports.stock.notable")}</p>
-            <Rows items={report.stock.notable.map((row) => ({ label: <span dir="auto">{row.product}{row.variant !== "Standard" ? ` · ${row.variant}` : ""}</span>, hint: `${reasonKeys.has(row.reason) ? t(`reports.stock.reasons.${row.reason}` as MessageKey) : row.reason} · ${formatDateTime(row.occurredAt, locale)}`, value: quantity(row.quantityDelta) }))} /></div>}
+            <Rows items={report.stock.notable.map((row) => ({ label: <span dir="auto">{row.product}{row.variant !== "Standard" ? ` · ${row.variant}` : ""}</span>, hint: `${reasonKeys.has(row.reason) ? t(`reports.stock.reasons.${row.reason}` as MessageKey) : row.reason} · ${formatDateTime(row.occurredAt, locale, report.timezone)}`, value: quantity(row.quantityDelta) }))} /></div>}
           <p className="m-0 text-xs text-fg-subtle">{t("reports.stock.variance", { loss: quantity(report.inventoryVariance.lossQty), gain: quantity(report.inventoryVariance.gainQty) })}</p>
         </Card>
       )}
