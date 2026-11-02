@@ -11,10 +11,14 @@ export async function GET(request: Request) {
   } catch (error) { return errorResponse(error); }
 }
 
-/** Prépare un ticket (vente validée ou page de test) ; renvoie les octets ESC/POS à transmettre au service local. */
+/**
+ * Prépare un ticket (vente validée ou page de test) ; renvoie les octets ESC/POS à transmettre au service
+ * local, ou la mise en page à rendre en image. Une réimpression doit porter `idempotencyKey` (I-8).
+ */
 export async function POST(request: Request) {
   try {
     const context = await getBusinessContext(request.headers);
-    return new Response(jsonSafe(await createPrintJob(context.db, context, await parseJsonRequest(request))), { status: 201, headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+    return new Response(jsonSafe(await createPrintJob(context.db, context, await parseJsonRequest(request), new Date(), { requireReprintKey: true })),
+      { status: 201, headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }

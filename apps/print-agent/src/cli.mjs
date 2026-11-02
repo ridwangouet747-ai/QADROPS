@@ -19,5 +19,6 @@ agent.server.listen(port, "127.0.0.1", () => {
   console.log(`Écoute sur http://127.0.0.1:${port} (cet ordinateur uniquement)`);
   console.log(`Origines autorisées : ${(config.allowedOrigins ?? []).join(", ") || "aucune"}`);
   console.log(`Imprimantes : ${(config.printers ?? []).map((printer) => `${printer.id} (${printer.transport})`).join(", ") || "aucune"}`);
+  console.log(`Un appairage reste valable ${agent.tokenTtlDays} jours (réglage « tokenTtlDays »), puis il faut un nouveau code.`);
   console.log(`\nCode d'appairage (10 minutes) : ${agent.newPairingCode()}\n`);
 });

@@ -324,7 +324,7 @@ export const idempotencyRecord = pgTable("idempotency_record", {
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), idempotencyKey: text("idempotency_key").notNull(),
   operation: text("operation").notNull(), requestHash: text("request_hash").notNull(), actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
   result: jsonb("result").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment','cash_session.open','cash_session.movement','cash_session.close','cash_session.validate','import.apply')`)]);
+}, (t) => [primaryKey({ name: "idempotency_record_pk", columns: [t.businessId, t.idempotencyKey] }), check("idempotency_key_length_check", sql`char_length(${t.idempotencyKey}) between 8 and 128`), check("idempotency_operation_check", sql`${t.operation} in ('purchase.receive','expense.create','receivable.payment','stock.opening','opening_balance.create','opening_balance.payment','cash_session.open','cash_session.movement','cash_session.close','cash_session.validate','import.apply','print.reprint')`)]);
 
 /* ------------------------------------------------------------------ Notifications (mission 10) */
 
@@ -410,15 +410,21 @@ export const printerSettings = pgTable("printer_settings", {
   enabled: boolean("enabled").notNull().default(false), autoPrint: boolean("auto_print").notNull().default(false),
   updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: "restrict" }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
-/** Imprimante déclarée par le commerce (le secret d'appairage reste dans le navigateur et le service local, jamais ici). */
+/**
+ * Imprimante déclarée par le commerce (le secret d'appairage reste dans le navigateur et le service local, jamais ici).
+ * Profil (mission 11, phase 5) : largeur du papier, page de codes du mode texte, mode d'écriture (auto : texte,
+ * ou image dès que le ticket est en arabe ou contient un caractère hors de la page de codes).
+ */
 export const printDevice = pgTable("print_device", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   name: text("name").notNull(), transport: text("transport").notNull(), profile: text("profile").notNull().default("generic"), paperWidthMm: integer("paper_width_mm").notNull().default(80),
+  codePage: text("code_page").notNull().default("pc858"), renderMode: text("render_mode").notNull().default("auto"),
   agentId: text("agent_id"), createdByUserId: text("created_by_user_id").notNull(), archivedAt: timestamp("archived_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), lastStatus: text("last_status"), lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
 }, (t) => [unique("print_device_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "print_device_creator_membership_fk" }),
   check("print_device_transport_check", sql`${t.transport} in ('tcp','windows_share','device','simulated')`), check("print_device_width_check", sql`${t.paperWidthMm} in (58,80)`),
-  check("print_device_name_length", sql`char_length(trim(${t.name})) between 1 and 80`)]);
+  check("print_device_name_length", sql`char_length(trim(${t.name})) between 1 and 80`),
+  check("print_device_code_page_check", sql`${t.codePage} in ('pc858','pc850','wpc1252')`), check("print_device_render_mode_check", sql`${t.renderMode} in ('auto','text','raster')`)]);
 /**
  * Tâche d'impression : identifiant unique transmis au service local (qui refuse d'imprimer deux fois la même tâche).
  * Une seule impression automatique d'origine par (vente, imprimante) ; une réimpression est une nouvelle tâche.

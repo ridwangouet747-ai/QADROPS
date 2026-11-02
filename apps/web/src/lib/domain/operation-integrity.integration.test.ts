@@ -13,6 +13,7 @@ import { startInventory } from "./inventory";
 import { createOpeningBalance, postStockOpening } from "./opening";
 import { openCashSession } from "./cash-session";
 import { createCatalogImport } from "./imports";
+import { addPrintDevice, createPrintJob, reportPrintResult, updatePrinterSettings } from "./printing";
 
 describe("operation integrity: idempotent writes and blocked businesses (PGlite)", () => {
   const client = new PGlite();
@@ -120,6 +121,18 @@ describe("operation integrity: idempotent writes and blocked businesses (PGlite)
   });
 
   describe("business status guard", () => {
+    // Impression (mission 11, phase 5) : une imprimante et un ticket déjà transmis, préparés pendant que le commerce est actif.
+    let printDeviceA = "";
+    let printSaleA = "";
+    let printedJobA = "";
+    beforeAll(async () => {
+      printSaleA = (await createSale(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "integrity-print-sale", lines: [{ variantId: variantA, quantity: "1" }], payments: [{ method: "cash", amountXof: "1000" }] })).id;
+      await updatePrinterSettings(db, { businessId: businessA, actorUserId: ownerA }, { enabled: true, autoPrint: false });
+      printDeviceA = (await addPrintDevice(db, { businessId: businessA, actorUserId: ownerA }, { name: "Caisse", transport: "simulated", paperWidthMm: 58, agentId: "integrity-agent" })).id;
+      printedJobA = (await createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "receipt", saleId: printSaleA })).job.id;
+      await reportPrintResult(db, { businessId: businessA, actorUserId: ownerA }, printedJobA, { status: "printed" });
+    });
+
     const writes: [string, () => Promise<unknown>][] = [
       ["createProduct", () => createProduct(db, { businessId: businessA, actorUserId: ownerA, name: "Bloqué", salePriceXof: "1" })],
       ["createSale", () => createSale(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: `blocked-sale-${Math.random()}`, lines: [{ variantId: variantA, quantity: "1" }], payments: [{ method: "cash", amountXof: "1000" }] })],
@@ -137,6 +150,9 @@ describe("operation integrity: idempotent writes and blocked businesses (PGlite)
       ["openCashSession", () => openCashSession(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-cash-open-1", openingFloatXof: "1000" })],
       ["createOpeningBalance (fournisseur)", () => createOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-ob-supplier-1", partyType: "supplier", partyId: supplierA, amountXof: "1000", asOfDate: "2026-01-01" })],
       ["createCatalogImport", () => createCatalogImport(db, { businessId: businessA, actorUserId: ownerA, fileName: "bloque.csv", bytes: Buffer.from("Nom;Prix\nBloqué;100\n") })],
+      ["createPrintJob (test)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "test" })],
+      ["createPrintJob (ticket de vente)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "receipt", saleId: printSaleA })],
+      ["createPrintJob (réimpression)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "receipt", saleId: printSaleA, reprintOfJobId: printedJobA, idempotencyKey: "blocked-reprint-1" })],
     ];
 
     it.each(["suspended", "expired"])("blocks every commercial write while the business is %s, without writing anything", async (status) => {
