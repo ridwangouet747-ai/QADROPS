@@ -133,35 +133,57 @@ async function rows<T>(db: CommercialDatabase, query: ReturnType<typeof sql>) {
   return ((await db.execute(query)) as unknown as Rows<T>).rows;
 }
 
-/** Chiffres de base d'une période, calculés de la même façon pour la période et sa comparaison (une seule requête). */
-async function coreTotals(db: CommercialDatabase, businessId: string, start: Date, end: Date) {
-  const [row] = await rows<Record<string, string>>(db, sql`select
-    (select coalesce(sum(s.total_xof), 0) from sale s where s.business_id = ${businessId} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as revenue,
-    (select count(*) from sale s where s.business_id = ${businessId} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as sale_count,
-    (select coalesce(sum(s.discount_xof), 0) from sale s where s.business_id = ${businessId} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as discounts,
-    (select coalesce(sum(l.quantity), 0) from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
-      where l.business_id = ${businessId} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as items,
-    (select coalesce(sum(l.cogs_xof) filter (where l.cost_available), 0) from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
-      where l.business_id = ${businessId} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as cogs_known,
-    (select coalesce(sum(l.line_total_xof) filter (where l.cost_available), 0) from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
-      where l.business_id = ${businessId} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as known_revenue,
-    (select count(*) filter (where not l.cost_available) from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
-      where l.business_id = ${businessId} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as unknown_lines,
-    (select coalesce(sum(p.amount_xof), 0) from payment p where p.business_id = ${businessId} and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end})::text as collected,
-    (select coalesce(sum(p.amount_xof), 0) from payment p where p.business_id = ${businessId} and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end}
-      and exists (select 1 from receivable_payment r where r.business_id = p.business_id and r.payment_id = p.id))::text as settlements,
-    (select coalesce(sum(op.amount_xof), 0) from opening_balance_payment op join opening_balance b on b.business_id = op.business_id and b.id = op.opening_balance_id
-      where op.business_id = ${businessId} and b.party_type = 'customer' and op.occurred_at >= ${start} and op.occurred_at < ${end})::text as opening_recovered,
-    (select count(*) from opening_balance_payment op join opening_balance b on b.business_id = op.business_id and b.id = op.opening_balance_id
-      where op.business_id = ${businessId} and b.party_type = 'customer' and op.occurred_at >= ${start} and op.occurred_at < ${end})::text as opening_recovered_count,
-    (select coalesce(sum(e.amount_xof), 0) from expense e where e.business_id = ${businessId} and e.occurred_at >= ${start} and e.occurred_at < ${end})::text as expenses,
-    (select count(*) from expense e where e.business_id = ${businessId} and e.occurred_at >= ${start} and e.occurred_at < ${end})::text as expense_count,
-    (select coalesce(sum(greatest(s.total_xof - coalesce((select sum(p.amount_xof) from payment p where p.business_id = s.business_id and p.sale_id = s.id and p.status <> 'failed'
-        and not exists (select 1 from receivable_payment r where r.business_id = p.business_id and r.payment_id = p.id)), 0), 0)), 0)
-      from sale s where s.business_id = ${businessId} and s.customer_id is not null and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as credit_granted,
-    (select coalesce(sum(rf.amount_xof), 0) from payment_refund rf where rf.business_id = ${businessId} and rf.status = 'confirmed' and rf.occurred_at >= ${start} and rf.occurred_at < ${end})::text as refunds,
-    (select count(*) from payment_refund rf where rf.business_id = ${businessId} and rf.status = 'confirmed' and rf.occurred_at >= ${start} and rf.occurred_at < ${end})::text as refund_count
-  `);
+/** Horodatage passé en texte ISO et typé par PostgreSQL : même comportement avec PGlite et Neon. */
+const at = (date: Date) => sql`${date.toISOString()}::timestamptz`;
+
+/** Valeur produite par json_agg / row_to_json : déjà décodée par le pilote, ou texte selon le pilote. */
+function fromJson<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) return fallback;
+  return (typeof value === "string" ? JSON.parse(value) : value) as T;
+}
+
+type Range = { start: Date; end: Date };
+
+/**
+ * Chiffres de base de plusieurs périodes en une seule requête (période et comparaison ; pour le tableau
+ * de bord, jour et semaine). Chaque période est une ligne de VALUES ; chaque famille de chiffres est un
+ * agrégat LATERAL qui ne parcourt sa table qu'une fois (FILTER plutôt qu'une sous-requête par chiffre).
+ * Les définitions sont celles de docs/reports.md, identiques pour une période et sa comparaison.
+ */
+async function coreTotals(db: CommercialDatabase, businessId: string, ranges: Range[]) {
+  const periods = sql.join(ranges.map((range, index) => sql`(${index}::int, ${at(range.start)}, ${at(range.end)})`), sql`, `);
+  const result = await rows<Record<string, string>>(db, sql`select per.k,
+      sa.revenue::text as revenue, sa.sale_count::text as sale_count, sa.discounts::text as discounts,
+      li.items::text as items, li.cogs_known::text as cogs_known, li.known_revenue::text as known_revenue, li.unknown_lines::text as unknown_lines,
+      pa.collected::text as collected, pa.settlements::text as settlements,
+      ob.recovered::text as opening_recovered, ob.recovered_count::text as opening_recovered_count,
+      ex.total::text as expenses, ex.count::text as expense_count, cg.total::text as credit_granted,
+      rf.total::text as refunds, rf.count::text as refund_count
+    from (values ${periods}) as per(k, starts, ends)
+    cross join lateral (select coalesce(sum(s.total_xof), 0) as revenue, count(*) as sale_count, coalesce(sum(s.discount_xof), 0) as discounts
+      from sale s where s.business_id = ${businessId} and s.occurred_at >= per.starts and s.occurred_at < per.ends and s.status in ${soldStatuses}) sa
+    cross join lateral (select coalesce(sum(l.quantity), 0) as items, coalesce(sum(l.cogs_xof) filter (where l.cost_available), 0) as cogs_known,
+        coalesce(sum(l.line_total_xof) filter (where l.cost_available), 0) as known_revenue, count(*) filter (where not l.cost_available) as unknown_lines
+      from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
+      where l.business_id = ${businessId} and s.occurred_at >= per.starts and s.occurred_at < per.ends and s.status in ${soldStatuses}) li
+    cross join lateral (select coalesce(sum(p.amount_xof), 0) as collected, coalesce(sum(p.amount_xof) filter (where rp.hit), 0) as settlements
+      from payment p left join lateral (select true as hit from receivable_payment r where r.business_id = p.business_id and r.payment_id = p.id limit 1) rp on true
+      where p.business_id = ${businessId} and p.status in ${collectedStatuses} and p.confirmed_at >= per.starts and p.confirmed_at < per.ends) pa
+    cross join lateral (select coalesce(sum(op.amount_xof), 0) as recovered, count(*) as recovered_count
+      from opening_balance_payment op join opening_balance b on b.business_id = op.business_id and b.id = op.opening_balance_id
+      where op.business_id = ${businessId} and b.party_type = 'customer' and op.occurred_at >= per.starts and op.occurred_at < per.ends) ob
+    cross join lateral (select coalesce(sum(e.amount_xof), 0) as total, count(*) as count
+      from expense e where e.business_id = ${businessId} and e.occurred_at >= per.starts and e.occurred_at < per.ends) ex
+    cross join lateral (select coalesce(sum(greatest(s.total_xof - coalesce((select sum(p.amount_xof) from payment p where p.business_id = s.business_id and p.sale_id = s.id and p.status <> 'failed'
+        and not exists (select 1 from receivable_payment r where r.business_id = p.business_id and r.payment_id = p.id)), 0), 0)), 0) as total
+      from sale s where s.business_id = ${businessId} and s.customer_id is not null and s.occurred_at >= per.starts and s.occurred_at < per.ends and s.status in ${soldStatuses}) cg
+    cross join lateral (select coalesce(sum(rf.amount_xof), 0) as total, count(*) as count
+      from payment_refund rf where rf.business_id = ${businessId} and rf.status = 'confirmed' and rf.occurred_at >= per.starts and rf.occurred_at < per.ends) rf
+    order by per.k`);
+  return ranges.map((_, index) => toCoreTotals(result.find((row) => Number(row.k) === index)));
+}
+
+function toCoreTotals(row: Record<string, string> | undefined) {
   const n = (key: string) => amount(row?.[key]);
   const revenue = n("revenue");
   const cogsKnown = n("cogs_known");
@@ -174,74 +196,226 @@ async function coreTotals(db: CommercialDatabase, businessId: string, start: Dat
     expenses: n("expenses"), expenseCount: n("expense_count"), creditGranted: n("credit_granted"), refunds: n("refunds"), refundCount: n("refund_count"),
   };
 }
+type CoreTotals = ReturnType<typeof toCoreTotals>;
 
-export async function getCommercialReport(db: CommercialDatabase, raw: unknown, now = new Date()) {
-  const input = reportInputSchema.parse(raw);
-  const [membership] = await db.select({ role: member.role }).from(member).where(and(
-    eq(member.organizationId, input.businessId), eq(member.userId, input.actorUserId),
-  )).limit(1);
-  if (!membership || !hasBusinessPermission(membership.role, "report", "read")) throw new CommercialError("Vous n’avez pas l’autorisation de consulter les rapports.", 403, "forbidden");
-  const [business] = await db.select({ timezone: businessProfile.timezone }).from(businessProfile).where(eq(businessProfile.businessId, input.businessId)).limit(1);
-  if (!business) throw new CommercialError("Commerce introuvable.", 404);
-  const timezone = business.timezone;
-  try { new Intl.DateTimeFormat("en", { timeZone: timezone }); } catch { throw new CommercialError("Le fuseau horaire du commerce est invalide.", 422); }
-  const range = reportRange(input, timezone, now);
-  const b = input.businessId;
-  const { start, end } = range;
-  const bucketUnit = input.period === "yearly" ? "month" : "day";
-  const full = input.detail === "full";
+/** Liste JSON ordonnée d'une sous-requête (`ord` : rang calculé par la sous-requête elle-même). */
+const jsonList = (query: ReturnType<typeof sql>, order: ReturnType<typeof sql>) => sql`(select coalesce(json_agg(x order by ${order}), '[]'::json) from (${query}) x)`;
+const jsonRow = (query: ReturnType<typeof sql>) => sql`(select row_to_json(x) from (${query}) x)`;
+const emptyList = sql`'[]'::json`;
 
-  const [current, previous, pendingRows, methodRows, settlementRows, receivableRows, openingCustomerRows, purchaseRows, topRows, trendRows, collectionTrendRows, expenseTrendRows, inventoryRows] = await Promise.all([
-    coreTotals(db, b, start, end),
-    coreTotals(db, b, range.previousStart, range.previousEnd),
-    rows<{ method: string; total: string; count: string }>(db, sql`select p.method, sum(p.amount_xof)::text as total, count(*)::text as count from payment p
-      where p.business_id = ${b} and p.status = 'pending' and p.occurred_at >= ${start} and p.occurred_at < ${end} group by p.method order by p.method`),
-    rows<{ method: string; total: string }>(db, sql`select p.method, sum(p.amount_xof)::text as total from payment p
-      where p.business_id = ${b} and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end} group by p.method order by p.method`),
-    rows<{ paid: string; partial: string; credit: string; mixed: string }>(db, sql`select
-      count(*) filter (where coalesce(p.paid, 0) >= s.total_xof)::text as paid,
+type ReportPlan = { input: ReportInput; timezone: string; range: ReturnType<typeof reportRange> };
+
+type Snapshot = {
+  pending: { method: string; total: string; count: string }[];
+  methods: { method: string; total: string }[];
+  settlement: { paid: string; partial: string; credit: string; mixed: string } | null;
+  receivables: { count: string; total: string } | null;
+  openingCustomers: { remaining: string } | null;
+  purchases: { total: string; count: string; paid: string } | null;
+  top: { name: string; quantity: string; total: string }[];
+  trend: { bucket: string; total: string; count: string }[];
+  collectionTrend: { bucket: string; total: string }[];
+  expenseTrend: { bucket: string; total: string }[];
+  inventory: { gain: string; loss: string; sessions: string } | null;
+  details: Awaited<ReturnType<typeof detailsFrom>> | null;
+};
+
+/**
+ * Tout ce qu'un rapport affiche en plus des chiffres de base, en une seule requête : chaque section est une
+ * sous-requête scalaire qui renvoie sa ligne (row_to_json) ou sa liste ordonnée (json_agg). Les montants
+ * restent des chaînes (`::text`), jamais des nombres JSON. Les paiements ne sont lus que pour les ventes
+ * concernées (LATERAL), jamais agrégés sur tout l'historique du commerce.
+ */
+async function reportSnapshot(db: CommercialDatabase, b: string, plan: ReportPlan): Promise<Snapshot> {
+  const start = at(plan.range.start);
+  const end = at(plan.range.end);
+  const { timezone } = plan;
+  const bucketUnit = plan.input.period === "yearly" ? "month" : "day";
+  const full = plan.input.detail === "full";
+  const [row] = await rows<Record<string, unknown>>(db, sql`select
+    ${jsonList(sql`select p.method, sum(p.amount_xof)::text as total, count(*)::text as count from payment p
+      where p.business_id = ${b} and p.status = 'pending' and p.occurred_at >= ${start} and p.occurred_at < ${end} group by p.method`, sql`x.method`)} as pending,
+    ${jsonList(sql`select p.method, sum(p.amount_xof)::text as total from payment p
+      where p.business_id = ${b} and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end} group by p.method`, sql`x.method`)} as methods,
+    ${jsonRow(sql`select count(*) filter (where coalesce(p.paid, 0) >= s.total_xof)::text as paid,
       count(*) filter (where coalesce(p.paid, 0) > 0 and coalesce(p.paid, 0) < s.total_xof)::text as partial,
       count(*) filter (where coalesce(p.paid, 0) = 0 and s.customer_id is not null)::text as credit,
       count(*) filter (where coalesce(p.methods, 0) >= 2)::text as mixed
-      from sale s left join (select sale_id, sum(amount_xof) filter (where status in ${collectedStatuses} and confirmed_at < ${end}) as paid,
-        count(distinct method) filter (where status <> 'failed') as methods from payment where business_id = ${b} group by sale_id) p on p.sale_id = s.id
-      where s.business_id = ${b} and s.status <> 'voided' and s.occurred_at >= ${start} and s.occurred_at < ${end}`),
-    rows<{ count: string; total: string }>(db, sql`select count(*)::text as count, coalesce(sum(s.total_xof - coalesce(p.paid, 0)), 0)::text as total
-      from sale s left join (select sale_id, sum(amount_xof) as paid from payment where business_id = ${b} and status in ${collectedStatuses} and confirmed_at < ${end} group by sale_id) p on p.sale_id = s.id
-      where s.business_id = ${b} and s.customer_id is not null and s.status <> 'voided' and s.occurred_at < ${end} and s.total_xof > coalesce(p.paid, 0)`),
-    rows<{ remaining: string }>(db, sql`select coalesce(sum(greatest(b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op
+      from sale s left join lateral (select sum(pp.amount_xof) filter (where pp.status in ${collectedStatuses} and pp.confirmed_at < ${end}) as paid,
+        count(distinct pp.method) filter (where pp.status <> 'failed') as methods from payment pp where pp.business_id = s.business_id and pp.sale_id = s.id) p on true
+      where s.business_id = ${b} and s.status <> 'voided' and s.occurred_at >= ${start} and s.occurred_at < ${end}`)} as settlement,
+    ${jsonRow(sql`select count(*)::text as count, coalesce(sum(s.total_xof - coalesce(p.paid, 0)), 0)::text as total
+      from sale s left join lateral (select sum(pp.amount_xof) as paid from payment pp where pp.business_id = s.business_id and pp.sale_id = s.id
+        and pp.status in ${collectedStatuses} and pp.confirmed_at < ${end}) p on true
+      where s.business_id = ${b} and s.customer_id is not null and s.status <> 'voided' and s.occurred_at < ${end} and s.total_xof > coalesce(p.paid, 0)`)} as receivables,
+    ${jsonRow(sql`select coalesce(sum(greatest(b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op
         where op.business_id = b.business_id and op.opening_balance_id = b.id and op.occurred_at < ${end}), 0), 0)), 0)::text as remaining
-      from opening_balance b where b.business_id = ${b} and b.party_type = 'customer' and b.created_at < ${end}`),
-    rows<{ total: string; count: string; paid: string }>(db, sql`select coalesce(sum(total_xof), 0)::text as total, count(*)::text as count,
+      from opening_balance b where b.business_id = ${b} and b.party_type = 'customer' and b.created_at < ${end}`)} as opening_customers,
+    ${jsonRow(sql`select coalesce(sum(total_xof), 0)::text as total, count(*)::text as count,
       (select coalesce(sum(pp.amount_xof), 0) from purchase_payment pp where pp.business_id = ${b} and pp.occurred_at >= ${start} and pp.occurred_at < ${end})::text as paid
-      from purchase where business_id = ${b} and status = 'received' and occurred_at >= ${start} and occurred_at < ${end}`),
-    rows<{ name: string; quantity: string; total: string }>(db, sql`select l.product_name_snapshot as name, sum(l.quantity)::text as quantity, sum(l.line_total_xof)::text as total
+      from purchase where business_id = ${b} and status = 'received' and occurred_at >= ${start} and occurred_at < ${end}`)} as purchases,
+    ${jsonList(sql`select l.product_name_snapshot as name, sum(l.quantity)::text as quantity, sum(l.line_total_xof)::text as total,
+        row_number() over (order by sum(l.line_total_xof) desc, l.product_name_snapshot) as ord
       from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
       where l.business_id = ${b} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses}
-      group by l.product_name_snapshot order by sum(l.line_total_xof) desc, l.product_name_snapshot limit 10`),
-    rows<{ bucket: string; total: string; count: string }>(db, sql`select to_char(date_trunc(${bucketUnit}, s.occurred_at at time zone ${timezone}), 'YYYY-MM-DD') as bucket,
+      group by l.product_name_snapshot order by ord limit 10`, sql`x.ord`)} as top,
+    ${jsonList(sql`select to_char(date_trunc(${bucketUnit}, s.occurred_at at time zone ${timezone}), 'YYYY-MM-DD') as bucket,
       sum(s.total_xof)::text as total, count(*)::text as count from sale s
-      where s.business_id = ${b} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses} group by 1 order by 1`),
-    full ? rows<{ bucket: string; total: string }>(db, sql`select to_char(date_trunc(${bucketUnit}, p.confirmed_at at time zone ${timezone}), 'YYYY-MM-DD') as bucket, sum(p.amount_xof)::text as total
-      from payment p where p.business_id = ${b} and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end} group by 1 order by 1`) : Promise.resolve([]),
-    full ? rows<{ bucket: string; total: string }>(db, sql`select to_char(date_trunc(${bucketUnit}, e.occurred_at at time zone ${timezone}), 'YYYY-MM-DD') as bucket, sum(e.amount_xof)::text as total
-      from expense e where e.business_id = ${b} and e.occurred_at >= ${start} and e.occurred_at < ${end} group by 1 order by 1`) : Promise.resolve([]),
-    rows<{ gain: string; loss: string; sessions: string }>(db, sql`select coalesce(sum(greatest(l.counted_qty - l.theoretical_qty, 0)), 0)::text as gain,
+      where s.business_id = ${b} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses} group by 1`, sql`x.bucket`)} as trend,
+    ${full ? jsonList(sql`select to_char(date_trunc(${bucketUnit}, p.confirmed_at at time zone ${timezone}), 'YYYY-MM-DD') as bucket, sum(p.amount_xof)::text as total
+      from payment p where p.business_id = ${b} and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end} group by 1`, sql`x.bucket`) : emptyList} as collection_trend,
+    ${full ? jsonList(sql`select to_char(date_trunc(${bucketUnit}, e.occurred_at at time zone ${timezone}), 'YYYY-MM-DD') as bucket, sum(e.amount_xof)::text as total
+      from expense e where e.business_id = ${b} and e.occurred_at >= ${start} and e.occurred_at < ${end} group by 1`, sql`x.bucket`) : emptyList} as expense_trend,
+    ${jsonRow(sql`select coalesce(sum(greatest(l.counted_qty - l.theoretical_qty, 0)), 0)::text as gain,
       coalesce(sum(greatest(l.theoretical_qty - l.counted_qty, 0)), 0)::text as loss, count(distinct s.id)::text as sessions
       from inventory_line l join inventory_session s on s.business_id = l.business_id and s.id = l.session_id
-      where l.business_id = ${b} and s.status = 'validated' and s.validated_at >= ${start} and s.validated_at < ${end}`),
-  ]);
+      where l.business_id = ${b} and s.status = 'validated' and s.validated_at >= ${start} and s.validated_at < ${end}`)} as inventory
+    ${full ? sql`, ${detailColumns(b, start, end)}` : sql``}`);
+  return {
+    pending: fromJson(row?.pending, []), methods: fromJson(row?.methods, []), settlement: fromJson(row?.settlement, null),
+    receivables: fromJson(row?.receivables, null), openingCustomers: fromJson(row?.opening_customers, null), purchases: fromJson(row?.purchases, null),
+    top: fromJson(row?.top, []), trend: fromJson(row?.trend, []), collectionTrend: fromJson(row?.collection_trend, []), expenseTrend: fromJson(row?.expense_trend, []),
+    inventory: fromJson(row?.inventory, null), details: full && row ? detailsFrom(row) : null,
+  };
+}
 
-  const details = full ? await reportDetails(db, b, start, end) : null;
+/** Colonnes des sections détaillées : catégories, dépenses ventilées, stock, produits peu vendus, employés, dettes fournisseurs. */
+function detailColumns(b: string, start: ReturnType<typeof sql>, end: ReturnType<typeof sql>) {
+  return sql`${jsonList(sql`select c.name as category, sum(l.quantity)::text as quantity, sum(l.line_total_xof)::text as total,
+        row_number() over (order by sum(l.line_total_xof) desc, c.name nulls last) as ord
+      from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
+      join product_variant v on v.business_id = l.business_id and v.id = l.variant_id
+      join product p on p.business_id = v.business_id and p.id = v.product_id
+      left join product_category c on c.business_id = p.business_id and c.id = p.category_id
+      where l.business_id = ${b} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses}
+      group by c.name order by ord limit 20`, sql`x.ord`)} as d_categories,
+    ${jsonList(sql`select category, sum(amount_xof)::text as total, count(*)::text as count, row_number() over (order by sum(amount_xof) desc, category) as ord from expense
+      where business_id = ${b} and occurred_at >= ${start} and occurred_at < ${end} group by category order by ord limit 20`, sql`x.ord`)} as d_expense_categories,
+    ${jsonList(sql`select payment_method as method, sum(amount_xof)::text as total from expense
+      where business_id = ${b} and occurred_at >= ${start} and occurred_at < ${end} group by payment_method`, sql`x.method nulls last`)} as d_expense_methods,
+    ${jsonList(sql`select reason,
+      coalesce(sum(quantity_delta) filter (where quantity_delta > 0), 0)::text as incoming, coalesce(-sum(quantity_delta) filter (where quantity_delta < 0), 0)::text as outgoing,
+      count(*)::text as count, round(sum(quantity_delta * unit_cost_xof))::bigint::text as value
+      from stock_movement where business_id = ${b} and occurred_at >= ${start} and occurred_at < ${end} group by reason`, sql`x.reason`)} as d_stock_reasons,
+    ${jsonList(sql`select p.name as product, v.label as variant, m.reason, m.quantity_delta::text as delta,
+        to_char(m.occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as "occurredAt",
+        row_number() over (order by abs(m.quantity_delta) desc, m.occurred_at desc) as ord
+      from stock_movement m join product_variant v on v.business_id = m.business_id and v.id = m.variant_id join product p on p.business_id = v.business_id and p.id = v.product_id
+      where m.business_id = ${b} and m.reason <> 'sale' and m.occurred_at >= ${start} and m.occurred_at < ${end} order by ord limit 5`, sql`x.ord`)} as d_notable,
+    ${jsonList(sql`select p.name, v.label as variant, v.on_hand::text as "onHand", coalesce(sold.quantity, 0)::text as quantity,
+        row_number() over (order by coalesce(sold.quantity, 0) asc, v.on_hand desc, p.name) as ord
+      from product_variant v join product p on p.business_id = v.business_id and p.id = v.product_id
+      left join (select l.variant_id, sum(l.quantity) as quantity from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
+        where l.business_id = ${b} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses} group by l.variant_id) sold on sold.variant_id = v.id
+      where v.business_id = ${b} and v.archived_at is null and p.archived_at is null and v.on_hand > 0
+      order by ord limit 5`, sql`x.ord`)} as d_slow,
+    ${jsonList(sql`select m.user_id as "userId", u.name, row_number() over (order by u.name) as ord,
+      (select count(*) from sale s where s.business_id = m.organization_id and s.cashier_user_id = m.user_id and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as sales,
+      (select coalesce(sum(s.total_xof), 0) from sale s where s.business_id = m.organization_id and s.cashier_user_id = m.user_id and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as revenue,
+      (select coalesce(sum(p.amount_xof), 0) from payment p where p.business_id = m.organization_id and p.recorded_by_user_id = m.user_id and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end})::text as collected,
+      (select coalesce(sum(e.amount_xof), 0) from expense e where e.business_id = m.organization_id and e.paid_by_user_id = m.user_id and e.occurred_at >= ${start} and e.occurred_at < ${end})::text as expenses
+      from member m join "user" u on u.id = m.user_id where m.organization_id = ${b}`, sql`x.ord`)} as d_employees,
+    ${jsonRow(sql`select
+      (select coalesce(sum(total_xof), 0) from purchase where business_id = ${b} and status = 'received' and occurred_at < ${end})::text as purchases,
+      (select coalesce(sum(pp.amount_xof), 0) from purchase_payment pp join purchase pu on pu.business_id = pp.business_id and pu.id = pp.purchase_id
+        where pp.business_id = ${b} and pu.status = 'received' and pp.occurred_at < ${end})::text as paid,
+      (select coalesce(sum(greatest(ob.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id = ob.business_id and op.opening_balance_id = ob.id and op.occurred_at < ${end}), 0), 0)), 0)
+        from opening_balance ob where ob.business_id = ${b} and ob.party_type = 'supplier' and ob.created_at < ${end})::text as opening`)} as d_supplier_debt,
+    ${jsonRow(sql`select coalesce(sum(op.amount_xof), 0)::text as total from opening_balance_payment op join opening_balance ob on ob.business_id = op.business_id and ob.id = op.opening_balance_id
+      where op.business_id = ${b} and ob.party_type = 'supplier' and op.occurred_at >= ${start} and op.occurred_at < ${end}`)} as d_supplier_opening_paid`;
+}
 
-  const trendMap = new Map(trendRows.map((row) => [row.bucket, row]));
-  const collectionMap = new Map(collectionTrendRows.map((row) => [row.bucket, row.total]));
-  const expenseMap = new Map(expenseTrendRows.map((row) => [row.bucket, row.total]));
-  const supplierPaid = amount(purchaseRows[0]?.paid);
-  const settlement = settlementRows[0];
+function detailsFrom(row: Record<string, unknown>) {
+  const categories = fromJson<{ category: string | null; quantity: string; total: string }[]>(row.d_categories, []);
+  const expenseCategories = fromJson<{ category: string; total: string; count: string }[]>(row.d_expense_categories, []);
+  const expenseMethods = fromJson<{ method: string | null; total: string }[]>(row.d_expense_methods, []);
+  const stockReasons = fromJson<{ reason: string; incoming: string; outgoing: string; count: string; value: string | null }[]>(row.d_stock_reasons, []);
+  const notable = fromJson<{ product: string; variant: string; reason: string; delta: string; occurredAt: string }[]>(row.d_notable, []);
+  const slow = fromJson<{ name: string; variant: string; onHand: string; quantity: string }[]>(row.d_slow, []);
+  const employees = fromJson<{ userId: string; name: string; sales: string; revenue: string; collected: string; expenses: string }[]>(row.d_employees, []);
+  const debt = fromJson<{ purchases: string; paid: string; opening: string } | null>(row.d_supplier_debt, null);
+  const supplierOpeningPaid = fromJson<{ total: string } | null>(row.d_supplier_opening_paid, null);
+  const purchasesDue = amount(debt?.purchases) - amount(debt?.paid);
+  return {
+    categories: categories.map((item) => ({ category: item.category, quantity: decimal(item.quantity), revenueXof: item.total })),
+    expenseCategories: expenseCategories.map((item) => ({ category: item.category, amountXof: item.total, count: item.count })),
+    expenseMethods: expenseMethods.map((item) => ({ method: item.method, amountXof: item.total })),
+    stock: {
+      byReason: stockReasons.map((item) => ({ reason: item.reason, incomingQty: decimal(item.incoming), outgoingQty: decimal(item.outgoing), count: item.count, valueAtCostXof: item.value })),
+      notable: notable.map((item) => ({ product: item.product, variant: item.variant, reason: item.reason, quantityDelta: item.delta, occurredAt: new Date(item.occurredAt).toISOString() })),
+    },
+    slowProducts: slow.map((item) => ({ name: item.name, variant: item.variant, onHand: decimal(item.onHand), quantitySold: decimal(item.quantity) })),
+    employees: employees.filter((item) => item.sales !== "0" || item.collected !== "0" || item.expenses !== "0")
+      .map((item) => ({ userId: item.userId, name: item.name, saleCount: item.sales, revenueXof: item.revenue, collectedXof: item.collected, expensesXof: item.expenses })),
+    supplierDebt: { purchasesDueXof: purchasesDue.toString(), openingDueXof: amount(debt?.opening).toString(), totalXof: (purchasesDue + amount(debt?.opening)).toString() },
+    supplierOpeningPaid: amount(supplierOpeningPaid?.total),
+  };
+}
+
+/**
+ * Appartenance, permission `report:read` et fuseau du commerce en une seule lecture.
+ * Ordre des refus inchangé : 403 sans droit, 404 sans profil, 422 si le fuseau enregistré est invalide.
+ */
+async function reportTimezone(db: CommercialDatabase, businessId: string, actorUserId: string) {
+  const [access] = await db.select({ role: member.role, timezone: businessProfile.timezone }).from(member)
+    .leftJoin(businessProfile, eq(businessProfile.businessId, member.organizationId))
+    .where(and(eq(member.organizationId, businessId), eq(member.userId, actorUserId))).limit(1);
+  if (!access || !hasBusinessPermission(access.role, "report", "read")) throw new CommercialError("Vous n’avez pas l’autorisation de consulter les rapports.", 403, "forbidden");
+  if (!access.timezone) throw new CommercialError("Commerce introuvable.", 404);
+  return assertValidTimezone(access.timezone);
+}
+
+export function assertValidTimezone(timezone: string) {
+  try { new Intl.DateTimeFormat("en", { timeZone: timezone }); } catch { throw new CommercialError("Le fuseau horaire du commerce est invalide.", 422); }
+  return timezone;
+}
+
+function planReport(raw: unknown, timezone: string, now: Date): ReportPlan {
+  const input = reportInputSchema.parse(raw);
+  return { input, timezone, range: reportRange(input, timezone, now) };
+}
+
+const rangesOf = (plan: ReportPlan): Range[] => [{ start: plan.range.start, end: plan.range.end }, { start: plan.range.previousStart, end: plan.range.previousEnd }];
+
+/**
+ * Rapport d'une période : 3 requêtes au total (accès et fuseau, chiffres de base des deux périodes,
+ * sections), dont 2 en parallèle, au lieu d'une vingtaine lancées en même temps auparavant.
+ */
+export async function getCommercialReport(db: CommercialDatabase, raw: unknown, now = new Date()) {
+  const input = reportInputSchema.parse(raw);
+  const timezone = await reportTimezone(db, input.businessId, input.actorUserId);
+  const plan = planReport(input, timezone, now);
+  const [[current, previous], snapshot] = await Promise.all([coreTotals(db, input.businessId, rangesOf(plan)), reportSnapshot(db, input.businessId, plan)]);
+  return buildReport(plan, current!, previous!, snapshot, now);
+}
+
+/**
+ * Résumés du jour et de la semaine du tableau de bord (detail « summary ») : une requête pour les chiffres
+ * de base des quatre périodes, une par résumé pour le reste. L'appelant a déjà vérifié `report:read`
+ * et lu le fuseau du commerce (validé ici).
+ */
+export async function getDashboardReports(db: CommercialDatabase, context: { businessId: string; actorUserId: string; timezone: string; date: string }, now = new Date()) {
+  const timezone = assertValidTimezone(context.timezone);
+  const base = { businessId: context.businessId, actorUserId: context.actorUserId, date: context.date, detail: "summary" as const };
+  const plans = [planReport({ ...base, period: "daily" }, timezone, now), planReport({ ...base, period: "weekly" }, timezone, now)];
+  const [totals, ...snapshots] = await Promise.all([coreTotals(db, context.businessId, plans.flatMap(rangesOf)), ...plans.map((plan) => reportSnapshot(db, context.businessId, plan))]);
+  const [today, week] = plans.map((plan, index) => buildReport(plan, totals[2 * index]!, totals[2 * index + 1]!, snapshots[index]!, now));
+  return { today: today!, week: week! };
+}
+
+function buildReport(plan: ReportPlan, current: CoreTotals, previous: CoreTotals, snapshot: Snapshot, now: Date) {
+  const { input, range, timezone } = plan;
+  const { end } = range;
+  const details = snapshot.details;
+  const trendMap = new Map(snapshot.trend.map((row) => [row.bucket, row]));
+  const collectionMap = new Map(snapshot.collectionTrend.map((row) => [row.bucket, row.total]));
+  const expenseMap = new Map(snapshot.expenseTrend.map((row) => [row.bucket, row.total]));
+  const supplierPaid = amount(snapshot.purchases?.paid);
+  const settlement = snapshot.settlement;
+  const pendingRows = snapshot.pending;
   const pendingTotal = pendingRows.reduce((sum, row) => sum + amount(row.total), 0n);
-  const openingOutstanding = amount(openingCustomerRows[0]?.remaining);
-  const receivables = amount(receivableRows[0]?.total);
+  const openingOutstanding = amount(snapshot.openingCustomers?.remaining);
+  const receivables = amount(snapshot.receivables?.total);
   const cashIn = current.collected + current.openingRecovered;
   const cashOut = current.expenses + supplierPaid + current.refunds + (details?.supplierOpeningPaid ?? 0n);
 
@@ -257,11 +431,11 @@ export async function getCommercialReport(db: CommercialDatabase, raw: unknown, 
     settlement: { paid: settlement?.paid ?? "0", partial: settlement?.partial ?? "0", credit: settlement?.credit ?? "0", mixed: settlement?.mixed ?? "0" },
     collections: {
       totalXof: current.collected.toString(), atSaleXof: (current.collected - current.settlements).toString(), settlementsXof: current.settlements.toString(),
-      byMethod: methodRows.map((row) => ({ method: row.method, amountXof: row.total })),
+      byMethod: snapshot.methods.map((row) => ({ method: row.method, amountXof: row.total })),
       pending: { totalXof: pendingTotal.toString(), count: pendingRows.reduce((sum, row) => sum + amount(row.count), 0n).toString(), byMethod: pendingRows.map((row) => ({ method: row.method, amountXof: row.total, count: row.count })) },
       openingRecoveries: { totalXof: current.openingRecovered.toString(), count: current.openingRecoveredCount.toString() },
     },
-    receivablesAsOf: { asOf: end.toISOString(), totalXof: receivables.toString(), count: receivableRows[0]?.count ?? "0" },
+    receivablesAsOf: { asOf: end.toISOString(), totalXof: receivables.toString(), count: snapshot.receivables?.count ?? "0" },
     credit: {
       grantedXof: current.creditGranted.toString(), settlementsXof: current.settlements.toString(), outstandingSalesXof: receivables.toString(),
       openingRecoveredXof: current.openingRecovered.toString(), openingOutstandingXof: openingOutstanding.toString(), totalOutstandingXof: (receivables + openingOutstanding).toString(),
@@ -273,7 +447,7 @@ export async function getCommercialReport(db: CommercialDatabase, raw: unknown, 
       paidXof: current.expenses.toString(),
       byCategory: details?.expenseCategories ?? [], byMethod: details?.expenseMethods ?? [],
     },
-    purchases: { totalXof: purchaseRows[0]?.total ?? "0", count: purchaseRows[0]?.count ?? "0", paidXof: supplierPaid.toString() },
+    purchases: { totalXof: snapshot.purchases?.total ?? "0", count: snapshot.purchases?.count ?? "0", paidXof: supplierPaid.toString() },
     grossMarginEstimate: current.marginComplete
       ? { available: true, amountXof: current.margin!.toString(), note: "Estimation avant remboursements; ce n’est pas un bénéfice net." }
       : { available: false, amountXof: null, note: "Coût d’achat manquant pour au moins une ligne vendue." },
@@ -292,75 +466,13 @@ export async function getCommercialReport(db: CommercialDatabase, raw: unknown, 
       creditGranted: comparison(current.creditGranted, previous.creditGranted), settlements: comparison(current.settlements, previous.settlements),
       margin: current.margin !== null && previous.margin !== null ? comparison(current.margin, previous.margin) : null,
     },
-    topProducts: topRows.map((row) => ({ name: row.name, quantity: decimal(row.quantity), revenueXof: row.total })),
+    topProducts: snapshot.top.map((row) => ({ name: row.name, quantity: decimal(row.quantity), revenueXof: row.total })),
     slowProducts: details?.slowProducts ?? [],
     stock: details?.stock ?? null,
     employees: details?.employees ?? [],
-    inventoryVariance: { gainQty: decimal(inventoryRows[0]?.gain), lossQty: decimal(inventoryRows[0]?.loss), validatedSessionCount: inventoryRows[0]?.sessions ?? "0" },
+    inventoryVariance: { gainQty: decimal(snapshot.inventory?.gain), lossQty: decimal(snapshot.inventory?.loss), validatedSessionCount: snapshot.inventory?.sessions ?? "0" },
     trend: range.buckets.map((bucket) => ({ date: bucket, revenueXof: trendMap.get(bucket)?.total ?? "0", saleCount: trendMap.get(bucket)?.count ?? "0",
       collectionsXof: collectionMap.get(bucket) ?? "0", expensesXof: expenseMap.get(bucket) ?? "0" })),
-  };
-}
-
-/** Sections détaillées : catégories, dépenses ventilées, stock, produits peu vendus, employés, dettes fournisseurs. */
-async function reportDetails(db: CommercialDatabase, b: string, start: Date, end: Date) {
-  const [categories, expenseCategories, expenseMethods, stockReasons, notable, slow, employees, supplierDebt, supplierOpeningPaid] = await Promise.all([
-    rows<{ category: string | null; quantity: string; total: string }>(db, sql`select c.name as category, sum(l.quantity)::text as quantity, sum(l.line_total_xof)::text as total
-      from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
-      join product_variant v on v.business_id = l.business_id and v.id = l.variant_id
-      join product p on p.business_id = v.business_id and p.id = v.product_id
-      left join product_category c on c.business_id = p.business_id and c.id = p.category_id
-      where l.business_id = ${b} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses}
-      group by c.name order by sum(l.line_total_xof) desc, c.name nulls last limit 20`),
-    rows<{ category: string; total: string; count: string }>(db, sql`select category, sum(amount_xof)::text as total, count(*)::text as count from expense
-      where business_id = ${b} and occurred_at >= ${start} and occurred_at < ${end} group by category order by sum(amount_xof) desc, category limit 20`),
-    rows<{ method: string | null; total: string }>(db, sql`select payment_method as method, sum(amount_xof)::text as total from expense
-      where business_id = ${b} and occurred_at >= ${start} and occurred_at < ${end} group by payment_method order by payment_method nulls last`),
-    rows<{ reason: string; incoming: string; outgoing: string; count: string; value: string | null }>(db, sql`select reason,
-      coalesce(sum(quantity_delta) filter (where quantity_delta > 0), 0)::text as incoming, coalesce(-sum(quantity_delta) filter (where quantity_delta < 0), 0)::text as outgoing,
-      count(*)::text as count, round(sum(quantity_delta * unit_cost_xof))::bigint::text as value
-      from stock_movement where business_id = ${b} and occurred_at >= ${start} and occurred_at < ${end} group by reason order by reason`),
-    // Mouvements importants : hors ventes (déjà résumées), les plus grandes quantités en valeur absolue.
-    rows<{ product: string; variant: string; reason: string; delta: string; occurredAt: Date }>(db, sql`select p.name as product, v.label as variant, m.reason, m.quantity_delta::text as delta, m.occurred_at as "occurredAt"
-      from stock_movement m join product_variant v on v.business_id = m.business_id and v.id = m.variant_id join product p on p.business_id = v.business_id and p.id = v.product_id
-      where m.business_id = ${b} and m.reason <> 'sale' and m.occurred_at >= ${start} and m.occurred_at < ${end} order by abs(m.quantity_delta) desc, m.occurred_at desc limit 5`),
-    // Produits peu vendus : articles actifs en stock, classés par quantité vendue sur la période (zéro compris).
-    rows<{ name: string; variant: string; onHand: string; quantity: string }>(db, sql`select p.name, v.label as variant, v.on_hand::text as "onHand", coalesce(sold.quantity, 0)::text as quantity
-      from product_variant v join product p on p.business_id = v.business_id and p.id = v.product_id
-      left join (select l.variant_id, sum(l.quantity) as quantity from sale_line l join sale s on s.business_id = l.business_id and s.id = l.sale_id
-        where l.business_id = ${b} and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses} group by l.variant_id) sold on sold.variant_id = v.id
-      where v.business_id = ${b} and v.archived_at is null and p.archived_at is null and v.on_hand > 0
-      order by coalesce(sold.quantity, 0) asc, v.on_hand desc, p.name limit 5`),
-    rows<{ userId: string; name: string; sales: string; revenue: string; collected: string; expenses: string }>(db, sql`select m.user_id as "userId", u.name,
-      (select count(*) from sale s where s.business_id = m.organization_id and s.cashier_user_id = m.user_id and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as sales,
-      (select coalesce(sum(s.total_xof), 0) from sale s where s.business_id = m.organization_id and s.cashier_user_id = m.user_id and s.occurred_at >= ${start} and s.occurred_at < ${end} and s.status in ${soldStatuses})::text as revenue,
-      (select coalesce(sum(p.amount_xof), 0) from payment p where p.business_id = m.organization_id and p.recorded_by_user_id = m.user_id and p.status in ${collectedStatuses} and p.confirmed_at >= ${start} and p.confirmed_at < ${end})::text as collected,
-      (select coalesce(sum(e.amount_xof), 0) from expense e where e.business_id = m.organization_id and e.paid_by_user_id = m.user_id and e.occurred_at >= ${start} and e.occurred_at < ${end})::text as expenses
-      from member m join "user" u on u.id = m.user_id where m.organization_id = ${b} order by u.name`),
-    rows<{ purchases: string; paid: string; opening: string }>(db, sql`select
-      (select coalesce(sum(total_xof), 0) from purchase where business_id = ${b} and status = 'received' and occurred_at < ${end})::text as purchases,
-      (select coalesce(sum(pp.amount_xof), 0) from purchase_payment pp join purchase pu on pu.business_id = pp.business_id and pu.id = pp.purchase_id
-        where pp.business_id = ${b} and pu.status = 'received' and pp.occurred_at < ${end})::text as paid,
-      (select coalesce(sum(greatest(ob.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id = ob.business_id and op.opening_balance_id = ob.id and op.occurred_at < ${end}), 0), 0)), 0)
-        from opening_balance ob where ob.business_id = ${b} and ob.party_type = 'supplier' and ob.created_at < ${end})::text as opening`),
-    rows<{ total: string }>(db, sql`select coalesce(sum(op.amount_xof), 0)::text as total from opening_balance_payment op join opening_balance ob on ob.business_id = op.business_id and ob.id = op.opening_balance_id
-      where op.business_id = ${b} and ob.party_type = 'supplier' and op.occurred_at >= ${start} and op.occurred_at < ${end}`),
-  ]);
-  const debt = supplierDebt[0];
-  const purchasesDue = amount(debt?.purchases) - amount(debt?.paid);
-  return {
-    categories: categories.map((row) => ({ category: row.category, quantity: decimal(row.quantity), revenueXof: row.total })),
-    expenseCategories: expenseCategories.map((row) => ({ category: row.category, amountXof: row.total, count: row.count })),
-    expenseMethods: expenseMethods.map((row) => ({ method: row.method, amountXof: row.total })),
-    stock: {
-      byReason: stockReasons.map((row) => ({ reason: row.reason, incomingQty: decimal(row.incoming), outgoingQty: decimal(row.outgoing), count: row.count, valueAtCostXof: row.value })),
-      notable: notable.map((row) => ({ product: row.product, variant: row.variant, reason: row.reason, quantityDelta: row.delta, occurredAt: new Date(row.occurredAt).toISOString() })),
-    },
-    slowProducts: slow.map((row) => ({ name: row.name, variant: row.variant, onHand: decimal(row.onHand), quantitySold: decimal(row.quantity) })),
-    employees: employees.filter((row) => row.sales !== "0" || row.collected !== "0" || row.expenses !== "0")
-      .map((row) => ({ userId: row.userId, name: row.name, saleCount: row.sales, revenueXof: row.revenue, collectedXof: row.collected, expensesXof: row.expenses })),
-    supplierDebt: { purchasesDueXof: purchasesDue.toString(), openingDueXof: amount(debt?.opening).toString(), totalXof: (purchasesDue + amount(debt?.opening)).toString() },
-    supplierOpeningPaid: amount(supplierOpeningPaid[0]?.total),
   };
 }
 

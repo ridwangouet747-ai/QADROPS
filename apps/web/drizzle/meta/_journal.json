@@ -120,6 +120,13 @@
       "when": 1793569254367,
       "tag": "0016_printer_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793684469560,
+      "tag": "0017_performance_indexes",
+      "breakpoints": true
     }
   ]
 }

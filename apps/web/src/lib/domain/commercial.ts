@@ -9,6 +9,7 @@ import { databaseSchema, member, product, productCategory, productVariant, sale,
 import { assertPlanQuota } from "./plan-limits";
 import { attachOpenCashSession } from "./cash-session";
 import { enqueueNotification } from "./notifications";
+import { setVariantStock } from "./stock-writes";
 
 export type CommercialDatabase = PgDatabase<PgQueryResultHKT, typeof databaseSchema>;
 
@@ -191,24 +192,25 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
       await tx.insert(sale).values({ id: saleId, businessId: input.businessId, reference, idempotencyKey: input.idempotencyKey,
         cashierUserId: input.actorUserId, customerId: input.customerId ?? null, subtotalXof: subtotal, totalXof: subtotal, discountXof: 0n });
 
-      for (const line of lines) {
-        const lineId = randomUUID();
-        await tx.insert(saleLine).values({ id: lineId, businessId: input.businessId, saleId, variantId: line.row.variant.id,
-          productNameSnapshot: line.row.productName, variantSnapshot: line.row.variant.label, quantity: line.quantity,
-          unitPriceXof: line.row.variant.salePriceXof, lineDiscountXof: 0n, lineTotalXof: line.amount,
-          unitCostSnapshotXof: line.row.variant.averageCostXof, cogsXof: line.cogs, costAvailable: line.row.variant.costKnown });
-        await tx.update(productVariant).set({ onHand: formatQuantity(parseQuantityMicros(line.row.variant.onHand) - line.quantityMicros), stockRevision: line.row.variant.stockRevision + 1n })
-          .where(and(eq(productVariant.businessId, input.businessId), eq(productVariant.id, line.row.variant.id)));
-        await tx.insert(stockMovement).values({ id: randomUUID(), businessId: input.businessId, variantId: line.row.variant.id,
-          quantityDelta: `-${line.quantity}`, reason: "sale", saleLineId: lineId, unitCostXof: line.row.variant.averageCostXof, createdByUserId: input.actorUserId });
-      }
+      // Écritures groupées (mission 11, phase 6) : une requête pour toutes les lignes, une pour le stock, une
+      // pour les mouvements, au lieu de trois par ligne pendant que le stock reste verrouillé.
+      const lineIds = lines.map(() => randomUUID());
+      await tx.insert(saleLine).values(lines.map((line, index) => ({ id: lineIds[index]!, businessId: input.businessId, saleId, variantId: line.row.variant.id,
+        productNameSnapshot: line.row.productName, variantSnapshot: line.row.variant.label, quantity: line.quantity,
+        unitPriceXof: line.row.variant.salePriceXof, lineDiscountXof: 0n, lineTotalXof: line.amount,
+        unitCostSnapshotXof: line.row.variant.averageCostXof, cogsXof: line.cogs, costAvailable: line.row.variant.costKnown })));
+      await setVariantStock(tx, input.businessId, lines.map((line) => ({ id: line.row.variant.id,
+        onHand: formatQuantity(parseQuantityMicros(line.row.variant.onHand) - line.quantityMicros), stockRevision: line.row.variant.stockRevision + 1n })));
+      await tx.insert(stockMovement).values(lines.map((line, index) => ({ id: randomUUID(), businessId: input.businessId, variantId: line.row.variant.id,
+        quantityDelta: `-${line.quantity}`, reason: "sale", saleLineId: lineIds[index]!, unitCostXof: line.row.variant.averageCostXof, createdByUserId: input.actorUserId })));
       // Les espèces vont dans la caisse ouverte du vendeur (s'il en a une) ; le Mobile Money reste en attente, hors caisse.
       const cashSessionId = input.payments.some((part) => part.method === "cash") ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
-      for (const [index, part] of input.payments.entries()) {
-        await tx.insert(payment).values({ id: randomUUID(), businessId: input.businessId, saleId, method: part.method,
+      if (input.payments.length) {
+        const confirmedAt = new Date();
+        await tx.insert(payment).values(input.payments.map((part, index) => ({ id: randomUUID(), businessId: input.businessId, saleId, method: part.method,
           amountXof: BigInt(part.amountXof), status: part.method === "cash" ? "confirmed" : "pending", recordedByUserId: input.actorUserId,
-          idempotencyKey: `${input.idempotencyKey}:${index}`, confirmedAt: part.method === "cash" ? new Date() : null,
-          cashSessionId: part.method === "cash" ? cashSessionId : null });
+          idempotencyKey: `${input.idempotencyKey}:${index}`, confirmedAt: part.method === "cash" ? confirmedAt : null,
+          cashSessionId: part.method === "cash" ? cashSessionId : null })));
       }
       await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
         eventType: "sale.created", entityType: "sale", entityId: saleId, metadata: { lineCount: lines.length, paymentPartCount: input.payments.length } });

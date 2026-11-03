@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies the seventeen committed migrations (0000-0016) and creates the expected tables", async () => {
+  it("applies the eighteen committed migrations (0000-0017) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,7 +24,7 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("17");
+    expect(applied.rows[0]?.count).toBe("18");
     expect(tables.rows[0]?.count).toBe("57");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
@@ -70,6 +70,12 @@ describe("versioned migrations on isolated PGlite", () => {
       { column_name: "code_page", column_default: "'pc858'::text" },
       { column_name: "render_mode", column_default: "'auto'::text" },
     ]);
+    // Migration 0017 (mission 11, phase 6) : index des requêtes réelles, tous préfixés par business_id sauf
+    // notification_delivery (table plateforme, sans commerce).
+    const performanceIndexes = await client.query<{ indexname: string }>(
+      "select indexname from pg_indexes where schemaname='public' and indexname in ('customer_business_name_idx','sale_customer_idx','purchase_supplier_idx','purchase_payment_purchase_idx','purchase_payment_cash_session_idx','expense_cash_session_idx','refund_business_date_idx','refund_cash_session_idx','opening_payment_cash_session_idx','notification_delivery_subscription_idx','notification_delivery_attempted_idx') order by indexname",
+    );
+    expect(performanceIndexes.rows).toHaveLength(11);
   });
 
   it("does not reapply migrations on a second migrate() call", async () => {
@@ -77,6 +83,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("17");
+    expect(applied.rows[0]?.count).toBe("18");
   });
 });

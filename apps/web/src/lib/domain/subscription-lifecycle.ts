@@ -43,6 +43,15 @@ export function isInForce(subscription: { status: string; endsAt: Date }, now = 
   return (subscription.status === "trialing" || subscription.status === "active") && subscription.endsAt > now;
 }
 
+/**
+ * Statut affiché, calculé en lecture seule : un essai ou un abonnement actif dont la date de fin est
+ * atteinte se lit « expired » avant même le passage planifié (cron quotidien expireDueSubscriptions).
+ * Les lectures n'écrivent plus en base (mission 11, phase 6) : ce que voit l'utilisateur ne change pas.
+ */
+export function effectiveSubscriptionStatus(subscription: { status: string; endsAt: Date }, now = new Date()) {
+  return (subscription.status === "trialing" || subscription.status === "active") && subscription.endsAt <= now ? "expired" : subscription.status;
+}
+
 /** Jours entiers restants (0 si l'échéance est passée). */
 export function remainingDays(endsAt: Date, now = new Date()) {
   return Math.max(0, Math.ceil((endsAt.getTime() - now.getTime()) / 86_400_000));

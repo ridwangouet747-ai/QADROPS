@@ -1,5 +1,5 @@
 import { createSale } from "@/lib/domain/commercial";
-import { listBusinessSales } from "@/lib/domain/business-data";
+import { listBusinessSales, listBusinessSalesPage } from "@/lib/domain/business-data";
 import { errorResponse, getBusinessContext, jsonSafe, parseJsonRequest } from "@/lib/domain/business-context";
 
 import { processNotificationsAfterResponse } from "@/lib/notifications/server";
@@ -10,8 +10,11 @@ export async function GET(request: Request) {
   try {
     const context = await getBusinessContext(request.headers);
     const query = new URL(request.url).searchParams;
-    const sales = await listBusinessSales(context.db, context, { from: query.get("from") ?? undefined, to: query.get("to") ?? undefined });
-    return new Response(jsonSafe({ sales }), { headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+    // `?limit=` (ou `cursor`) renvoie (avec les mêmes filtres from/to) une page `{ items, nextCursor }` ; sans ces paramètres, la réponse historique est conservée.
+    const data = query.has("limit") || query.has("cursor")
+      ? await listBusinessSalesPage(context.db, context, Object.fromEntries([...query].filter(([, value]) => value !== "")))
+      : { sales: await listBusinessSales(context.db, context, { from: query.get("from") ?? undefined, to: query.get("to") ?? undefined }) };
+    return new Response(jsonSafe(data), { headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }
 
