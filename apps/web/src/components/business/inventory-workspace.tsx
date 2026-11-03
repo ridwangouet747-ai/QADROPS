@@ -148,7 +148,9 @@ export function InventoryWorkspace() {
     setBusy(true); setError(""); setNotice("");
     try {
       const response = await fetch("/api/business/inventories", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(selectedCategory ? { categoryId: selectedCategory } : {}) });
-      const body = await readJson<{ session?: { id: string } }>(response);
+      const body = await readJson<{ session?: { id: string }; code?: string }>(response);
+      // Plafond de lignes par inventaire (mission 11, phase 6) : message traduit plutôt que le texte serveur en français.
+      if (body.code === "inventory_too_large") throw new Error(t("inventory.start.tooLarge"));
       if (!response.ok || !body.session) throw new Error(body.error ?? t("inventory.start.failed"));
       await refreshWorkspace();
       openSession(body.session.id);

@@ -99,6 +99,7 @@ export const en: Messages = {
       submitting: "Preparing…",
       started: "Count started. Enter the quantities product by product.",
       failed: "The count could not be started.",
+      tooLarge: "Too many products for a single count. Choose a category and run several counts.",
     },
     sessions: {
       title: "Counts",

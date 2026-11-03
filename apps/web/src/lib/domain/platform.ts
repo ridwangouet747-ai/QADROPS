@@ -1,6 +1,6 @@
 import { enqueueNotification } from "./notifications";
 import { randomInt, randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditEvent, businessProfile, businessSubscription, member, organization,
@@ -11,7 +11,7 @@ import type { CommercialDatabase } from "./commercial";
 import { CommercialError } from "./commercial";
 import { readPlanFeatures } from "./plan-limits";
 import {
-  assertTransition, businessLifecycle, expireDueSubscriptions, isInForce, remainingDays, type BusinessLifecycle,
+  assertTransition, businessLifecycle, effectiveSubscriptionStatus, isInForce, remainingDays, type BusinessLifecycle,
 } from "./subscription-lifecycle";
 
 type PlatformDb = CommercialDatabase;
@@ -101,7 +101,8 @@ export function signupBuckets(createdAt: Date[], periodDays: OverviewPeriod, now
 export async function getPlatformOverview(db: PlatformDb, actorUserId: string, raw: { periodDays?: unknown } = {}, now = new Date()) {
   await requirePlatformAdmin(db, actorUserId);
   const periodDays = (overviewPeriods as readonly number[]).includes(Number(raw.periodDays)) ? Number(raw.periodDays) as OverviewPeriod : 30;
-  await expireDueSubscriptions(db, now);
+  // Lecture seule : les échéances dépassées sont lues comme expirées (isInForce, businessLifecycle) sans
+  // écrire en base ; le passage planifié /api/cron/subscriptions enregistre l'expiration et son audit.
   const since = new Date(now.getTime() - periodDays * dayMs);
 
   const businesses = await db.select({ businessId: businessProfile.businessId, name: organization.name, activity: businessProfile.activity, status: businessProfile.status, createdAt: organization.createdAt })
@@ -200,14 +201,16 @@ export async function listPlatformBusinesses(db: PlatformDb, actorUserId: string
     .where(clauses.length ? and(...clauses) : undefined).orderBy(desc(organization.createdAt)).limit(500);
   if (!rows.length) return [];
   const ids = rows.map((row) => row.businessId);
-  const subscriptions = await db.select({
+  // Statut affiché calculé en lecture (échéance passée = « expired »), comme dans la liste des abonnements.
+  const subscriptions = (await db.select({
     businessId: businessSubscription.businessId, id: businessSubscription.id,
     status: businessSubscription.status, startsAt: businessSubscription.startsAt,
     endsAt: businessSubscription.endsAt, trialEndsAt: businessSubscription.trialEndsAt,
     planId: subscriptionPlan.id, planName: subscriptionPlan.name, planCode: subscriptionPlan.code,
     createdAt: businessSubscription.createdAt,
   }).from(businessSubscription).innerJoin(subscriptionPlan, eq(subscriptionPlan.id, businessSubscription.planId))
-    .where(inArray(businessSubscription.businessId, ids)).orderBy(desc(businessSubscription.createdAt));
+    .where(inArray(businessSubscription.businessId, ids)).orderBy(desc(businessSubscription.createdAt)))
+    .map((item) => ({ ...item, status: effectiveSubscriptionStatus(item, now) }));
   const memberCounts = await db.select({ businessId: member.organizationId, total: count() }).from(member).where(inArray(member.organizationId, ids)).groupBy(member.organizationId);
   const counts = new Map(memberCounts.map((row) => [row.businessId, Number(row.total)]));
   const owners = await ownersOf(db, ids);
@@ -234,12 +237,13 @@ export async function getPlatformBusiness(db: PlatformDb, actorUserId: string, b
   }).from(businessProfile).innerJoin(organization, eq(organization.id, businessProfile.businessId))
     .where(eq(businessProfile.businessId, businessId)).limit(1);
   if (!business) throw new CommercialError("Commerce introuvable.", 404);
-  const subscriptions = await db.select({
+  const subscriptions = (await db.select({
     id: businessSubscription.id, status: businessSubscription.status, startsAt: businessSubscription.startsAt,
     endsAt: businessSubscription.endsAt, trialEndsAt: businessSubscription.trialEndsAt, origin: businessSubscription.origin,
     planName: subscriptionPlan.name, planCode: subscriptionPlan.code,
   }).from(businessSubscription).innerJoin(subscriptionPlan, eq(subscriptionPlan.id, businessSubscription.planId))
-    .where(eq(businessSubscription.businessId, businessId)).orderBy(desc(businessSubscription.createdAt));
+    .where(eq(businessSubscription.businessId, businessId)).orderBy(desc(businessSubscription.createdAt)))
+    .map((item) => ({ ...item, status: effectiveSubscriptionStatus(item, now) }));
   const [memberCount] = await db.select({ total: count() }).from(member).where(eq(member.organizationId, businessId));
   const owner = (await ownersOf(db, [businessId])).get(businessId) ?? null;
   const history = await listPlatformAudit(db, actorUserId, { businessId, limit: 50 });
@@ -545,9 +549,12 @@ export async function setPromotionStatus(db: PlatformDb, actorUserId: string, id
 type SubscriptionFilters = { status?: string; search?: string };
 export async function listPlatformSubscriptions(db: PlatformDb, actorUserId: string, filters: SubscriptionFilters = {}, now = new Date()) {
   await requirePlatformAdmin(db, actorUserId);
-  await expireDueSubscriptions(db, now);
+  // Filtre sur le statut affiché (effectiveSubscriptionStatus), sans écrire en base depuis une lecture.
   const clauses = [];
-  if (filters.status && ["pending", "trialing", "active", "suspended", "expired", "canceled"].includes(filters.status)) clauses.push(eq(businessSubscription.status, filters.status));
+  const lapsed = and(inArray(businessSubscription.status, ["trialing", "active"]), lte(businessSubscription.endsAt, now));
+  if (filters.status === "expired") clauses.push(or(eq(businessSubscription.status, "expired"), lapsed));
+  else if (filters.status === "trialing" || filters.status === "active") clauses.push(and(eq(businessSubscription.status, filters.status), gt(businessSubscription.endsAt, now)));
+  else if (filters.status && ["pending", "suspended", "canceled"].includes(filters.status)) clauses.push(eq(businessSubscription.status, filters.status));
   if (filters.search?.trim()) clauses.push(ilike(organization.name, `%${filters.search.trim().slice(0, 100)}%`));
   const subscriptions = await db.select({
     id: businessSubscription.id, businessId: businessSubscription.businessId, businessName: organization.name,
@@ -569,7 +576,7 @@ export async function listPlatformSubscriptions(db: PlatformDb, actorUserId: str
     .from(auditEvent).where(and(eq(auditEvent.entityType, "subscription"), inArray(auditEvent.entityId, ids))).orderBy(desc(auditEvent.occurredAt)) : [];
   return {
     subscriptions: subscriptions.map((item) => ({
-      ...item, remainingDays: isInForce(item, now) ? remainingDays(item.endsAt, now) : 0,
+      ...item, status: effectiveSubscriptionStatus(item, now), remainingDays: isInForce(item, now) ? remainingDays(item.endsAt, now) : 0,
       payments: payments.filter((payment) => payment.subscriptionId === item.id),
       history: events.filter((event) => event.entityId === item.id),
     })),

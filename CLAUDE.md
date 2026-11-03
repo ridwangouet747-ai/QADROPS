@@ -146,6 +146,11 @@ Depuis la mission 03 (2026-10-30), voir `docs/design-system.md` :
   - Réimpression : clé `idempotencyKey` obligatoire côté route, `runIdempotent` opération `print.reprint`. Statut `printed` = « Transmis », jamais « imprimé ».
   - Service local 0.2.0 : en-tête `Host` contrôlé (421), appairage limité à `tokenTtlDays` (90 j, `401 pairing_expired`), 30 jours de grâce pour les anciens appairages.
   - **Rien n'est vérifié sur une imprimante réelle (B-2)** : ne présentez jamais une sortie papier comme testée.
+- **Mission 11, phase 6** (performance, `docs/performance.md`) :
+  - Verrous de stock : un seul `SELECT … FOR UPDATE` trié par identifiant, puis des écritures groupées (`setVariantStock`, `lib/domain/stock-writes.ts`). Pour les réglages, le profil est verrouillé avant `assertBusinessOperational`. Un inventaire est plafonné à `INVENTORY_MAX_LINES` (2 000, `422 inventory_too_large`).
+  - Une route GET n'écrit jamais : le statut d'abonnement affiché vient de `effectiveSubscriptionStatus`, et l'expiration est écrite par le cron.
+  - Listes longues : `?limit=`/`cursor` → `{ items, nextCursor }`, tri total terminé par l'identifiant. Sans ces paramètres, la réponse historique est inchangée (clients, fournisseurs, stock, ventes, achats, dépenses, produits).
+  - Index (migration 0017) : seulement pour une requête réelle, préfixés par `business_id`. Mesures locales : `scripts/bench-pglite.ts`, non représentatif de Neon (B-1).
 - **Problèmes encore ouverts** : domaine Resend, clé Resend et clés Turnstile de production ni créés ni vérifiés (voir `docs/authentication.md` § 7) ; limitation de débit Better Auth en mémoire (insuffisante sur plusieurs instances) ; 20 vulnérabilités modérées d'outils de développement documentées dans `docs/authentication.md` § 10 ; Neon jamais contacté ; politique non tranchée pour un commerce sans abonnement ou en abonnement `pending` (actuellement non bloqué) ; aucun fonctionnement hors ligne.
 - `next dev` crée `apps/web/AGENTS.md` (bloc Next.js de 9 lignes) à chaque lancement.
 

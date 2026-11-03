@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQLWrapper } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "@/lib/auth/permissions";
 import {
@@ -9,9 +9,10 @@ import {
 } from "@/lib/db/schema";
 import { parseQuantityMicros, QUANTITY_SCALE, UNIT_COST_SCALE, weightedAverageCost } from "./costing";
 import { CommercialError, type CommercialDatabase } from "./commercial";
-import { getCommercialReport } from "./reports";
+import { getDashboardReports } from "./reports";
 import { assertBusinessOperational, idempotencyKeySchema, runIdempotent } from "./operation-guard";
 import { attachOpenCashSession } from "./cash-session";
+import { decodeCursor, encodeCursor, movementCursorSchema, pageLimit, productCursorSchema } from "./cursor";
 
 type Context = { businessId: string; actorUserId: string };
 
@@ -29,6 +30,7 @@ const formatMicros = (value: bigint) => `${value / QUANTITY_SCALE}.${(value % QU
 const formatCost = (value: bigint) => `${value / UNIT_COST_SCALE}.${(value % UNIT_COST_SCALE).toString().padStart(12, "0")}`;
 const xof = z.string().regex(/^(0|[1-9]\d{0,17})$/);
 const quantity = z.string().regex(/^(0|[1-9]\d{0,17})(?:\.\d{1,6})?$/);
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 function abidjanDate(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Abidjan", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
@@ -36,31 +38,47 @@ function abidjanDate(date = new Date()) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+/**
+ * Tableau de bord : 7 requêtes et au plus 4 simultanées (mission 11, phase 6). Auparavant, deux rapports
+ * complets et les listes partaient ensemble, soit une trentaine de requêtes en même temps sur le pool.
+ * - 1 lecture : permission `report:read` et identité du commerce (dont son fuseau) ;
+ * - 3 en parallèle : chiffres de base des quatre périodes, résumé du jour, résumé de la semaine ;
+ * - pendant ce temps, les trois listes l'une après l'autre.
+ */
 export async function getBusinessOverview(db: CommercialDatabase, context: Context) {
-  await requirePermission(db, context, "report", "read");
+  const [identity] = await db.select({ role: member.role, name: organization.name, logo: organization.logo, activity: businessProfile.activity,
+    phone: businessProfile.phone, timezone: businessProfile.timezone })
+    .from(member).innerJoin(organization, eq(organization.id, member.organizationId))
+    .leftJoin(businessProfile, eq(businessProfile.businessId, member.organizationId))
+    .where(and(eq(member.organizationId, context.businessId), eq(member.userId, context.actorUserId))).limit(1);
+  if (!identity || !hasBusinessPermission(identity.role, "report", "read")) {
+    throw new CommercialError("Vous n’avez pas l’autorisation d’effectuer cette opération.", 403);
+  }
+  if (!identity.timezone || !identity.activity) throw new CommercialError("Commerce introuvable.", 404);
   const today = abidjanDate();
-  const [identity, todayReport, weekReport, recentSales, lowStock, recentActivity] = await Promise.all([
-    db.select({ name: organization.name, logo: organization.logo, activity: businessProfile.activity, phone: businessProfile.phone, timezone: businessProfile.timezone })
-      .from(businessProfile).innerJoin(organization, eq(organization.id, businessProfile.businessId))
-      .where(eq(businessProfile.businessId, context.businessId)).limit(1),
-    getCommercialReport(db, { ...context, period: "daily", date: today, detail: "summary" }),
-    getCommercialReport(db, { ...context, period: "weekly", date: today, detail: "summary" }),
-    db.select({ id: sale.id, reference: sale.reference, status: sale.status, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
+  const lists = async () => {
+    const recentSales = await db.select({ id: sale.id, reference: sale.reference, status: sale.status, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
       customerName: customer.name, paidXof: sql<string>`coalesce(sum(case when ${payment.status} = 'confirmed' then ${payment.amountXof} else 0 end),0)::text` })
       .from(sale).leftJoin(customer, and(eq(customer.businessId, sale.businessId), eq(customer.id, sale.customerId)))
       .leftJoin(payment, and(eq(payment.businessId, sale.businessId), eq(payment.saleId, sale.id)))
       .where(and(eq(sale.businessId, context.businessId), sql`${sale.status} <> 'voided'`))
-      .groupBy(sale.id, customer.name).orderBy(desc(sale.occurredAt)).limit(6),
-    db.select({ productId: product.id, name: product.name, variantId: productVariant.id, variant: productVariant.label,
+      .groupBy(sale.id, customer.name).orderBy(desc(sale.occurredAt)).limit(6);
+    const lowStock = await db.select({ productId: product.id, name: product.name, variantId: productVariant.id, variant: productVariant.label,
       sku: productVariant.sku, onHand: productVariant.onHand, threshold: productVariant.lowStockThreshold })
       .from(productVariant).innerJoin(product, and(eq(product.businessId, productVariant.businessId), eq(product.id, productVariant.productId)))
       .where(and(eq(productVariant.businessId, context.businessId), isNull(productVariant.archivedAt), isNull(product.archivedAt),
         sql`${productVariant.lowStockThreshold} > 0 and ${productVariant.onHand} <= ${productVariant.lowStockThreshold}`))
-      .orderBy(asc(productVariant.onHand), asc(product.name)).limit(8),
-    db.select({ id: auditEvent.id, eventType: auditEvent.eventType, entityType: auditEvent.entityType, occurredAt: auditEvent.occurredAt })
-      .from(auditEvent).where(eq(auditEvent.businessId, context.businessId)).orderBy(desc(auditEvent.occurredAt)).limit(5),
+      .orderBy(asc(productVariant.onHand), asc(product.name)).limit(8);
+    const recentActivity = await db.select({ id: auditEvent.id, eventType: auditEvent.eventType, entityType: auditEvent.entityType, occurredAt: auditEvent.occurredAt })
+      .from(auditEvent).where(eq(auditEvent.businessId, context.businessId)).orderBy(desc(auditEvent.occurredAt)).limit(5);
+    return { recentSales, lowStock, recentActivity };
+  };
+  const [reports, { recentSales, lowStock, recentActivity }] = await Promise.all([
+    getDashboardReports(db, { ...context, timezone: identity.timezone, date: today }),
+    lists(),
   ]);
-  return { business: identity[0] ?? null, date: today, today: todayReport, week: weekReport,
+  const { name, logo, activity, phone, timezone } = identity;
+  return { business: { name, logo, activity, phone, timezone }, date: today, today: reports.today, week: reports.week,
     recentSales, lowStock, recentActivity };
 }
 
@@ -136,19 +154,63 @@ export async function archiveBusinessProduct(db: CommercialDatabase, raw: unknow
   return { archived: true };
 }
 
-export async function listBusinessSales(db: CommercialDatabase, context: Context, filters: { from?: string; to?: string } = {}) {
-  await requirePermission(db, context, "sale", "read");
+/*
+ * Pagination par curseur des listes (mission 11, phase 6), sur le modèle de catalog-pages.ts : `?limit=`
+ * (ou `cursor`) renvoie `{ items, nextCursor }` ; sans ces paramètres, chaque route garde sa réponse
+ * historique pour les écrans qui en dépendent (liste complète des clients pour la caisse, 200 lignes
+ * pour les journaux). Le curseur ne porte que des clés de tri, jamais d'identifiant de commerce.
+ */
+const pageInput = z.object({ cursor: z.string().max(512).optional(), limit: z.union([z.string(), z.number()]).optional() });
+type Page = { cursor: string | null; limit: number };
+function parsePage(raw: unknown): Page {
+  const input = pageInput.parse(raw ?? {});
+  return { cursor: input.cursor ?? null, limit: pageLimit(input.limit) };
+}
+/** Coupe la ligne de trop (limit + 1) et calcule le curseur suivant à partir de la dernière ligne gardée. */
+function pageOf<T>(rows: T[], limit: number, cursorFor: (row: T) => Record<string, string>) {
+  const items = rows.slice(0, limit);
+  const last = items.at(-1);
+  return { items, nextCursor: rows.length > limit && last ? encodeCursor(cursorFor(last)) : null };
+}
+/** Strictement après (nom, id) dans l'ordre croissant. */
+const afterName = (name: SQLWrapper, id: SQLWrapper, cursor: { name: string; id: string }) => sql`(${name} > ${cursor.name} or (${name} = ${cursor.name} and ${id} > ${cursor.id}))`;
+/** Strictement avant (date, id) dans l'ordre décroissant ; date exacte de PostgreSQL relue en texte (microsecondes). */
+const beforeTime = (at: SQLWrapper, id: SQLWrapper, cursor: { at: string; id: string }) => sql`(${at} < ${cursor.at}::timestamptz or (${at} = ${cursor.at}::timestamptz and ${id} < ${cursor.id}))`;
+
+async function querySales(db: CommercialDatabase, context: Context, filters: { from?: string; to?: string }, page: { cursor: { at: string; id: string } | null; limit: number }) {
   const conditions = [eq(sale.businessId, context.businessId), sql`${sale.status} <> 'voided'`];
   if (filters.from) conditions.push(gte(sale.occurredAt, new Date(`${filters.from}T00:00:00.000Z`)));
   if (filters.to) conditions.push(lte(sale.occurredAt, new Date(`${filters.to}T23:59:59.999Z`)));
+  if (page.cursor) conditions.push(beforeTime(sale.occurredAt, sale.id, page.cursor));
   const rows = await db.select({ id: sale.id, reference: sale.reference, status: sale.status, totalXof: sale.totalXof,
     occurredAt: sale.occurredAt, customerName: customer.name,
     paidXof: sql<string>`coalesce(sum(case when ${payment.status} = 'confirmed' then ${payment.amountXof} else 0 end),0)::text`,
-    methods: sql<string[]>`coalesce(array_agg(distinct ${payment.method}) filter (where ${payment.status} = 'confirmed'), array[]::text[])` })
+    methods: sql<string[]>`coalesce(array_agg(distinct ${payment.method}) filter (where ${payment.status} = 'confirmed'), array[]::text[])`,
+    cursorAt: sql<string>`${sale.occurredAt}::text` })
     .from(sale).leftJoin(customer, and(eq(customer.businessId, sale.businessId), eq(customer.id, sale.customerId)))
     .leftJoin(payment, and(eq(payment.businessId, sale.businessId), eq(payment.saleId, sale.id)))
-    .where(and(...conditions)).groupBy(sale.id, customer.name).orderBy(desc(sale.occurredAt)).limit(200);
+    .where(and(...conditions)).groupBy(sale.id, customer.name).orderBy(desc(sale.occurredAt), desc(sale.id)).limit(page.limit);
   return rows.map((row) => ({ ...row, dueXof: (row.totalXof - BigInt(row.paidXof)).toString() }));
+}
+function withoutCursor<T extends { cursorAt: string }>(row: T): Omit<T, "cursorAt"> {
+  const copy: Partial<T> = { ...row };
+  delete copy.cursorAt;
+  return copy as Omit<T, "cursorAt">;
+}
+
+export async function listBusinessSales(db: CommercialDatabase, context: Context, filters: { from?: string; to?: string } = {}) {
+  await requirePermission(db, context, "sale", "read");
+  return (await querySales(db, context, filters, { cursor: null, limit: 200 })).map(withoutCursor);
+}
+
+/** Ventes du plus récent au plus ancien (date puis identifiant), page suivante strictement après la dernière affichée. */
+export async function listBusinessSalesPage(db: CommercialDatabase, context: Context, raw: unknown) {
+  await requirePermission(db, context, "sale", "read");
+  const input = z.object({ from: isoDay.optional(), to: isoDay.optional() }).parse(raw ?? {});
+  const page = parsePage(raw);
+  const rows = await querySales(db, context, input, { cursor: decodeCursor(page.cursor, movementCursorSchema), limit: page.limit + 1 });
+  const result = pageOf(rows, page.limit, (row) => ({ at: row.cursorAt, id: row.id }));
+  return { items: result.items.map(withoutCursor), nextCursor: result.nextCursor };
 }
 
 export async function getBusinessSale(db: CommercialDatabase, context: Context & { saleId: string }) {
@@ -162,27 +224,75 @@ export async function getBusinessSale(db: CommercialDatabase, context: Context &
   const [lines, payments, refunds] = await Promise.all([
     db.select().from(saleLine).where(and(eq(saleLine.businessId, context.businessId), eq(saleLine.saleId, context.saleId))),
     db.select().from(payment).where(and(eq(payment.businessId, context.businessId), eq(payment.saleId, context.saleId))).orderBy(asc(payment.occurredAt)),
+    // Remboursements des seuls paiements de cette vente, filtrés en SQL (auparavant : tous ceux du commerce, triés en JavaScript).
     db.select({ id: paymentRefund.id, paymentId: paymentRefund.paymentId, amountXof: paymentRefund.amountXof, status: paymentRefund.status, occurredAt: paymentRefund.occurredAt })
-      .from(paymentRefund).where(eq(paymentRefund.businessId, context.businessId)).orderBy(desc(paymentRefund.occurredAt)),
+      .from(paymentRefund).innerJoin(payment, and(eq(payment.businessId, paymentRefund.businessId), eq(payment.id, paymentRefund.paymentId)))
+      .where(and(eq(paymentRefund.businessId, context.businessId), eq(payment.saleId, context.saleId))).orderBy(desc(paymentRefund.occurredAt)),
   ]);
-  const salePaymentIds = new Set(payments.map((part) => part.id));
-  const saleRefunds = refunds.filter((refund) => salePaymentIds.has(refund.paymentId));
-  return { ...record, lines, payments, refunds: saleRefunds, dueXof: (record.totalXof - payments.filter((part) => part.status === "confirmed").reduce((sum, part) => sum + part.amountXof, 0n)).toString() };
+  return { ...record, lines, payments, refunds, dueXof: (record.totalXof - payments.filter((part) => part.status === "confirmed").reduce((sum, part) => sum + part.amountXof, 0n)).toString() };
+}
+
+type CustomerRow = { id: string; name: string; phone: string | null; notes: string | null; createdAt: Date; saleCount: string; balanceXof: string; openingDueXof: string };
+
+const customerColumns = sql`c.id, c.name, c.phone, c.notes, c.created_at as "createdAt",
+  coalesce(st.sale_count, 0)::text as "saleCount",
+  (coalesce(st.due, 0) + coalesce(ob.remaining, 0))::text as "balanceXof",
+  coalesce(ob.remaining, 0)::text as "openingDueXof"`;
+
+/**
+ * Clients triés par nom puis identifiant, avec leur solde : ventes non annulées non soldées + reste de la
+ * dette d'ouverture (mêmes chiffres qu'avant la phase 6, vérifiés par performance.integration.test.ts).
+ * Deux plans, mesurés sur PGlite (docs/performance.md) :
+ * - une page (`limit`) lit les ventes et paiements client par client (LATERAL, index
+ *   customer(business_id, name, id), sale(business_id, customer_id), payment(business_id, sale_id, status)) ;
+ * - la liste complète de la caisse agrège en une passe les seules ventes rattachées à un client
+ *   (jointures par hachage) ; l'ancienne version agrégeait les paiements de toutes les ventes du commerce.
+ */
+async function queryCustomers(db: CommercialDatabase, businessId: string, page: { cursor: { name: string; id: string } | null; limit: number | null }) {
+  if (page.limit !== null) {
+    const after = page.cursor ? sql`and (c.name > ${page.cursor.name} or (c.name = ${page.cursor.name} and c.id > ${page.cursor.id}))` : sql``;
+    const paged = await db.execute(sql`select ${customerColumns}
+      from customer c
+      left join lateral (select count(*) as sale_count, sum(greatest(s.total_xof - coalesce(p.paid, 0), 0)) as due
+        from sale s left join lateral (select sum(pp.amount_xof) as paid from payment pp
+          where pp.business_id = s.business_id and pp.sale_id = s.id and pp.status = 'confirmed') p on true
+        where s.business_id = c.business_id and s.customer_id = c.id and s.status <> 'voided') st on true
+      left join lateral (select b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id = b.business_id and op.opening_balance_id = b.id), 0) as remaining
+        from opening_balance b where b.business_id = c.business_id and b.customer_id = c.id) ob on true
+      where c.business_id = ${businessId} ${after} order by c.name, c.id limit ${page.limit}`) as unknown as { rows: CustomerRow[] };
+    return paged.rows;
+  }
+  const result = await db.execute(sql`with c as (
+      select id, name, phone, notes, created_at from customer where business_id = ${businessId}
+    ), s as (
+      select s.id, s.customer_id, s.total_xof from sale s
+      where s.business_id = ${businessId} and s.status <> 'voided' and s.customer_id in (select id from c)
+    ), p as (
+      select pp.sale_id, sum(pp.amount_xof) as paid from payment pp
+      where pp.business_id = ${businessId} and pp.status = 'confirmed' and pp.sale_id in (select id from s) group by pp.sale_id
+    ), st as (
+      select s.customer_id, count(*) as sale_count, sum(greatest(s.total_xof - coalesce(p.paid, 0), 0)) as due
+      from s left join p on p.sale_id = s.id group by s.customer_id
+    ), ob as (
+      select b.customer_id, b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id = b.business_id and op.opening_balance_id = b.id), 0) as remaining
+      from opening_balance b where b.business_id = ${businessId} and b.customer_id in (select id from c)
+    )
+    select ${customerColumns}
+    from c left join st on st.customer_id = c.id left join ob on ob.customer_id = c.id
+    order by c.name, c.id`) as unknown as { rows: CustomerRow[] };
+  return result.rows;
 }
 
 export async function listBusinessCustomers(db: CommercialDatabase, context: Context) {
   await requirePermission(db, context, "customer", "read");
-  const result = await db.execute(sql`select c.id, c.name, c.phone, c.notes, c.created_at as "createdAt",
-    count(s.id)::text as "saleCount",
-    (coalesce(sum(case when s.id is not null then greatest(s.total_xof-coalesce(p.paid,0),0) else 0 end),0) + coalesce(max(ob.remaining),0))::text as "balanceXof",
-    coalesce(max(ob.remaining),0)::text as "openingDueXof"
-    from customer c left join sale s on s.business_id=c.business_id and s.customer_id=c.id and s.status <> 'voided'
-    left join (select b.customer_id, b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id=b.business_id and op.opening_balance_id=b.id),0) as remaining
-      from opening_balance b where b.business_id=${context.businessId} and b.customer_id is not null) ob on ob.customer_id=c.id
-    left join (select business_id,sale_id,sum(amount_xof) as paid from payment where business_id=${context.businessId} and status='confirmed' group by business_id,sale_id) p
-      on p.business_id=s.business_id and p.sale_id=s.id
-    where c.business_id=${context.businessId} group by c.id order by c.name`) as unknown as { rows: { id: string; name: string; phone: string | null; notes: string | null; createdAt: Date; saleCount: string; balanceXof: string; openingDueXof: string }[] };
-  return result.rows;
+  return queryCustomers(db, context.businessId, { cursor: null, limit: null });
+}
+
+export async function listBusinessCustomersPage(db: CommercialDatabase, context: Context, raw: unknown) {
+  await requirePermission(db, context, "customer", "read");
+  const page = parsePage(raw);
+  const rows = await queryCustomers(db, context.businessId, { cursor: decodeCursor(page.cursor, productCursorSchema), limit: page.limit + 1 });
+  return pageOf(rows, page.limit, (row) => ({ name: row.name, id: row.id }));
 }
 
 export async function createBusinessCustomer(db: CommercialDatabase, raw: unknown) {
@@ -221,15 +331,30 @@ export async function recordCustomerPayment(db: CommercialDatabase, raw: unknown
   });
 }
 
+function queryStockItems(db: CommercialDatabase, businessId: string, page: { cursor: { name: string; id: string } | null; limit: number | null }) {
+  const conditions = [eq(productVariant.businessId, businessId), isNull(productVariant.archivedAt), isNull(product.archivedAt)];
+  if (page.cursor) conditions.push(afterName(product.name, productVariant.id, page.cursor));
+  const query = db.select({ variantId: productVariant.id, productId: product.id, name: product.name, category: productCategory.name,
+    label: productVariant.label, sku: productVariant.sku, unit: product.baseUnit, onHand: productVariant.onHand,
+    threshold: productVariant.lowStockThreshold, averageCostXof: productVariant.averageCostXof })
+    .from(productVariant).innerJoin(product, and(eq(product.businessId, productVariant.businessId), eq(product.id, productVariant.productId)))
+    .leftJoin(productCategory, and(eq(productCategory.businessId, product.businessId), eq(productCategory.id, product.categoryId)))
+    .where(and(...conditions)).orderBy(asc(product.name), asc(productVariant.id));
+  return page.limit === null ? query : query.limit(page.limit);
+}
+
+/** Niveaux de stock par page (nom puis variante) ; les mouvements ont leur propre liste paginée (/api/business/stock/movements). */
+export async function listStockItemsPage(db: CommercialDatabase, context: Context, raw: unknown) {
+  await requirePermission(db, context, "inventory", "read");
+  const page = parsePage(raw);
+  const rows = await queryStockItems(db, context.businessId, { cursor: decodeCursor(page.cursor, productCursorSchema), limit: page.limit + 1 });
+  return pageOf(rows, page.limit, (row) => ({ name: row.name, id: row.variantId }));
+}
+
 export async function getStockWorkspace(db: CommercialDatabase, context: Context) {
   await requirePermission(db, context, "inventory", "read");
   const [items, movements] = await Promise.all([
-    db.select({ variantId: productVariant.id, productId: product.id, name: product.name, category: productCategory.name,
-      label: productVariant.label, sku: productVariant.sku, unit: product.baseUnit, onHand: productVariant.onHand,
-      threshold: productVariant.lowStockThreshold, averageCostXof: productVariant.averageCostXof })
-      .from(productVariant).innerJoin(product, and(eq(product.businessId, productVariant.businessId), eq(product.id, productVariant.productId)))
-      .leftJoin(productCategory, and(eq(productCategory.businessId, product.businessId), eq(productCategory.id, product.categoryId)))
-      .where(and(eq(productVariant.businessId, context.businessId), isNull(productVariant.archivedAt), isNull(product.archivedAt))).orderBy(asc(product.name)),
+    queryStockItems(db, context.businessId, { cursor: null, limit: null }),
     db.select({ id: stockMovement.id, product: product.name, variant: productVariant.label, sku: productVariant.sku,
       delta: stockMovement.quantityDelta, reason: stockMovement.reason, unitCostXof: stockMovement.unitCostXof,
       occurredAt: stockMovement.occurredAt })
@@ -240,15 +365,28 @@ export async function getStockWorkspace(db: CommercialDatabase, context: Context
   return { items, movements };
 }
 
-export async function listBusinessSuppliers(db: CommercialDatabase, context: Context) {
-  await requirePermission(db, context, "supplier", "read");
-  const rows = await db.select({ id: supplier.id, name: supplier.name, phone: supplier.phone, archivedAt: supplier.archivedAt,
+function querySuppliers(db: CommercialDatabase, businessId: string, page: { cursor: { name: string; id: string } | null; limit: number | null }) {
+  const conditions = [eq(supplier.businessId, businessId), isNull(supplier.archivedAt)];
+  if (page.cursor) conditions.push(afterName(supplier.name, supplier.id, page.cursor));
+  const query = db.select({ id: supplier.id, name: supplier.name, phone: supplier.phone, archivedAt: supplier.archivedAt,
     purchaseCount: sql<string>`count(${purchase.id})::text`, purchaseTotalXof: sql<string>`coalesce(sum(${purchase.totalXof}),0)::text`,
     // Dette d'ouverture restante envers ce fournisseur, distincte des achats enregistrés dans Qadr Ops.
     openingDueXof: sql<string>`coalesce((select b.amount_xof - coalesce((select sum(op.amount_xof) from opening_balance_payment op where op.business_id=b.business_id and op.opening_balance_id=b.id),0) from opening_balance b where b.business_id=${supplier.businessId} and b.supplier_id=${supplier.id}),0)::text` })
     .from(supplier).leftJoin(purchase, and(eq(purchase.businessId, supplier.businessId), eq(purchase.supplierId, supplier.id), sql`${purchase.status} <> 'canceled'`))
-    .where(and(eq(supplier.businessId, context.businessId), isNull(supplier.archivedAt))).groupBy(supplier.id).orderBy(asc(supplier.name));
-  return rows;
+    .where(and(...conditions)).groupBy(supplier.id).orderBy(asc(supplier.name), asc(supplier.id));
+  return page.limit === null ? query : query.limit(page.limit);
+}
+
+export async function listBusinessSuppliers(db: CommercialDatabase, context: Context) {
+  await requirePermission(db, context, "supplier", "read");
+  return querySuppliers(db, context.businessId, { cursor: null, limit: null });
+}
+
+export async function listBusinessSuppliersPage(db: CommercialDatabase, context: Context, raw: unknown) {
+  await requirePermission(db, context, "supplier", "read");
+  const page = parsePage(raw);
+  const rows = await querySuppliers(db, context.businessId, { cursor: decodeCursor(page.cursor, productCursorSchema), limit: page.limit + 1 });
+  return pageOf(rows, page.limit, (row) => ({ name: row.name, id: row.id }));
 }
 
 export async function createBusinessSupplier(db: CommercialDatabase, raw: unknown) {
@@ -326,19 +464,51 @@ export async function createReceivedPurchase(db: CommercialDatabase, raw: unknow
   });
 }
 
-export async function listBusinessPurchases(db: CommercialDatabase, context: Context) {
-  await requirePermission(db, context, "purchase", "read");
+type TimePage = { cursor: { at: string; id: string } | null; limit: number };
+
+function queryPurchases(db: CommercialDatabase, businessId: string, page: TimePage) {
+  const conditions = [eq(purchase.businessId, businessId)];
+  if (page.cursor) conditions.push(beforeTime(purchase.occurredAt, purchase.id, page.cursor));
   return db.select({ id: purchase.id, reference: purchase.reference, status: purchase.status, totalXof: purchase.totalXof,
     occurredAt: purchase.occurredAt, supplierName: supplier.name,
-    paidXof: sql<string>`coalesce((select sum(pp.amount_xof)::text from purchase_payment pp where pp.business_id=${context.businessId} and pp.purchase_id=${purchase.id}), '0')` })
+    paidXof: sql<string>`coalesce((select sum(pp.amount_xof)::text from purchase_payment pp where pp.business_id=${businessId} and pp.purchase_id=${purchase.id}), '0')`,
+    cursorAt: sql<string>`${purchase.occurredAt}::text` })
     .from(purchase).innerJoin(supplier, and(eq(supplier.businessId, purchase.businessId), eq(supplier.id, purchase.supplierId)))
-    .where(eq(purchase.businessId, context.businessId)).orderBy(desc(purchase.occurredAt)).limit(200);
+    .where(and(...conditions)).orderBy(desc(purchase.occurredAt), desc(purchase.id)).limit(page.limit);
+}
+
+export async function listBusinessPurchases(db: CommercialDatabase, context: Context) {
+  await requirePermission(db, context, "purchase", "read");
+  return (await queryPurchases(db, context.businessId, { cursor: null, limit: 200 })).map(withoutCursor);
+}
+
+export async function listBusinessPurchasesPage(db: CommercialDatabase, context: Context, raw: unknown) {
+  await requirePermission(db, context, "purchase", "read");
+  const page = parsePage(raw);
+  const result = pageOf(await queryPurchases(db, context.businessId, { cursor: decodeCursor(page.cursor, movementCursorSchema), limit: page.limit + 1 }),
+    page.limit, (row) => ({ at: row.cursorAt, id: row.id }));
+  return { items: result.items.map(withoutCursor), nextCursor: result.nextCursor };
+}
+
+function queryExpenses(db: CommercialDatabase, businessId: string, page: TimePage) {
+  const conditions = [eq(expense.businessId, businessId)];
+  if (page.cursor) conditions.push(beforeTime(expense.occurredAt, expense.id, page.cursor));
+  return db.select({ id: expense.id, category: expense.category, description: expense.description, amountXof: expense.amountXof, paymentMethod: expense.paymentMethod,
+    occurredAt: expense.occurredAt, cursorAt: sql<string>`${expense.occurredAt}::text` })
+    .from(expense).where(and(...conditions)).orderBy(desc(expense.occurredAt), desc(expense.id)).limit(page.limit);
 }
 
 export async function listBusinessExpenses(db: CommercialDatabase, context: Context) {
   await requirePermission(db, context, "expense", "read");
-  return db.select({ id: expense.id, category: expense.category, description: expense.description, amountXof: expense.amountXof, paymentMethod: expense.paymentMethod, occurredAt: expense.occurredAt })
-    .from(expense).where(eq(expense.businessId, context.businessId)).orderBy(desc(expense.occurredAt)).limit(200);
+  return (await queryExpenses(db, context.businessId, { cursor: null, limit: 200 })).map(withoutCursor);
+}
+
+export async function listBusinessExpensesPage(db: CommercialDatabase, context: Context, raw: unknown) {
+  await requirePermission(db, context, "expense", "read");
+  const page = parsePage(raw);
+  const result = pageOf(await queryExpenses(db, context.businessId, { cursor: decodeCursor(page.cursor, movementCursorSchema), limit: page.limit + 1 }),
+    page.limit, (row) => ({ at: row.cursorAt, id: row.id }));
+  return { items: result.items.map(withoutCursor), nextCursor: result.nextCursor };
 }
 
 export async function createBusinessExpense(db: CommercialDatabase, raw: unknown) {
@@ -377,6 +547,10 @@ export async function updateBusinessSettings(db: CommercialDatabase, raw: unknow
     showLogo: z.boolean(), receiptFooter: z.string().trim().max(300).nullable() }).parse(raw);
   await requirePermission(db, input, "business", "update");
   await db.transaction(async (tx) => {
+    // Verrou exclusif sur le profil AVANT le contrôle d'état (FOR SHARE) : deux enregistrements simultanés
+    // ne peuvent plus tenir chacun un verrou partagé puis attendre l'autre pour le mettre à jour (interblocage).
+    // Ordre fixe ensuite : profil, organisation, réglages du reçu.
+    await tx.select({ businessId: businessProfile.businessId }).from(businessProfile).where(eq(businessProfile.businessId, input.businessId)).for("update");
     await assertBusinessOperational(tx, input.businessId);
     await tx.update(organization).set({ name: input.name }).where(eq(organization.id, input.businessId));
     await tx.update(businessProfile).set({ phone: input.phone, address: input.address, businessEmail: input.email || null,

@@ -98,6 +98,7 @@ export const fr = {
       submitting: "Préparation…",
       started: "Comptage démarré. Saisissez les quantités produit par produit.",
       failed: "Impossible de démarrer l’inventaire.",
+      tooLarge: "Trop de produits pour un seul comptage. Choisissez une catégorie et faites plusieurs inventaires.",
     },
     sessions: {
       title: "Comptages",

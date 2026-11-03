@@ -212,6 +212,40 @@ Un modèle unique `ReceiptDocument`, des profils d'imprimante (colonnes, code pa
 - Verrous (D-2, D-6).
 - Mesures avant et après sur PGlite, puis sur Neon de préproduction.
 
+**État au 2026-11-03 : livrée et mesurée sur PGlite. La mesure sur Neon reste bloquée (B-1).** Le détail est dans `docs/performance.md`.
+
+- **D-1** : le tableau de bord passe de 31 à 7 requêtes, avec au plus 4 en parallèle au lieu d'environ 26 (`getDashboardReports`). Sa réponse garde la même forme.
+- **D-3** : un rapport passe de 24 à 3 requêtes. Les agrégats de paiements sont bornés aux ventes de la période. Les chiffres sont identiques aux requêtes historiques non bornées, vérifiés sur trois mois avec des paiements avant, pendant et après la période.
+- **D-5** : les remboursements d'une vente sont filtrés en SQL. `listInventorySessions` fait une seule requête au lieu de 1 + 2 par inventaire.
+- **D-2** : une vente de 20 lignes passe de 71 à 14 requêtes.
+  - Le verrou reste un seul `FOR UPDATE` trié par identifiant. Les écritures sont groupées (`setVariantStock`, `stock-writes.ts`).
+  - Un inventaire est plafonné à 2 000 produits (`422 inventory_too_large`, message traduit fr/en/ar). Sa validation écrit par lots de 500.
+  - La réception d'achat n'a pas été regroupée.
+- **D-6** :
+  - `updateBusinessSettings` verrouille le profil avant le contrôle d'état.
+  - Les lectures de la console n'appellent plus `expireDueSubscriptions`. Le statut affiché vient de `effectiveSubscriptionStatus`, et le cron quotidien écrit l'expiration.
+- **D-7** : `?limit=`/`cursor` sur clients, fournisseurs, stock, ventes, achats et dépenses. **La réponse sans paramètre est inchangée.** Les écrans ne sont pas encore branchés : le bouton « Voir plus » reste à faire.
+- **D-4** : migration `0017_performance_indexes`, 11 index créés, sans suppression. `purchase_line(purchase_id)` n'est pas indexé, car aucune requête ne le lit (justification dans `docs/performance.md` § 3).
+- Mesures sur PGlite (`scripts/bench-pglite.ts` : 2 commerces, 5 000 produits, 20 000 ventes ; avant et après lancés l'un après l'autre, 7 passages chacun). Médianes, avant → après :
+
+  | Opération | Avant | Après |
+  | --- | --- | --- |
+  | Tableau de bord | 425 ms | 245 ms |
+  | Rapport mensuel | 273 ms | 155 ms |
+  | Liste complète des clients | 105 ms | 77 ms |
+  | Page de 50 clients | absente | 6 ms |
+  | Vente de 20 lignes | 95 ms | 35 ms |
+
+  La machine était partagée : d'un lancement à l'autre, les durées varient de 30 à 50 %. Seuls les nombres de requêtes se transposent à Neon.
+- Tests ajoutés :
+  - `performance.integration.test.ts`, 9 tests : vente groupée, équivalence des rapports et des soldes clients, tableau de bord, remboursements, pagination avec isolation A/B sur six listes, plafond et lots d'inventaire, statut d'abonnement sans écriture ;
+  - contrôle des index de 0017 dans `pglite-migrations.integration.test.ts`.
+- Vérifications : `typecheck` et `lint` sans erreur. Vitest complet, en trois groupes : 56 fichiers, 431 tests réussis. `drizzle-kit check` répond « Everything's fine », puis un second `generate` répond « No schema changes ». `npm run build` réussit.
+- **Non vérifié** :
+  - les durées sur Neon et sous concurrence réelle (B-1) ;
+  - l'interblocage de `updateBusinessSettings`, impossible à reproduire sur PGlite, qui n'a qu'une connexion ;
+  - les plans d'exécution sur PostgreSQL réel.
+
 ### Phase 7 : campagne de validation
 
 - Tests multi-commerce au niveau des routes HTTP.

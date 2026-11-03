@@ -1,11 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "../auth/permissions";
 import { auditEvent, inventoryLine, inventoryScopeVariant, inventorySession, member, product, productCategory, productVariant, stockMovement } from "../db/schema";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { parseQuantityMicros, QUANTITY_SCALE } from "./costing";
 import { assertBusinessOperational } from "./operation-guard";
+import { setVariantStock } from "./stock-writes";
+
+/**
+ * Plafond d'un inventaire (mission 11, phase 6) : au-delà, le comptage doit être découpé par catégorie.
+ * La validation verrouille chaque variante comptée pendant sa transaction ; ce plafond borne cette durée.
+ */
+export const INVENTORY_MAX_LINES = 2_000;
+/** Taille des lots d'écriture à la validation (mises à jour de stock et mouvements). */
+const INVENTORY_WRITE_BATCH = 500;
 
 const contextSchema = z.object({ businessId: z.string().min(1), actorUserId: z.string().min(1) });
 const startSchema = contextSchema.extend({ categoryId: z.string().min(1).optional() });
@@ -36,26 +45,17 @@ async function requirePermission(db: CommercialDatabase, businessId: string, act
 export async function listInventorySessions(db: CommercialDatabase, raw: unknown) {
   const input = contextSchema.parse(raw);
   await requirePermission(db, input.businessId, input.actorUserId, "read");
-  const sessions = await db.select({
+  // Une seule requête : les compteurs viennent de sous-requêtes indexées (clés (business_id, session_id, …)),
+  // au lieu de deux requêtes par inventaire (jusqu'à 201 requêtes pour 100 inventaires).
+  return db.select({
     id: inventorySession.id, status: inventorySession.status, createdAt: inventorySession.createdAt,
     submittedAt: inventorySession.submittedAt, validatedAt: inventorySession.validatedAt,
     categoryName: productCategory.name,
-    scopeCount: inventorySession.id,
+    scopeCount: sql<number>`(select count(*) from inventory_scope_variant sv where sv.business_id = ${inventorySession.businessId} and sv.session_id = ${inventorySession.id})::int`,
+    countedCount: sql<number>`(select count(*) from inventory_line il where il.business_id = ${inventorySession.businessId} and il.session_id = ${inventorySession.id})::int`,
   }).from(inventorySession).leftJoin(productCategory, and(
     eq(productCategory.businessId, inventorySession.businessId), eq(productCategory.id, inventorySession.scopeCategoryId),
   )).where(eq(inventorySession.businessId, input.businessId)).orderBy(asc(inventorySession.createdAt)).limit(100);
-
-  return Promise.all(sessions.map(async (session) => {
-    const [scope, counted] = await Promise.all([
-      db.select({ id: inventoryScopeVariant.variantId }).from(inventoryScopeVariant).where(and(
-        eq(inventoryScopeVariant.businessId, input.businessId), eq(inventoryScopeVariant.sessionId, session.id),
-      )),
-      db.select({ id: inventoryLine.id }).from(inventoryLine).where(and(
-        eq(inventoryLine.businessId, input.businessId), eq(inventoryLine.sessionId, session.id),
-      )),
-    ]);
-    return { ...session, scopeCount: scope.length, countedCount: counted.length };
-  }));
 }
 
 export async function listInventoryWorkspace(db: CommercialDatabase, raw: unknown) {
@@ -92,6 +92,9 @@ export async function startInventory(db: CommercialDatabase, raw: unknown) {
       ...(input.categoryId ? [eq(product.categoryId, input.categoryId)] : []),
     )).orderBy(asc(productVariant.id));
     if (!variants.length) throw new CommercialError("Aucun produit actif ne correspond à ce périmètre.", 422);
+    if (variants.length > INVENTORY_MAX_LINES) {
+      throw new CommercialError(`Ce comptage porterait sur ${variants.length} produits ; la limite est de ${INVENTORY_MAX_LINES} par inventaire. Choisissez une catégorie.`, 422, "inventory_too_large");
+    }
 
     await tx.insert(inventorySession).values({ id, businessId: input.businessId, status: "counting", startedByUserId: input.actorUserId, scopeCategoryId: input.categoryId ?? null });
     await tx.insert(inventoryScopeVariant).values(variants.map(({ id: variantId }) => ({ businessId: input.businessId, sessionId: id, variantId })));
@@ -203,21 +206,28 @@ export async function validateInventory(db: CommercialDatabase, raw: unknown) {
     )).orderBy(asc(productVariant.id)).for("update");
     if (variants.length !== lines.length) throw new CommercialError("Un produit de cet inventaire est introuvable.", 409);
     const byId = new Map(variants.map((variant) => [variant.id, variant]));
-    let adjustedCount = 0;
+    const adjustments: { variant: (typeof variants)[number]; line: (typeof lines)[number]; delta: bigint }[] = [];
     for (const line of lines) {
       const variant = byId.get(line.variantId);
       if (!variant) throw new CommercialError("Variante introuvable.", 409);
       const delta = toMicros(line.countedQty) - toMicros(line.theoreticalQty);
       if (delta === 0n) continue;
-      const current = toMicros(variant.onHand);
-      if (current + delta < 0n) throw new CommercialError("Les mouvements postérieurs ne permettent pas cet écart sans rendre le stock négatif. Recomptez ou faites une correction autorisée.", 409);
-      await tx.update(productVariant).set({ onHand: quantityString(current + delta), stockRevision: variant.stockRevision + 1n })
-        .where(and(eq(productVariant.businessId, input.businessId), eq(productVariant.id, variant.id)));
-      await tx.insert(stockMovement).values({ id: randomUUID(), businessId: input.businessId, variantId: variant.id,
-        quantityDelta: quantityString(delta), reason: "inventory_adjustment", inventoryLineId: line.id,
-        unitCostXof: variant.averageCostXof, createdByUserId: input.actorUserId, occurredAt: new Date() });
-      adjustedCount += 1;
+      if (toMicros(variant.onHand) + delta < 0n) throw new CommercialError("Les mouvements postérieurs ne permettent pas cet écart sans rendre le stock négatif. Recomptez ou faites une correction autorisée.", 409);
+      adjustments.push({ variant, line, delta });
     }
+    // Écritures groupées par lots (variantes déjà verrouillées ci-dessus, par identifiant croissant) : deux
+    // requêtes par lot de INVENTORY_WRITE_BATCH lignes au lieu de deux par ligne ajustée.
+    const occurredAt = new Date();
+    for (let index = 0; index < adjustments.length; index += INVENTORY_WRITE_BATCH) {
+      const batch = adjustments.slice(index, index + INVENTORY_WRITE_BATCH);
+      await setVariantStock(tx, input.businessId, batch.map(({ variant, delta }) => ({
+        id: variant.id, onHand: quantityString(toMicros(variant.onHand) + delta), stockRevision: variant.stockRevision + 1n,
+      })));
+      await tx.insert(stockMovement).values(batch.map(({ variant, line, delta }) => ({ id: randomUUID(), businessId: input.businessId, variantId: variant.id,
+        quantityDelta: quantityString(delta), reason: "inventory_adjustment", inventoryLineId: line.id,
+        unitCostXof: variant.averageCostXof, createdByUserId: input.actorUserId, occurredAt })));
+    }
+    const adjustedCount = adjustments.length;
     const validatedAt = new Date();
     await tx.update(inventorySession).set({ status: "validated", validatedByUserId: input.actorUserId, validatedAt }).where(eq(inventorySession.id, input.sessionId));
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
