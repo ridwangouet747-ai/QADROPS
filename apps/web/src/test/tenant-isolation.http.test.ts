@@ -280,10 +280,12 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
     // Écart constaté (non bloquant pour l'isolation) : la contrainte composite (business_id, customer_id) refuse bien
     // la vente, mais l'erreur 23503 remonte en 500 générique (envoyée à Sentry) au lieu d'un 404 « Client introuvable ».
     // createSale (src/lib/domain/commercial.ts) ne vérifie pas le client avant l'insertion. À corriger hors phase 7.
-    it.fails("ventes : un client d'un autre commerce devrait répondre 404 (aujourd'hui 500)", async () => {
-      const forB = await h.call(salesRoute.POST, { path: "/api/business/sales", actor: ownerA,
-        body: { idempotencyKey: newKey(), customerId: b.customer, lines: [{ variantId: a.variant, quantity: "1" }], payments: [] } });
+    it("ventes : un client d'un autre commerce répond comme un client inconnu (404)", async () => {
+      const sell = (customerId: string) => h.call(salesRoute.POST, { path: "/api/business/sales", actor: ownerA,
+        body: { idempotencyKey: newKey(), customerId, lines: [{ variantId: a.variant, quantity: "1" }], payments: [] } });
+      const forB = await sell(b.customer);
       expect(forB.status).toBe(404);
+      expectSameAsUnknown(forB, await sell(UNKNOWN_ID));
     });
 
     it("achats, stock de départ et soldes d'ouverture : aucun fournisseur, produit ou client de B utilisable", async () => {

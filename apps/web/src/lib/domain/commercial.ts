@@ -5,7 +5,7 @@ import { z } from "zod";
 import { hasBusinessPermission } from "../auth/permissions";
 import { costOfGoodsSold, parseQuantityMicros, QUANTITY_SCALE } from "./costing";
 import { assertBusinessOperational } from "./operation-guard";
-import { databaseSchema, member, product, productCategory, productVariant, sale, saleLine, payment, stockMovement, auditEvent } from "../db/schema";
+import { databaseSchema, customer, member, product, productCategory, productVariant, sale, saleLine, payment, stockMovement, auditEvent } from "../db/schema";
 import { assertPlanQuota } from "./plan-limits";
 import { attachOpenCashSession } from "./cash-session";
 import { enqueueNotification } from "./notifications";
@@ -186,6 +186,12 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
       const subtotal = lines.reduce((sum, line) => sum + line.amount, 0n);
       if (paymentTotal > subtotal) throw new CommercialError("Le montant encaissé dépasse le total de la vente.");
       if (confirmedTotal < subtotal && !input.customerId) throw new CommercialError("Associez un client à toute vente avec un solde restant dû ou un paiement mobile en attente.");
+      // Vérifié ici plutôt que laissé à la FK composée : un client d'un autre commerce répond comme un client inconnu, sans 500.
+      if (input.customerId) {
+        const [buyer] = await tx.select({ id: customer.id }).from(customer)
+          .where(and(eq(customer.businessId, input.businessId), eq(customer.id, input.customerId))).limit(1);
+        if (!buyer) throw new CommercialError("Client introuvable dans ce commerce.", 404);
+      }
 
       const saleId = randomUUID();
       const reference = `V-${Date.now().toString(36).toUpperCase()}-${saleId.slice(0, 8).toUpperCase()}`;

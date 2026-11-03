@@ -260,8 +260,8 @@ Un modèle unique `ReceiptDocument`, des profils d'imprimante (colonnes, code pa
   - Les 81 fichiers `route.ts` et chacune de leurs méthodes sont appelés.
   - Couvert : isolation A/B, rôles, membre désactivé, commerce suspendu, expiré ou en essai échu.
   - Aucune faille d'isolation trouvée.
-  - Un écart est documenté par un `it.fails` (E-1) : un client d'un autre commerce dans une vente
-    donne un 500 au lieu d'un 404, sans fuite.
+  - Un écart trouvé (E-1) : un client d'un autre commerce dans une vente donnait un 500 au lieu
+    d'un 404, sans fuite. Corrigé après la fusion : `createSale` vérifie le client.
   - Une observation reste à trancher (O-1) : la configuration d'imprimante n'est pas bloquée pour
     un commerce suspendu.
 - **Fait, sur PGlite : parcours de bout en bout par HTTP** (`merchant-journey.http.test.ts`), de
@@ -274,6 +274,8 @@ Un modèle unique `ReceiptDocument`, des profils d'imprimante (colonnes, code pa
 - **Vérifications :**
   - `typecheck` et `lint` sans erreur ;
   - Vitest complet, lancé en trois groupes : 60 fichiers, 466 tests réussis et 1 échec attendu.
+  - Après la fusion des phases 6 et 7 et la correction de E-1 : 61 fichiers et 476 tests réussis ;
+    `tsc`, lint, `drizzle-kit check` et `npm run build` réussis.
 
 ## 5. Décisions et blocages
 

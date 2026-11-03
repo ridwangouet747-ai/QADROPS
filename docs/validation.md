@@ -85,13 +85,13 @@ it("…", async () => {
 
 | Fichier | Tests | Objet |
 | --- | --- | --- |
-| `src/test/tenant-isolation.http.test.ts` | 18 + 1 `it.fails` | Commerce A contre commerce B, sur tous les domaines |
+| `src/test/tenant-isolation.http.test.ts` | 19 | Commerce A contre commerce B, sur tous les domaines |
 | `src/test/roles-and-status.http.test.ts` | 8 | Sans session, caissier, gérant, membre désactivé, commerce suspendu, expiré, essai échu |
 | `src/test/merchant-journey.http.test.ts` | 11 | Parcours complet d'un commerçant, totaux vérifiés à chaque étape |
 | `src/test/platform-and-system.http.test.ts` | 5 | Console Super Admin, tâches planifiées, routes publiques |
 | `src/test/load-test-guard.test.ts` | 2 | Garde-fou des scripts k6 |
 
-**Total : 44 tests réussis, plus 1 échec attendu (`it.fails`) qui documente un écart.**
+**Total : 45 tests réussis.** L'écart E-1, d'abord documenté par un `it.fails`, est corrigé (voir E-1).
 
 ### Commandes exécutées
 
@@ -122,8 +122,8 @@ Toutes les commandes ont été lancées depuis `apps/web`, le 2026-11-03 :
   - vente dans une réimpression.
 
   Les compléments :
-  - Les réponses sont identiques à celles d'un identifiant inexistant (404). Seule exception :
-    l'écart E-1 ci-dessous.
+  - Les réponses sont identiques à celles d'un identifiant inexistant (404), y compris pour un
+    client de B dans une vente depuis la correction de E-1.
   - Un `businessId` de B passé dans le corps, l'URL ou un en-tête est ignoré.
   - Les listes, le tableau de bord, les rapports et les exports CSV, XLSX et PDF de A ne
     contiennent aucune donnée de B.
@@ -207,13 +207,13 @@ Le comportement est cohérent :
 | Console plateforme sans droit | 404, pour ne pas révéler son existence |
 | Sans session | 401 |
 
-Seule incohérence : E-1.
+Seule incohérence trouvée : E-1, corrigée depuis.
 
 ## 3. Écarts constatés
 
 | Code | Constat | Gravité | Suite |
 | --- | --- | --- | --- |
-| E-1 | `POST /api/business/sales` avec le `customerId` d'un **autre commerce** répond **500 « Erreur interne. »** au lieu de 404. `createSale` (`apps/web/src/lib/domain/commercial.ts`, l. 148-192) n'y vérifie pas le client avant l'insertion. La clé étrangère composite `(business_id, customer_id)` refuse bien la ligne (23503), mais l'erreur remonte en 500 et part vers Sentry. | Faible : **aucune fuite ni écriture**, la contrainte protège. La réponse est identique à celle d'un client inexistant (500 aussi), donc pas d'oracle d'existence. Mais c'est une erreur 500 évitable, qui pollue Sentry et n'aide pas l'utilisateur. | Test `it.fails` dans `tenant-isolation.http.test.ts`. Correctif proposé : lire le client `(business_id, id)` dans la transaction et lever `CommercialError(…, 404, "not_found")`. Non appliqué ici : c'est un code métier, sans faille de sécurité. |
+| E-1 | `POST /api/business/sales` avec le `customerId` d'un **autre commerce** répond **500 « Erreur interne. »** au lieu de 404. `createSale` (`apps/web/src/lib/domain/commercial.ts`, l. 148-192) n'y vérifie pas le client avant l'insertion. La clé étrangère composite `(business_id, customer_id)` refuse bien la ligne (23503), mais l'erreur remonte en 500 et part vers Sentry. | Faible : **aucune fuite ni écriture**, la contrainte protège. La réponse est identique à celle d'un client inexistant (500 aussi), donc pas d'oracle d'existence. Mais c'est une erreur 500 évitable, qui pollue Sentry et n'aide pas l'utilisateur. | Test `it.fails` dans `tenant-isolation.http.test.ts`. Correctif proposé : lire le client `(business_id, id)` dans la transaction et lever `CommercialError(…, 404, "not_found")`. **Corrigé après la fusion des phases 6 et 7** : `createSale` lit le client dans la transaction et répond 404 « Client introuvable dans ce commerce. » ; le test est passé de `it.fails` à `it` et compare la réponse à celle d'un client inconnu. |
 | O-1 | `addPrintDevice` et `updatePrintDevice` (`apps/web/src/lib/domain/printing.ts`, l. 73-97) n'appellent pas `assertBusinessOperational`. Un commerce suspendu peut donc encore déclarer ou régler une imprimante. Les tickets, eux, sont bloqués. | Observation : ce n'est pas une écriture financière ni une écriture de stock. | À trancher : soit c'est un paramètre (accepté), soit le contrôle est ajouté. Non couvert par un test. |
 
 Aucune faille d'isolation entre commerces n'a été trouvée. Aucun code de production n'a été
