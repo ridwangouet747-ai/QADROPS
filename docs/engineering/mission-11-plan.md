@@ -218,6 +218,29 @@ Un modèle unique `ReceiptDocument`, des profils d'imprimante (colonnes, code pa
 - Tests de bout en bout.
 - Tests de charge k6 progressifs (100 → 1 000 utilisateurs virtuels) **sur une préproduction seulement**.
 
+**État au 2026-11-03** (détail dans `docs/validation.md`) :
+
+- **Fait : tests multi-commerce au niveau des routes HTTP.**
+  - Harnais `apps/web/src/test/http-harness.ts` : PGlite migré, vraies sessions Better Auth, un
+    seul simulacre (la connexion à la base).
+  - Les 81 fichiers `route.ts` et chacune de leurs méthodes sont appelés.
+  - Couvert : isolation A/B, rôles, membre désactivé, commerce suspendu, expiré ou en essai échu.
+  - Aucune faille d'isolation trouvée.
+  - Un écart est documenté par un `it.fails` (E-1) : un client d'un autre commerce dans une vente
+    donne un 500 au lieu d'un 404, sans fuite.
+  - Une observation reste à trancher (O-1) : la configuration d'imprimante n'est pas bloquée pour
+    un commerce suspendu.
+- **Fait, sur PGlite : parcours de bout en bout par HTTP** (`merchant-journey.http.test.ts`), de
+  l'inscription aux exports, avec totaux et stock vérifiés à chaque étape.
+  - **Bloqué (B-1) :** le même parcours sur Neon et Vercel.
+  - **Hors périmètre :** un parcours dans un navigateur, faute de Playwright.
+- **Préparé, jamais exécuté : tests de charge k6** (`apps/web/load-tests/`).
+  - Le garde-fou refuse toute cible sans marqueur de préproduction.
+  - **Bloqué (B-1)** tant qu'aucune préproduction n'existe.
+- **Vérifications :**
+  - `typecheck` et `lint` sans erreur ;
+  - Vitest complet, lancé en trois groupes : 60 fichiers, 466 tests réussis et 1 échec attendu.
+
 ## 5. Décisions et blocages
 
 | Code | Sujet | État |

@@ -146,6 +146,10 @@ Depuis la mission 03 (2026-10-30), voir `docs/design-system.md` :
   - Réimpression : clé `idempotencyKey` obligatoire côté route, `runIdempotent` opération `print.reprint`. Statut `printed` = « Transmis », jamais « imprimé ».
   - Service local 0.2.0 : en-tête `Host` contrôlé (421), appairage limité à `tokenTtlDays` (90 j, `401 pairing_expired`), 30 jours de grâce pour les anciens appairages.
   - **Rien n'est vérifié sur une imprimante réelle (B-2)** : ne présentez jamais une sortie papier comme testée.
+- **Mission 11, phase 7** (validation, `docs/validation.md`) :
+  - **Test de route :** `vi.mock("@/lib/db/client", () => import("@/test/harness-database"))`, puis `startHttpHarness()` (`src/test/http-harness.ts`). Le harnais fournit `signUp`, `createBusiness`, `addMember` et `call(route.POST, { path, actor, body, params })`. La base est PGlite migrée, les sessions Better Auth sont réelles, et aucun autre simulacre n'est permis : appartenance, permissions et `assertBusinessOperational` restent vrais.
+  - **Nouvelle route `[id]` :** ajoutez son attaque A→B dans `tenant-isolation.http.test.ts`. La réponse doit être identique à celle d'un identifiant inconnu, et l'instantané final de B doit rester inchangé.
+  - **k6 :** les scripts sont dans `apps/web/load-tests/`. Le garde-fou `lib/target.js` refuse toute cible sans marqueur de préproduction et ne propose aucune option pour passer outre. Ils ne sont jamais lancés contre la production, ni sans préproduction (B-1).
 - **Problèmes encore ouverts** : domaine Resend, clé Resend et clés Turnstile de production ni créés ni vérifiés (voir `docs/authentication.md` § 7) ; limitation de débit Better Auth en mémoire (insuffisante sur plusieurs instances) ; 20 vulnérabilités modérées d'outils de développement documentées dans `docs/authentication.md` § 10 ; Neon jamais contacté ; politique non tranchée pour un commerce sans abonnement ou en abonnement `pending` (actuellement non bloqué) ; aucun fonctionnement hors ligne.
 - `next dev` crée `apps/web/AGENTS.md` (bloc Next.js de 9 lignes) à chaque lancement.
 
