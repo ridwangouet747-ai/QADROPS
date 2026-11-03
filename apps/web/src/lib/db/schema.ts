@@ -298,11 +298,53 @@ export const businessSubscription = pgTable("business_subscription", {
   check("subscription_origin_check", sql`${t.origin} in ('manual','promotion','payment')`),
   check("subscription_resume_status_check", sql`${t.statusBeforeSuspension} is null or ${t.statusBeforeSuspension} in ('trialing','active')`),
   index("subscription_status_end_idx").on(t.status, t.endsAt)]);
+/**
+ * Facture d'abonnement (mission 12, lot L1b) : ce que le commerce doit à Qadr Agency pour UNE période d'une
+ * formule. Montant, devise, durée, code et nom de la formule sont copiés côté serveur à la création : un
+ * changement de prix ultérieur ne modifie pas une facture déjà émise. Une seule facture ouverte par commerce.
+ * La période (`period_*`) et l'abonnement servi ne sont fixés qu'au paiement vérifié. Aucun lien avec les
+ * ventes des commerces (`sale`, `payment`) : ni table, ni référence, ni statut partagés.
+ */
+export const subscriptionInvoice = pgTable("subscription_invoice", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }), planCode: text("plan_code").notNull(), planName: text("plan_name").notNull(),
+  amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), currency: text("currency").notNull().default("XOF"), durationDays: integer("duration_days").notNull(),
+  status: text("status").notNull().default("open"), subscriptionId: text("subscription_id"),
+  periodStartsAt: timestamp("period_starts_at", { withTimezone: true }), periodEndsAt: timestamp("period_ends_at", { withTimezone: true }),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  paidAt: timestamp("paid_at", { withTimezone: true }), voidedAt: timestamp("voided_at", { withTimezone: true }),
+}, (t) => [unique("subscription_invoice_business_id_unique").on(t.businessId, t.id),
+  foreignKey({ columns: [t.businessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "subscription_invoice_subscription_tenant_fk" }),
+  uniqueIndex("subscription_invoice_one_open_unique").on(t.businessId).where(sql`${t.status} = 'open'`),
+  index("subscription_invoice_business_date_idx").on(t.businessId, t.createdAt),
+  check("subscription_invoice_status_check", sql`${t.status} in ('open','paid','void')`),
+  check("subscription_invoice_amount_positive", sql`${t.amountXof} > 0 and ${t.durationDays} > 0`),
+  check("subscription_invoice_currency_check", sql`${t.currency} = 'XOF'`),
+  check("subscription_invoice_paid_check", sql`${t.status} <> 'paid' or (${t.paidAt} is not null and ${t.subscriptionId} is not null and ${t.periodStartsAt} is not null and ${t.periodEndsAt} > ${t.periodStartsAt})`)]);
+/**
+ * Règlement d'abonnement. Historiquement une ligne par paiement saisi (code de réduction : `method = 'other'`,
+ * réglé hors ligne) ; depuis la mission 12, aussi une TENTATIVE de paiement GeniusPay (`provider = 'geniuspay'`,
+ * reliée à une facture). Une tentative n'est `confirmed` qu'après relecture serveur du paiement chez le prestataire.
+ */
 export const subscriptionPayment = pgTable("subscription_payment", {
-  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), subscriptionId: text("subscription_id").notNull(),
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), subscriptionId: text("subscription_id"),
   amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), method: text("method").notNull(), status: text("status").notNull().default("pending"),
   idempotencyKey: text("idempotency_key").notNull(), providerReference: text("provider_reference"), occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(), confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
-}, (t) => [unique("subscription_payment_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "subscription_payment_tenant_fk" }), unique("subscription_payment_business_key_unique").on(t.businessId, t.idempotencyKey), uniqueIndex("subscription_payment_provider_reference_unique").on(t.businessId, t.providerReference).where(sql`${t.providerReference} is not null`), index("subscription_payment_status_date_idx").on(t.businessId, t.status, t.occurredAt), check("subscription_payment_amount_positive", sql`${t.amountXof} > 0`), check("subscription_payment_method_check", sql`${t.method} in ('wave','orange_money','mtn_momo','other')`), check("subscription_payment_status_check", sql`${t.status} in ('pending','confirmed','failed','refunded')`)]);
+  invoiceId: text("invoice_id"), provider: text("provider"), providerStatus: text("provider_status"), environment: text("environment"),
+  checkoutUrl: text("checkout_url"), checkoutExpiresAt: timestamp("checkout_expires_at", { withTimezone: true }), checkedAt: timestamp("checked_at", { withTimezone: true }),
+  initiatedByUserId: text("initiated_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+}, (t) => [unique("subscription_payment_business_id_unique").on(t.businessId, t.id), foreignKey({ columns: [t.businessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "subscription_payment_tenant_fk" }), unique("subscription_payment_business_key_unique").on(t.businessId, t.idempotencyKey), uniqueIndex("subscription_payment_provider_reference_unique").on(t.businessId, t.providerReference).where(sql`${t.providerReference} is not null`), index("subscription_payment_status_date_idx").on(t.businessId, t.status, t.occurredAt), check("subscription_payment_amount_positive", sql`${t.amountXof} > 0`),
+  check("subscription_payment_method_check", sql`${t.method} in ('wave','orange_money','mtn_momo','moov_money','card','other','unknown')`),
+  check("subscription_payment_status_check", sql`${t.status} in ('pending','confirmed','failed','refunded','canceled','expired')`),
+  foreignKey({ columns: [t.businessId, t.invoiceId], foreignColumns: [subscriptionInvoice.businessId, subscriptionInvoice.id], name: "subscription_payment_invoice_tenant_fk" }),
+  check("subscription_payment_target_check", sql`${t.subscriptionId} is not null or ${t.invoiceId} is not null`),
+  check("subscription_payment_provider_check", sql`${t.provider} is null or (${t.provider} = 'geniuspay' and ${t.invoiceId} is not null)`),
+  check("subscription_payment_environment_check", sql`${t.environment} is null or ${t.environment} in ('sandbox','live')`),
+  // Une référence prestataire désigne un seul paiement sur toute la plateforme (le webhook ne connaît pas le commerce).
+  uniqueIndex("subscription_payment_provider_global_reference_unique").on(t.provider, t.providerReference).where(sql`${t.provider} is not null and ${t.providerReference} is not null`),
+  index("subscription_payment_provider_pending_idx").on(t.provider, t.status, t.occurredAt).where(sql`${t.provider} is not null`),
+  index("subscription_payment_invoice_idx").on(t.businessId, t.invoiceId).where(sql`${t.invoiceId} is not null`)]);
 export const promotionRedemption = pgTable("promotion_redemption", {
   id: text("id").primaryKey(), promotionId: text("promotion_id").notNull().references(() => promotionCode.id, { onDelete: "restrict" }),
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), subscriptionId: text("subscription_id").notNull(),
@@ -315,10 +357,21 @@ export const auditEvent = pgTable("audit_event", {
   eventType: text("event_type").notNull(), entityType: text("entity_type").notNull(), entityId: text("entity_id").notNull(), metadata: jsonb("metadata").notNull().default({}),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("audit_business_date_idx").on(t.businessId, t.occurredAt), index("audit_entity_idx").on(t.entityType, t.entityId), index("audit_type_date_idx").on(t.eventType, t.occurredAt)]);
+/**
+ * Notification reçue d'un prestataire de paiement, dédupliquée par (prestataire, identifiant d'événement).
+ * `business_id` est NUL tant que l'événement n'est rattaché à aucun paiement vérifié (référence inconnue,
+ * événement ignoré, anomalie) : on garde la trace sans jamais l'attribuer arbitrairement à un commerce.
+ * Aucun contenu du corps n'est conservé : seulement son empreinte SHA-256, le type, la référence et le résultat.
+ */
 export const paymentProviderEvent = pgTable("payment_provider_event", {
-  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), provider: text("provider").notNull(), eventId: text("event_id").notNull(),
+  id: text("id").primaryKey(), businessId: text("business_id").references(() => businessProfile.businessId, { onDelete: "restrict" }), provider: text("provider").notNull(), eventId: text("event_id").notNull(),
   paymentId: text("payment_id"), subscriptionPaymentId: text("subscription_payment_id"), payloadHash: text("payload_hash").notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(), processedAt: timestamp("processed_at", { withTimezone: true }),
-}, (t) => [unique("provider_event_idempotency_unique").on(t.businessId, t.provider, t.eventId), foreignKey({ columns: [t.businessId, t.paymentId], foreignColumns: [payment.businessId, payment.id], name: "provider_event_store_payment_tenant_fk" }), foreignKey({ columns: [t.businessId, t.subscriptionPaymentId], foreignColumns: [subscriptionPayment.businessId, subscriptionPayment.id], name: "provider_event_subscription_payment_tenant_fk" }), index("provider_event_business_received_idx").on(t.businessId, t.receivedAt), check("provider_event_single_target_check", sql`num_nonnulls(${t.paymentId}, ${t.subscriptionPaymentId}) <= 1`)]);
+  eventType: text("event_type"), providerReference: text("provider_reference"), environment: text("environment"), outcome: text("outcome").notNull().default("received"),
+}, (t) => [unique("provider_event_idempotency_unique").on(t.businessId, t.provider, t.eventId), foreignKey({ columns: [t.businessId, t.paymentId], foreignColumns: [payment.businessId, payment.id], name: "provider_event_store_payment_tenant_fk" }), foreignKey({ columns: [t.businessId, t.subscriptionPaymentId], foreignColumns: [subscriptionPayment.businessId, subscriptionPayment.id], name: "provider_event_subscription_payment_tenant_fk" }), index("provider_event_business_received_idx").on(t.businessId, t.receivedAt), check("provider_event_single_target_check", sql`num_nonnulls(${t.paymentId}, ${t.subscriptionPaymentId}) <= 1`),
+  uniqueIndex("provider_event_provider_event_unique").on(t.provider, t.eventId),
+  check("provider_event_unattached_check", sql`${t.businessId} is not null or (${t.paymentId} is null and ${t.subscriptionPaymentId} is null)`),
+  check("provider_event_outcome_check", sql`${t.outcome} in ('received','applied','unchanged','ignored','unmatched','amount_mismatch','currency_mismatch','reference_mismatch','environment_mismatch','metadata_mismatch','provider_error')`),
+  index("provider_event_reference_idx").on(t.provider, t.providerReference).where(sql`${t.providerReference} is not null`)]);
 // Client-generated operation keys, scoped per business: a retried command returns its first result instead of running twice.
 export const idempotencyRecord = pgTable("idempotency_record", {
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), idempotencyKey: text("idempotency_key").notNull(),
@@ -499,6 +552,6 @@ export const databaseSchema = {
   ...authSchema, businessProfile, businessMemberAccess, platformAdmin, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
-  promotionCode, promotionEligibleBusiness, businessSubscription, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
+  promotionCode, promotionEligibleBusiness, businessSubscription, subscriptionInvoice, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
   importBatch, importRow, productAlias,
 };

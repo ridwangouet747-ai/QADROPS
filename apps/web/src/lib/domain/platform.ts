@@ -125,7 +125,8 @@ export async function getPlatformOverview(db: PlatformDb, actorUserId: string, r
   const expiring = inForce.filter((item) => item.endsAt <= soon).sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime());
 
   const [payments] = await db.select({
-    billed: sql<string>`coalesce(sum(${subscriptionPayment.amountXof}) filter (where ${subscriptionPayment.status} <> 'failed'), 0)::text`,
+    // Une tentative GeniusPay annulée ou expirée (mission 12) n'est pas plus facturée qu'un échec.
+    billed: sql<string>`coalesce(sum(${subscriptionPayment.amountXof}) filter (where ${subscriptionPayment.status} not in ('failed','canceled','expired')), 0)::text`,
     collected: sql<string>`coalesce(sum(${subscriptionPayment.amountXof}) filter (where ${subscriptionPayment.status} = 'confirmed'), 0)::text`,
     pending: sql<string>`coalesce(sum(${subscriptionPayment.amountXof}) filter (where ${subscriptionPayment.status} = 'pending'), 0)::text`,
     refunded: sql<string>`coalesce(sum(${subscriptionPayment.amountXof}) filter (where ${subscriptionPayment.status} = 'refunded'), 0)::text`,

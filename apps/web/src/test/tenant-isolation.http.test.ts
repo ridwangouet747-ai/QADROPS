@@ -42,6 +42,8 @@ import * as stockMovementsRoute from "@/app/api/business/stock/movements/route";
 import * as stockOpeningRoute from "@/app/api/business/stock/opening/route";
 import * as stockRoute from "@/app/api/business/stock/route";
 import * as subscriptionPromotionRoute from "@/app/api/business/subscription/promotion/route";
+import * as subscriptionCheckoutRoute from "@/app/api/business/subscription/checkout/route";
+import * as subscriptionPaymentRoute from "@/app/api/business/subscription/payments/[attemptId]/route";
 import * as subscriptionRoute from "@/app/api/business/subscription/route";
 import * as suppliersRoute from "@/app/api/business/suppliers/route";
 import * as teamInvitationRoute from "@/app/api/business/team/invitations/[invitationId]/route";
@@ -59,6 +61,7 @@ import * as platformBusinessRoute from "@/app/api/platform/businesses/[businessI
 import * as platformPromotionsRoute from "@/app/api/platform/promotions/route";
 import readXlsxFile from "read-excel-file/node";
 import { processNotificationOutbox } from "@/lib/domain/notifications";
+import { configureFakeGeniusPay, FakeGeniusPay, unconfigureGeniusPay } from "./fake-geniuspay";
 import { newKey, startHttpHarness, todayAbidjan, type Actor, type HttpHarness, type HttpResult } from "./http-harness";
 
 vi.mock("@/lib/db/client", () => import("@/test/harness-database"));
@@ -169,6 +172,12 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
     b.ownerMember = team.members.find((row: { email: string }) => row.email === "owner@beta.test").memberId;
     b.push = (await ok(h.call(pushSubscriptionsRoute.POST, { path: "/api/notifications/push-subscriptions", actor: ownerB, body: { endpoint: "https://fcm.googleapis.com/fcm/send/harnais-beta", keys: PUSH_KEYS } }))).id;
 
+    // Paiement d'abonnement GeniusPay ouvert par B (mission 12) : GeniusPay simulé, aucun appel réseau.
+    configureFakeGeniusPay();
+    vi.stubGlobal("fetch", new FakeGeniusPay().fetch);
+    await h.client.query("insert into subscription_plan (id,code,name,price_xof,duration_days) values ('plan-isolation','ISOLATION','Forfait isolation',15000,30)");
+    b.subscriptionAttempt = (await ok(h.call(subscriptionCheckoutRoute.POST, { path: "/api/business/subscription/checkout", actor: ownerB, body: { planCode: "ISOLATION", idempotencyKey: newKey("abo") } }))).attemptId;
+
     // ---------------------------------------------------------------- Plateforme : code réservé à B
     platformAdmin = await h.signUp("Super Admin", "admin@qadr.test");
     await h.grantPlatformAdmin(platformAdmin);
@@ -182,7 +191,7 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
     snapshotBefore = await snapshot(businessB);
   });
 
-  afterAll(async () => { await h?.close(); });
+  afterAll(async () => { vi.unstubAllGlobals(); unconfigureGeniusPay(); await h?.close(); });
 
   describe("lecture par identifiant", () => {
     it("une vente de B est introuvable pour A, exactement comme une vente inexistante", async () => {
@@ -452,6 +461,18 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
       const reserved = await h.call(subscriptionPromotionRoute.POST, { path: "/api/business/subscription/promotion", actor: ownerA, body: { code: "RESERVE-BETA" } });
       const unknown = await h.call(subscriptionPromotionRoute.POST, { path: "/api/business/subscription/promotion", actor: ownerA, body: { code: "CODE-INEXISTANT" } });
       expectSameAsUnknown(reserved, unknown);
+    });
+
+    it("abonnement : un paiement GeniusPay de B est introuvable pour A, et A ne paie que sa propre facture", async () => {
+      expectSameAsUnknown(
+        await h.call(subscriptionPaymentRoute.GET, { path: `/api/business/subscription/payments/${b.subscriptionAttempt}`, actor: ownerA, params: { attemptId: b.subscriptionAttempt! } }),
+        await h.call(subscriptionPaymentRoute.GET, { path: `/api/business/subscription/payments/${UNKNOWN_ID}`, actor: ownerA, params: { attemptId: UNKNOWN_ID } }));
+      // Le paiement de A ne vise que la facture de A, quoi que contiennent le corps et les en-têtes.
+      const paid = await h.call(subscriptionCheckoutRoute.POST, { path: "/api/business/subscription/checkout", actor: ownerA, headers: { "x-business-id": businessB },
+        body: { planCode: "ISOLATION", idempotencyKey: newKey("abo"), businessId: businessB, attemptId: b.subscriptionAttempt } });
+      expect(paid.status).toBe(201);
+      expect(paid.body.attemptId).not.toBe(b.subscriptionAttempt);
+      expect(await h.count("select count(*)::text n from subscription_payment where id=$1 and business_id=$2", [paid.body.attemptId, businessA])).toBe(1);
     });
 
     it("plateforme : un commerçant ne voit pas la console et ne peut pas suspendre B", async () => {
