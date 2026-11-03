@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertProductionAuthUrl, readEnvironment } from "./env";
+import { assertProductionAuthUrl, migrationDatabaseUrl, readEnvironment, requireDatabaseUrl, requireMigrationDatabaseUrl } from "./env";
 
 describe("readEnvironment", () => {
   it("supports development with optional services absent", () => {
@@ -13,6 +13,20 @@ describe("readEnvironment", () => {
       NODE_ENV: "development",
       TURNSTILE_SECRET_KEY: "test-secret",
     })).toThrow("Turnstile nécessite une clé publique et une clé secrète configurées ensemble.");
+  });
+});
+
+describe("migrationDatabaseUrl", () => {
+  it("préfère la connexion directe pour les migrations, avec repli sur DATABASE_URL", () => {
+    const pooled = "postgres://u:p@ep-exemple-pooler.region.aws.neon.tech/db";
+    const direct = "postgres://u:p@ep-exemple.region.aws.neon.tech/db";
+    expect(migrationDatabaseUrl({ NODE_ENV: "development", DATABASE_URL: pooled, DATABASE_URL_UNPOOLED: direct })).toBe(direct);
+    expect(migrationDatabaseUrl({ NODE_ENV: "development", DATABASE_URL: pooled })).toBe(pooled);
+    // Une valeur vide déclarée est une erreur de configuration (même règle que DATABASE_URL).
+    expect(() => migrationDatabaseUrl({ NODE_ENV: "development", DATABASE_URL_UNPOOLED: "  " })).toThrow("Configuration");
+    expect(() => requireMigrationDatabaseUrl({ NODE_ENV: "development" })).toThrow("DATABASE_URL_UNPOOLED");
+    // L'application n'utilise jamais la connexion directe.
+    expect(requireDatabaseUrl({ NODE_ENV: "development", DATABASE_URL: pooled, DATABASE_URL_UNPOOLED: direct })).toBe(pooled);
   });
 });
 

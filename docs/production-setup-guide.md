@@ -39,7 +39,7 @@ Audit du 2026-11-01, établi par lecture du code de `apps/web` et `apps/print-ag
 | Resend | **Intégré** : réinitialisation, vérification d'adresse, invitations | **Oui, en pratique** (voir § 7.3) | Non : testé avec un faux client |
 | Cloudflare DNS | Rien dans le code (configuration externe) | Oui, si le domaine y est géré | Non |
 | Cloudflare Turnstile | **Intégré** : widget et vérification serveur | Oui (fortement recommandé) | Non : clés de test seulement |
-| Cloudflare R2 | **Absent** (variables en commentaire, aucun code) | Non | — |
+| Cloudflare R2 | **Intégré** (mission 12, lot L2) : stockage privé de l'original des imports, signature SigV4 maison, `docs/storage-r2.md` | Non : sans R2, l'import fonctionne sans garder l'original | Non : jamais contacté (`fetch` simulé, vecteurs AWS) |
 | Sentry | **Intégré** : serveur, edge et navigateur ; envoi des cartes sources **absent** | Recommandé | Non |
 | PostHog | **Intégré** : après consentement, catalogue fermé | Facultatif | Non : bibliothèque simulée |
 | Web Push / VAPID | **Intégré** : chiffrement maison, abonnement par appareil | Facultatif | Non : vecteur RFC seulement |
@@ -97,6 +97,10 @@ Inventaire tiré de toutes les lectures de `process.env` dans `apps/web` (schém
 | `VAPID_SUBJECT` | idem | Serveur | Facultative (push) : `mailto:` ou `https://` |
 | `CRON_SECRET` | `api/cron/subscriptions`, `api/internal/notifications/process` | Serveur | Recommandée (crons Vercel) |
 | `NOTIFICATIONS_CRON_SECRET` | `api/internal/notifications/process` | Serveur | Facultative : seulement pour un planificateur externe en `POST` |
+| `DATABASE_URL_UNPOOLED` | `drizzle.config.ts`, `scripts/migrate.ts` (`requireMigrationDatabaseUrl`) | Terminal (migrations) | Facultative : chaîne **directe** Neon, sinon `DATABASE_URL`. Jamais lue par l'application |
+| `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | `lib/storage/config.ts` | Serveur | Facultatives, **les quatre ensemble** ; `R2_SECRET_ACCESS_KEY` est un secret. Sans elles en production : aucun fichier conservé |
+| `R2_JURISDICTION` | idem | Serveur | Facultative : `eu` ou `fedramp` si le bucket a été créé dans une juridiction |
+| `QADR_STORAGE_IMPORT_MAX_BYTES`, `QADR_STORAGE_IMPORT_RETENTION_DAYS`, `QADR_STORAGE_EXPORT_*` | idem | Serveur | Facultatives et bornées (défauts : 2 Mio et 90 jours pour les originaux d'import) |
 
 ### 3.2 Variables techniques ou réservées à certains usages
 
@@ -107,13 +111,13 @@ Inventaire tiré de toutes les lectures de `process.env` dans `apps/web` (schém
 | `QADR_PREVIEW_MODE` | Démonstration locale PGlite. Refusée hors développement. | **Ne pas définir** (ou `false`) |
 | `PORT` | Port local de la prévisualisation | Ne pas définir |
 | `SENTRY_TEST_ENABLED` | Route de test Sentry, active **seulement** en développement | Ne pas définir |
+| `QADR_FILE_STORAGE` | `memory` : stockage de fichiers en mémoire, développement et tests seulement | **Refusée en production** |
 | `QADR_DB_TARGET` | Garde-fou des scripts `migrate.ts` et `platform-admin.ts`, à définir dans votre terminal au moment de la commande | **Jamais dans Vercel** |
 
 ### 3.3 Variables déclarées mais inutilisées
 
 | Variable | État |
 | --- | --- |
-| `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | En commentaire dans `.env.example`. **Aucun code ne les lit.** À ne pas créer tant que le module d'import (Qadr Capture) n'existe pas. |
 | `QADR_SESSION_SECRET`, `QADR_DATA_FILE`, `QADR_BOOTSTRAP_ADMIN_*` | Propres à l'ancien MVP de la racine. **Sans effet** sur `apps/web`. |
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | **Non lues** : l'envoi des cartes sources n'est pas branché (§ 9.4). Inutile de les créer aujourd'hui. |
 
@@ -180,7 +184,7 @@ Pourquoi un domaine fixe pour les *Preview* :
 - `drizzle.config.ts` ;
 - les scripts `scripts/migrate.ts`, `scripts/check-database.ts` et `scripts/platform-admin.ts`.
 
-**Variable :** `DATABASE_URL`.
+**Variables :** `DATABASE_URL` (chaîne *pooled*, application) et, pour les migrations seulement, `DATABASE_URL_UNPOOLED` (chaîne directe, repli sur `DATABASE_URL`). Procédure de première connexion : `docs/storage-r2.md` § 6.1 (mission 12, lot L2).
 
 ### 5.1 Étapes
 
@@ -188,7 +192,7 @@ Pourquoi un domaine fixe pour les *Preview* :
 2. Créer une branche de test (`staging`), issue de `main` mais vide de données réelles.
 3. Pour chaque branche, copier deux chaînes de connexion dans *Connection Details*, toutes deux avec `sslmode=require` :
    - **pooled** (l'hôte contient `-pooler`) : pour l'application (`DATABASE_URL` dans Vercel) ;
-   - **directe** (sans `-pooler`) : pour les migrations, dans votre terminal seulement.
+   - **directe** (sans `-pooler`) : pour les migrations, dans votre terminal seulement, sous le nom `DATABASE_URL_UNPOOLED` (lu par `drizzle.config.ts` et `npm run db:migrate`).
 4. Mettre la chaîne *pooled* de `main` dans Vercel *Production*, et celle de `staging` dans Vercel *Preview*.
 5. Activer une alerte de consommation et vérifier la durée de restauration (*point-in-time restore*) incluse dans le forfait.
 
@@ -360,7 +364,7 @@ Si vous voulez quand même le WAF de Cloudflare, il faudra :
 
 ### 8.4 R2
 
-Absent du code : ne rien créer pour l'instant.
+**État : intégré (mission 12, lot L2), jamais contacté.** Bucket privé (jamais public), jeton *Object Read & Write* limité à ce seul bucket, variables Vercel, aucune règle CORS nécessaire : voir `docs/storage-r2.md` § 4. Sans R2, l'import de catalogue fonctionne mais l'original n'est pas conservé, et l'écran le dit.
 
 ---
 
@@ -473,7 +477,7 @@ Sans VAPID, les notifications internes (cloche, boîte de réception) fonctionne
 
 | Route | Rôle | Planification (`apps/web/vercel.json`, heure UTC = heure d'Abidjan) | Secret |
 | --- | --- | --- | --- |
-| `GET /api/cron/subscriptions` | Fait passer à « expiré » les abonnements arrivés à échéance | `0 1 * * *` (1 h) | `CRON_SECRET` ; sans lui, la route répond 404 |
+| `GET /api/cron/subscriptions` | Fait passer à « expiré » les abonnements arrivés à échéance, puis supprime du stockage les fichiers échus et les envois orphelins (`docs/storage-r2.md` § 2.3) | `0 1 * * *` (1 h) | `CRON_SECRET` ; sans lui, la route répond 404 |
 | `GET` ou `POST /api/internal/notifications/process` | Rattrape la boîte d'envoi des notifications et prévient des abonnements qui finissent dans 3 jours | `0 7 * * *` (7 h) | `CRON_SECRET` (Vercel) ou `NOTIFICATIONS_CRON_SECRET` (planificateur externe) |
 
 1. Générer `CRON_SECRET` (§ 2) et le mettre dans Vercel *Production*. Vercel l'envoie de lui-même dans `Authorization: Bearer …` à chaque exécution.

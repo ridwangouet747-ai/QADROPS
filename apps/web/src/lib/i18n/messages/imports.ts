@@ -28,6 +28,10 @@ export const importsFr = {
     otherSheets: "Seule la première feuille remplie est lue ({count} autre(s) feuille(s) ignorée(s)).",
     loadFailed: "Impossible de charger cet import.",
     closed: "Cet import est terminé : il ne peut plus être modifié.",
+    originalStored: "Fichier d’origine conservé jusqu’au {date}.",
+    originalDownload: "Télécharger le fichier d’origine",
+    originalNone: "Le fichier d’origine n’a pas été conservé : seules les lignes lues sont gardées.",
+    originalDeleted: "Le fichier d’origine a été supprimé (durée de conservation écoulée ou import abandonné).",
   },
   columns: {
     title: "1. Les colonnes",
@@ -143,6 +147,7 @@ export const importsFr = {
     import_sku_taken: "Une référence du fichier existe déjà dans le catalogue.",
     import_too_many_open: "Trop d’imports en cours : terminez-en ou abandonnez-en un.",
     import_closed: "Cet import est terminé : il ne peut plus être modifié.",
+    storage_unavailable: "Le stockage des fichiers est indisponible pour le moment : réessayez plus tard.",
   },
 };
 
@@ -175,6 +180,10 @@ export const importsEn: typeof importsFr = {
     otherSheets: "Only the first filled sheet is read ({count} other sheet(s) ignored).",
     loadFailed: "This import could not be loaded.",
     closed: "This import is finished: it can no longer be changed.",
+    originalStored: "Original file kept until {date}.",
+    originalDownload: "Download the original file",
+    originalNone: "The original file was not kept: only the rows that were read are saved.",
+    originalDeleted: "The original file has been deleted (retention period over or import discarded).",
   },
   columns: {
     title: "1. Columns",
@@ -290,6 +299,7 @@ export const importsEn: typeof importsFr = {
     import_sku_taken: "A reference in the file already exists in the catalogue.",
     import_too_many_open: "Too many imports in progress: finish or discard one.",
     import_closed: "This import is finished: it can no longer be changed.",
+    storage_unavailable: "File storage is unavailable right now: please try again later.",
   },
 };
 
@@ -322,6 +332,10 @@ export const importsAr: typeof importsFr = {
     otherSheets: "تُقرأ أول ورقة ممتلئة فقط ({count} ورقة أخرى لم تُقرأ).",
     loadFailed: "تعذّر تحميل هذا الاستيراد.",
     closed: "انتهى هذا الاستيراد: لم يعد من الممكن تعديله.",
+    originalStored: "الملف الأصلي محفوظ حتى {date}.",
+    originalDownload: "تنزيل الملف الأصلي",
+    originalNone: "لم يُحفظ الملف الأصلي: تُحفظ الأسطر المقروءة فقط.",
+    originalDeleted: "حُذف الملف الأصلي (انتهت مدة الحفظ أو أُلغي الاستيراد).",
   },
   columns: {
     title: "1. الأعمدة",
@@ -437,5 +451,6 @@ export const importsAr: typeof importsFr = {
     import_sku_taken: "أحد المراجع في الملف موجود مسبقًا في الكتالوج.",
     import_too_many_open: "عمليات استيراد كثيرة قيد التنفيذ: أنهِ أحدها أو ألغِه.",
     import_closed: "انتهى هذا الاستيراد: لم يعد من الممكن تعديله.",
+    storage_unavailable: "تخزين الملفات غير متاح حاليًا: أعد المحاولة لاحقًا.",
   },
 };

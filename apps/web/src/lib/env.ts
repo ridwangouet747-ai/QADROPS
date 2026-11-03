@@ -5,6 +5,8 @@ const optionalNonEmpty = z.string().trim().min(1).optional();
 const environmentSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: optionalNonEmpty,
+  // Connexion directe Neon (nom posé par l'intégration Neon/Vercel), réservée aux migrations.
+  DATABASE_URL_UNPOOLED: optionalNonEmpty,
   BETTER_AUTH_SECRET: optionalNonEmpty,
   BETTER_AUTH_URL: z.string().url().default("http://localhost:3000"),
   NEXT_PUBLIC_AUTH_URL: z.string().url().default("http://localhost:3000"),
@@ -58,5 +60,20 @@ export function assertProductionAuthUrl(value: string | undefined) {
 export function requireDatabaseUrl(source: NodeJS.ProcessEnv = process.env): string {
   const value = readEnvironment(source).DATABASE_URL;
   if (!value) throw new Error("DATABASE_URL n’est pas configurée.");
+  return value;
+}
+
+/**
+ * URL des migrations (drizzle-kit, `scripts/migrate.ts`) : la connexion directe `DATABASE_URL_UNPOOLED`
+ * (sans `-pooler`) si elle est déclarée, sinon `DATABASE_URL`. L'application, elle, n'utilise que `DATABASE_URL`.
+ */
+export function migrationDatabaseUrl(source: NodeJS.ProcessEnv = process.env): string | undefined {
+  const values = readEnvironment(source);
+  return values.DATABASE_URL_UNPOOLED ?? values.DATABASE_URL;
+}
+
+export function requireMigrationDatabaseUrl(source: NodeJS.ProcessEnv = process.env): string {
+  const value = migrationDatabaseUrl(source);
+  if (!value) throw new Error("Ni DATABASE_URL_UNPOOLED ni DATABASE_URL ne sont configurées.");
   return value;
 }

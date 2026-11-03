@@ -444,10 +444,44 @@ export const printJob = pgTable("print_job", {
   check("print_job_kind_check", sql`${t.kind} in ('receipt','test')`), check("print_job_status_check", sql`${t.status} in ('pending','printed','failed','uncertain','canceled')`),
   check("print_job_receipt_sale_check", sql`(${t.kind} = 'receipt') = (${t.saleId} is not null)`)]);
 
+/* ------------------------------------------------------------------ Stockage privé de fichiers (mission 12, lot L2) */
+
+/**
+ * Métadonnées d'un fichier déposé dans le stockage privé (R2). Le contenu n'est jamais en base.
+ * - `object_key` : `<finalité>/<64 hex aléatoires>`, produite par le serveur ; ni nom de fichier ni identifiant
+ *   de commerce. L'accès est décidé ici (commerce + permission), jamais par la clé.
+ * - `pending` : ligne écrite avant l'envoi. Elle ne devient `stored` que dans la transaction métier qui l'utilise ;
+ *   une ligne `pending` ancienne est un orphelin (envoi échoué ou transaction annulée) supprimé par le cron.
+ * - `deleted` : objet supprimé (échéance de conservation, orphelin, import abandonné). La ligne reste (historique).
+ */
+export const storedFile = pgTable("stored_file", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  purpose: text("purpose").notNull(), status: text("status").notNull().default("pending"), objectKey: text("object_key").notNull(),
+  fileType: text("file_type").notNull(), sizeBytes: integer("size_bytes").notNull(), sha256: text("sha256").notNull(), displayName: text("display_name").notNull(),
+  uploadedByUserId: text("uploaded_by_user_id").notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  storedAt: timestamp("stored_at", { withTimezone: true }), retentionUntil: timestamp("retention_until", { withTimezone: true }).notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }), deletionReason: text("deletion_reason"),
+}, (t) => [unique("stored_file_business_id_unique").on(t.businessId, t.id), unique("stored_file_object_key_unique").on(t.objectKey),
+  foreignKey({ columns: [t.businessId, t.uploadedByUserId], foreignColumns: [member.organizationId, member.userId], name: "stored_file_uploader_membership_fk" }),
+  // Passage planifié (tous commerces) : objets échus à supprimer, puis orphelins `pending`.
+  index("stored_file_retention_idx").on(t.retentionUntil).where(sql`${t.status} = 'stored'`),
+  index("stored_file_pending_idx").on(t.receivedAt).where(sql`${t.status} = 'pending'`),
+  check("stored_file_purpose_check", sql`${t.purpose} in ('import_source','export')`),
+  check("stored_file_status_check", sql`${t.status} in ('pending','stored','deleted')`),
+  check("stored_file_type_check", sql`${t.fileType} in ('csv','xlsx','pdf','jpeg','png')`),
+  check("stored_file_key_check", sql`${t.objectKey} ~ '^[a-z_]{1,32}/[0-9a-f]{64}$'`),
+  check("stored_file_sha_check", sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),
+  check("stored_file_size_check", sql`${t.sizeBytes} > 0`),
+  check("stored_file_name_length", sql`char_length(${t.displayName}) between 1 and 200`),
+  check("stored_file_stored_check", sql`(${t.status} = 'pending') = (${t.storedAt} is null) or ${t.status} = 'deleted'`),
+  check("stored_file_deleted_check", sql`(${t.status} = 'deleted') = (${t.deletedAt} is not null) and (${t.deletedAt} is null) = (${t.deletionReason} is null)`),
+  check("stored_file_deletion_reason_check", sql`${t.deletionReason} is null or ${t.deletionReason} in ('retention','orphan','import_discarded')`)]);
+
 /* ------------------------------------------------------------------ Qadr Capture / Adapt (mission 11, phase 3) */
 
 // Un import = un fichier lu (CSV ou XLSX), relu ligne par ligne, puis appliqué par les services métier.
-// Les cellules d'origine restent sur chaque ligne (provenance) ; le fichier lui-même n'est pas conservé.
+// Les cellules d'origine restent sur chaque ligne (provenance). Depuis la mission 12 (lot L2), le fichier
+// d'origine est conservé dans le stockage privé quand il est configuré (`source_file_id`), sinon il ne l'est pas.
 export const importBatch = pgTable("import_batch", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   kind: text("kind").notNull().default("catalog"), status: text("status").notNull().default("review"),
@@ -456,8 +490,11 @@ export const importBatch = pgTable("import_batch", {
   mapping: jsonb("mapping").notNull(), mappingConfirmedAt: timestamp("mapping_confirmed_at", { withTimezone: true }), summary: jsonb("summary"),
   createdByUserId: text("created_by_user_id").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(), appliedAt: timestamp("applied_at", { withTimezone: true }),
+  sourceFileId: text("source_file_id"),
 }, (t) => [unique("import_batch_business_id_unique").on(t.businessId, t.id),
   foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "import_batch_actor_membership_fk" }),
+  foreignKey({ columns: [t.businessId, t.sourceFileId], foreignColumns: [storedFile.businessId, storedFile.id], name: "import_batch_source_file_tenant_fk" }),
+  uniqueIndex("import_batch_source_file_unique").on(t.businessId, t.sourceFileId),
   // Le même fichier envoyé deux fois rouvre l'import existant au lieu d'en créer un second.
   uniqueIndex("import_batch_same_file_unique").on(t.businessId, t.kind, t.fileSha256).where(sql`${t.status} <> 'discarded'`),
   index("import_batch_business_idx").on(t.businessId, t.createdAt),
@@ -500,5 +537,5 @@ export const databaseSchema = {
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
   promotionCode, promotionEligibleBusiness, businessSubscription, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
-  importBatch, importRow, productAlias,
+  storedFile, importBatch, importRow, productAlias,
 };

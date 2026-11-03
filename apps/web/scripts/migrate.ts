@@ -3,10 +3,11 @@ import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { requireDatabaseUrl } from "../src/lib/env";
+import { requireMigrationDatabaseUrl } from "../src/lib/env";
 
 async function main() {
-  const url = requireDatabaseUrl();
+  // Connexion directe (DATABASE_URL_UNPOOLED) si elle est déclarée, sinon DATABASE_URL.
+  const url = requireMigrationDatabaseUrl();
   if (process.env.QADR_DB_TARGET !== "development") {
     throw new Error("Refus : définissez QADR_DB_TARGET=development uniquement après avoir vérifié la cible.");
   }

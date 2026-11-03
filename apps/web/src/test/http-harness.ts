@@ -32,7 +32,12 @@ const PASSWORD = "mot-de-passe-de-test-harnais";
 function prepareEnvironment() {
   const env = process.env as Record<string, string | undefined>;
   for (const name of ["QADR_PREVIEW_MODE", "RESEND_API_KEY", "RESEND_FROM_EMAIL", "TURNSTILE_SECRET_KEY", "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
-    "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "SENTRY_DSN", "NEXT_PUBLIC_SENTRY_DSN", "NEXT_PUBLIC_POSTHOG_KEY"]) delete env[name];
+    "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "SENTRY_DSN", "NEXT_PUBLIC_SENTRY_DSN", "NEXT_PUBLIC_POSTHOG_KEY",
+    "R2_ACCOUNT_ID", "R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_JURISDICTION", "QADR_FILE_STORAGE",
+    "QADR_STORAGE_IMPORT_MAX_BYTES", "QADR_STORAGE_IMPORT_RETENTION_DAYS", "QADR_STORAGE_EXPORT_MAX_BYTES", "QADR_STORAGE_EXPORT_RETENTION_DAYS"]) delete env[name];
+  // Stockage de fichiers : celui de l'application en mode mémoire (aucun service distant). Un test peut le
+  // retirer (`delete process.env.QADR_FILE_STORAGE`) pour vérifier le fonctionnement sans stockage.
+  env.QADR_FILE_STORAGE = "memory";
   // URL factice : `getDatabase` est remplacé, cette adresse n'est jamais contactée.
   env.DATABASE_URL = "postgres://harnais:harnais@harnais.invalid/qadr";
   env.BETTER_AUTH_SECRET = "secret-de-test-du-harnais-http-qadr-ops-0123456789";
