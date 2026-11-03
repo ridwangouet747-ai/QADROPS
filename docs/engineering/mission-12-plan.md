@@ -55,9 +55,9 @@ Sources : `geniuspay.ci/docs/api`, `/docs/subscription-api`, `/docs/sdk`.
 2. Période de grâce après échéance et restrictions d'un commerce `pending`/expiré (aujourd'hui : non bloqué pour `pending`).
 3. Activation de la carte récurrente via la Subscription API.
 4. Confirmation par GeniusPay : URL de base officielle, chaîne signée exacte (corps brut, encodage hex/base64), politique de relance des webhooks.
-5. Fournisseur OCR/HTR (D-03 : local d'abord).
+5. Fournisseur OCR/HTR. D-03 (`decisions.md`) : CSV, XLSX et PDF texte lus localement ; photos et manuscrit via un fournisseur externe derrière un adaptateur, désactivé tant que fournisseur, budget et clé ne sont pas validés.
 6. O-1 (imprimante d'un commerce suspendu).
-7. *Proposition L4, non validée* (`docs/qadr-capture-models.md`) : 1) PDF textuels natifs lus dans Vercel, sans OCR ; 2) OCR imprimé local (PaddleOCR PP-OCRv5 ou Tesseract, départagés par un banc) dans un conteneur séparé ; 3) manuscrit seulement après benchmark, l'éventuel essai d'API hébergée étant fait sur corpus synthétique et budget plafonné. À trancher aussi : D-03 (`decisions.md`) prévoit un fournisseur externe pour les photos, alors que le point 5 ci-dessus dit « local d'abord ».
+7. *Proposition L4, non validée* (`docs/qadr-capture-models.md`) : 1) PDF textuels natifs lus dans Vercel, sans OCR ; 2) OCR imprimé local (PaddleOCR PP-OCRv5 ou Tesseract, départagés par un banc) dans un conteneur séparé ; 3) manuscrit seulement après benchmark, l'éventuel essai d'API hébergée étant fait sur corpus synthétique et budget plafonné. L'étape 2 (OCR imprimé local) s'écarte de D-03, qui confie les photos à un fournisseur externe : à trancher par le propriétaire.
 
 ## 5. Lots et ordre d'exécution
 
