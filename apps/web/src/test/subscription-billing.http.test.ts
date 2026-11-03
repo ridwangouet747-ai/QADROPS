@@ -221,6 +221,15 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     expect(await h.count("select count(*)::text n from payment_provider_event where provider_reference=$1", [opened.reference])).toBe(0);
   });
 
+  it("champ `environment` absent de la relecture : l'environnement de la clé fait foi et le paiement est appliqué", async () => {
+    const { owner, businessId } = await merchant();
+    const opened = await openPayment(owner);
+    fake.set(opened.reference, { status: "completed", environment: undefined });
+    expect((await webhook(signedWebhook("payment.success", opened.reference))).status).toBe(200);
+    expect((await attempt(opened.attemptId)).status).toBe("confirmed");
+    expect((await subscriptions(businessId)).length).toBe(1);
+  });
+
   it.each([
     ["montant incorrect", { amount: 1500 }, "amount_mismatch"],
     ["montant non entier", { amount: "15000.50" }, "amount_mismatch"],

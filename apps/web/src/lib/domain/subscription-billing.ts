@@ -288,7 +288,9 @@ async function recordAnomaly(db: CommercialDatabase, attempt: Pick<Attempt, "id"
 
 function anomalyOf(attempt: Attempt, payment: ProviderPayment, environment: BillingProvider["environment"]): VerificationOutcome | null {
   if (payment.reference !== attempt.providerReference) return "reference_mismatch";
-  if (payment.environment !== environment || attempt.environment !== environment) return "environment_mismatch";
+  // La doc de `GET /payments/{reference}` ne garantit pas le champ `environment` : absent, l'environnement est celui de la
+  // clé qui a servi à relire le paiement ; présent et différent, c'est une anomalie.
+  if ((payment.environment !== null && payment.environment !== environment) || attempt.environment !== environment) return "environment_mismatch";
   if (payment.metadata[METADATA_ATTEMPT] !== attempt.id || payment.metadata[METADATA_INVOICE] !== attempt.invoiceId) return "metadata_mismatch";
   if (payment.currency !== "XOF") return "currency_mismatch";
   if (payment.amountXof === null || payment.amountXof !== attempt.amountXof) return "amount_mismatch";
