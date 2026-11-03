@@ -20,7 +20,7 @@ Le propriétaire a fixé une référence visuelle (tableau de bord « FINNOVA »
 - **Composants ajoutés** : `StatCard`, `BarChart` (CSS, sans bibliothèque), `IconButton`, `Monogram` (`ui/data-display.tsx`) et `Card tone="night" | "brand"`.
 - **Écrans refondus en Tailwind** : tableau de bord (`dashboard-workspace.tsx`), caisse (`pos-workspace.tsx`), inventaire et navigation.
 - **Écrans réalignés sans réécriture** : produits, ventes, clients, stock, fournisseurs, achats, dépenses, paramètres, rapports et détail de vente. Ils passent par `src/app/business-theme.css`, couche `qadr`, qui l'emporte sur `legacy.css`.
-  - Leurs textes restent en français en dur.
+  - Leurs textes restaient en français en dur. Depuis la mission 12 (lot L3), ventes, clients, fournisseurs, achats, dépenses, paramètres et « Tous les modules » (`business-suite-workspace.tsx`) passent par `t()`, clés `suite.*` dans `messages/suite.ts`.
   - Ils sont à migrer écran par écran vers `src/components/ui`.
 - **Montants** : `formatXof` isole chaque montant (LRI … PDI), pour qu'il garde le bon ordre au milieu d'une phrase arabe.
 
@@ -75,4 +75,4 @@ La vitrine `/design-system` présente tous les composants dans les trois langues
 - **Limites** :
   - La préférence de langue est un cookie du navigateur, pas encore une préférence enregistrée par utilisateur.
   - La traduction arabe doit être relue par un locuteur natif.
-  - Les écrans autres que l'inventaire et la navigation restent en français en dur.
+  - Certains écrans restent en français en dur (vérifier écran par écran). La suite commerciale (`business-suite-workspace.tsx`) est traduite depuis la mission 12 ; téléphones et références y sont isolés en `dir="ltr"` (`<bdi>`), les heures suivent le fuseau du commerce.

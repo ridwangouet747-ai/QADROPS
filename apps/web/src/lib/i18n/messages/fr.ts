@@ -9,6 +9,7 @@ import { importsFr } from "./imports";
 import { exportsFr } from "./exports";
 import { wizardFr } from "./wizard";
 import { platformFr } from "./platform";
+import { suiteFr } from "./suite";
 /** Source des clés de traduction. `en.ts` et `ar.ts` doivent reprendre exactement la même structure. */
 export const fr = {
   common: {
@@ -739,6 +740,7 @@ export const fr = {
   pwa: pwaFr,
   imports: importsFr,
   exports: exportsFr,
+  suite: suiteFr,
   analytics: { consent: { title: "Mesure d'audience", body: "Acceptez-vous que Qadr Ops mesure, de façon anonyme, l'usage de l'application pour l'améliorer ? Aucun montant, nom ou contenu de vente n'est envoyé. Vous pouvez refuser sans conséquence.", accept: "Accepter", refuse: "Refuser" } },
 };
 

@@ -9,6 +9,7 @@ import { importsAr } from "./imports";
 import { exportsAr } from "./exports";
 import { wizardAr } from "./wizard";
 import { platformAr } from "./platform";
+import { suiteAr } from "./suite";
 import type { Messages } from "./fr";
 
 /** Traduction arabe initiale : à faire relire par un locuteur natif avant mise en production. */
@@ -741,5 +742,6 @@ export const ar: Messages = {
   pwa: pwaAr,
   imports: importsAr,
   exports: exportsAr,
+  suite: suiteAr,
   analytics: { consent: { title: "قياس الاستخدام", body: "هل توافق على أن يقيس Qadr Ops، بشكل مجهول، طريقة استخدام التطبيق لتحسينه؟ لا يُرسل أي مبلغ أو اسم أو محتوى بيع. يمكنك الرفض دون أي عواقب.", accept: "موافقة", refuse: "رفض" } },
 };
