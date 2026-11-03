@@ -3,6 +3,7 @@
 import { Children, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { operationKeyFor, type OperationAttempt } from "@/lib/client/operation-key";
+import { useI18n } from "@/components/i18n/i18n-provider";
 import { useBusinessRole, type BusinessArea } from "./business-shell";
 
 type Row = Record<string, unknown>;
@@ -14,6 +15,9 @@ type Settings = { name: string; phone: string | null; address: string | null; em
 type SupplierOption = { id: string; name: string };
 
 const paths: Record<string, string> = { sales: "/api/business/sales", customers: "/api/business/customers", suppliers: "/api/business/suppliers", purchases: "/api/business/purchases", expenses: "/api/business/expenses", settings: "/api/business/settings" };
+/** Listes chargées par pages `{ items, nextCursor }` (phase 6) ; les autres gardent la réponse historique. */
+const pagedSections = new Set(["customers", "suppliers"]);
+const PAGE_SIZE = 50;
 const headings: Record<string, [string, string, string]> = {
   dashboard: ["ACTIVITÉ DU COMMERCE", "Vue d’ensemble", "Les chiffres et alertes issus des opérations enregistrées dans votre espace."],
   products: ["CATALOGUE", "Produits", "Retrouvez vos articles, leurs prix et le niveau de stock associé."],
@@ -64,6 +68,7 @@ function DataTable({ columns, children, empty = "Aucune opération enregistrée 
 
 export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessArea, "dashboard" | "pos" | "products" | "stock" | "inventory" | "reports"> }) {
   const role = useBusinessRole();
+  const { t } = useI18n();
   const canManageCustomers = ["owner", "admin", "cashier"].includes(role);
   const canManageSuppliers = ["owner", "admin", "stock_manager"].includes(role);
   const canManageExpenses = ["owner", "admin", "accountant"].includes(role);
@@ -81,11 +86,30 @@ export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessA
   const [settingsDraft, setSettingsDraft] = useState<Settings | null>(null);
   const [productOptions, setProductOptions] = useState<ProductRow[]>([]);
   const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const paged = pagedSections.has(section);
+
+  const fetchPage = useCallback(async (cursor: string | null) => {
+    const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
+    if (cursor) query.set("cursor", cursor);
+    const response = await fetch(`${endpoint}?${query}`, { cache: "no-store" });
+    const result = await response.json() as Payload & { items?: Row[]; nextCursor?: string | null };
+    if (!response.ok) throw new Error(result.error || "Impossible de charger ces données.");
+    return { items: result.items ?? [], nextCursor: result.nextCursor ?? null };
+  }, [endpoint]);
 
   const reload = useCallback(async () => {
     if (!endpoint) return;
     setError("");
     try {
+      if (paged) {
+        // Après un ajout, on repart de la première page : la nouvelle fiche y apparaît à sa place alphabétique.
+        const page = await fetchPage(null);
+        setData({ [section]: page.items });
+        setNextCursor(page.nextCursor);
+        return;
+      }
       const response = await fetch(endpoint, { cache: "no-store" });
       const result = await response.json() as Payload;
       if (!response.ok) throw new Error(result.error || "Impossible de charger ces données.");
@@ -95,7 +119,22 @@ export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessA
         setPurchaseDraft((current) => ({ ...current, supplierId: current.supplierId || String((result.suppliers as Row[])[0]?.id ?? "") }));
       }
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Une erreur empêche le chargement."); }
-  }, [endpoint, section]);
+  }, [endpoint, section, paged, fetchPage]);
+
+  async function loadMore() {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true); setError("");
+    try {
+      const page = await fetchPage(nextCursor);
+      setData((current) => ({ ...current, [section]: [...((current?.[section] as Row[] | undefined) ?? []), ...page.items] }));
+      setNextCursor(page.nextCursor);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : t("common.genericError")); }
+    finally { setLoadingMore(false); }
+  }
+
+  const moreButton = paged && nextCursor
+    ? <div className="pt-3"><button type="button" className="business-secondary w-full"onClick={() => void loadMore()} disabled={loadingMore} aria-busy={loadingMore}>{loadingMore ? t("common.loading") : t("common.loadMore")}</button></div>
+    : null;
 
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => {
@@ -149,14 +188,14 @@ export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessA
     const rows = (data?.customers as CustomerRow[] | undefined) ?? [];
     return <><PageHeading section={section} action={<Link className="business-secondary suite-primary-link" href="/business/pos">Vente comptant sans client</Link>} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}
         <div className="suite-two-column">{canManageCustomers && <Panel title="Nouveau client" detail="Créer une fiche seulement si le suivi le nécessite."><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/customers", "POST", customerDraft, "Client ajouté.")}><label>Nom du client<input required maxLength={160} value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /></label><label>Téléphone (facultatif)<input type="tel" maxLength={60} value={customerDraft.phone} onChange={(event) => setCustomerDraft({ ...customerDraft, phone: event.target.value })} /></label><button className="business-primary" disabled={busy}>{busy ? "Enregistrement…" : "Ajouter le client"}</button></form></Panel>}
-        <Panel title="Comptes clients" detail="Le solde est recalculé depuis les ventes et paiements confirmés."><DataTable columns={["Client", "Téléphone", "Ventes", "Solde dû"]} empty={data ? "Aucun client enregistré." : "Chargement…"}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone || "—"}</td><td>{row.saleCount}</td><td className={BigInt(row.balanceXof) > 0n ? "suite-due" : ""}>{money(row.balanceXof)}</td></tr>)}</DataTable></Panel></div>
+        <Panel title="Comptes clients" detail="Le solde est recalculé depuis les ventes et paiements confirmés."><DataTable columns={["Client", "Téléphone", "Ventes", "Solde dû"]} empty={data ? "Aucun client enregistré." : "Chargement…"}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone || "—"}</td><td>{row.saleCount}</td><td className={BigInt(row.balanceXof) > 0n ? "suite-due" : ""}>{money(row.balanceXof)}</td></tr>)}</DataTable>{moreButton}</Panel></div>
       <p className="business-footnote">Un règlement mobile saisi manuellement correspond à une réception vérifiée par l’équipe. Les paiements initiés via un fournisseur externe restent en attente tant qu’aucune intégration ne les confirme.</p>
     </>;
   }
 
   if (section === "suppliers") {
     const rows = (data?.suppliers as SupplierRow[] | undefined) ?? [];
-    return <><PageHeading section={section} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}<div className="suite-two-column">{canManageSuppliers && <Panel title="Ajouter un fournisseur"><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/suppliers", "POST", supplierDraft, "Fournisseur ajouté.")}><label>Nom ou raison sociale<input required maxLength={160} value={supplierDraft.name} onChange={(event) => setSupplierDraft({ ...supplierDraft, name: event.target.value })} /></label><label>Téléphone<input type="tel" maxLength={60} value={supplierDraft.phone} onChange={(event) => setSupplierDraft({ ...supplierDraft, phone: event.target.value })} /></label><button className="business-primary" disabled={busy}>Enregistrer le fournisseur</button></form></Panel>}<Panel title="Fournisseurs actifs"><DataTable columns={["Fournisseur", "Téléphone", "Achats reçus", "Montant total"]} empty={data ? "Aucun fournisseur enregistré." : "Chargement…"}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone ?? "—"}</td><td>{row.purchaseCount}</td><td>{money(row.purchaseTotalXof)}</td></tr>)}</DataTable></Panel></div></>;
+    return <><PageHeading section={section} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}<div className="suite-two-column">{canManageSuppliers && <Panel title="Ajouter un fournisseur"><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/suppliers", "POST", supplierDraft, "Fournisseur ajouté.")}><label>Nom ou raison sociale<input required maxLength={160} value={supplierDraft.name} onChange={(event) => setSupplierDraft({ ...supplierDraft, name: event.target.value })} /></label><label>Téléphone<input type="tel" maxLength={60} value={supplierDraft.phone} onChange={(event) => setSupplierDraft({ ...supplierDraft, phone: event.target.value })} /></label><button className="business-primary" disabled={busy}>Enregistrer le fournisseur</button></form></Panel>}<Panel title="Fournisseurs actifs"><DataTable columns={["Fournisseur", "Téléphone", "Achats reçus", "Montant total"]} empty={data ? "Aucun fournisseur enregistré." : "Chargement…"}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone ?? "—"}</td><td>{row.purchaseCount}</td><td>{money(row.purchaseTotalXof)}</td></tr>)}</DataTable>{moreButton}</Panel></div></>;
   }
 
   if (section === "purchases") {
