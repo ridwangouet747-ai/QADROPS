@@ -9,3 +9,17 @@
 export function clientIpHeaders(userAgent: string | undefined = globalThis.navigator?.userAgent) {
   return userAgent === "Cloudflare-Workers" ? ["cf-connecting-ip"] : ["x-forwarded-for"];
 }
+
+/**
+ * Adresse du visiteur lue sur les mêmes en-têtes de confiance que Better Auth (voir ci-dessus), pour
+ * une limite de tentatives par adresse. Premier élément de `x-forwarded-for` (le client, ajouté par
+ * l'hébergeur). Sans en-tête, toutes les requêtes partagent la clé « unknown » : plus strict, jamais plus
+ * permissif.
+ */
+export function clientIpFrom(headers: Headers, names: string[] = clientIpHeaders()) {
+  for (const name of names) {
+    const value = headers.get(name)?.split(",")[0]?.trim();
+    if (value) return value.slice(0, 64);
+  }
+  return "unknown";
+}

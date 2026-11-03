@@ -17,7 +17,7 @@ import {
 type PlatformDb = CommercialDatabase;
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
 
-async function requirePlatformAdmin(db: PlatformDb, actorUserId: string) {
+export async function requirePlatformAdmin(db: PlatformDb, actorUserId: string) {
   const [grant] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin).where(and(
     eq(platformAdmin.userId, actorUserId), isNull(platformAdmin.revokedAt),
   )).limit(1);
@@ -28,7 +28,7 @@ async function requirePlatformAdmin(db: PlatformDb, actorUserId: string) {
  * Trace administrative : qui, quoi, quel commerce, avant/après, motif, résultat. Le journal est en ajout
  * seul (déclencheur `audit_event_no_update_delete`, migration 0010).
  */
-async function writePlatformAudit(db: PlatformDb, input: {
+export async function writePlatformAudit(db: PlatformDb, input: {
   actorUserId: string | null; eventType: string; entityType: string; entityId: string;
   businessId?: string | null; before?: Record<string, Json> | null; after?: Record<string, Json> | null;
   reason?: string | null; metadata?: Record<string, Json>;
@@ -134,7 +134,7 @@ export async function getPlatformOverview(db: PlatformDb, actorUserId: string, r
   }).from(subscriptionPayment).where(gte(subscriptionPayment.occurredAt, since));
   const [benefits] = await db.select({
     discountXof: sql<string>`coalesce(sum(${promotionRedemption.discountAmountXof}), 0)::text`,
-    offeredDays: sql<number>`coalesce(sum(${promotionCode.grantDays}) filter (where ${promotionCode.kind} = 'access'), 0)`,
+    offeredDays: sql<number>`coalesce(sum(${promotionCode.grantDays}) filter (where ${promotionCode.kind} in ('access', 'campaign')), 0)`,
     redemptions: sql<number>`count(*)`,
   }).from(promotionRedemption).innerJoin(promotionCode, eq(promotionCode.id, promotionRedemption.promotionId)).where(gte(promotionRedemption.redeemedAt, since));
 
@@ -397,7 +397,7 @@ export function promotionState(promo: { active: boolean; revokedAt: Date | null;
 export async function listPlatformPromotions(db: PlatformDb, actorUserId: string, now = new Date()) {
   await requirePlatformAdmin(db, actorUserId);
   const promotions = await db.select({ promo: promotionCode, planName: subscriptionPlan.name }).from(promotionCode)
-    .leftJoin(subscriptionPlan, eq(subscriptionPlan.id, promotionCode.planId)).orderBy(desc(promotionCode.createdAt), desc(promotionCode.startsAt));
+    .leftJoin(subscriptionPlan, eq(subscriptionPlan.id, promotionCode.planId)).where(eq(promotionCode.audience, "private")).orderBy(desc(promotionCode.createdAt), desc(promotionCode.startsAt));
   const redemptions = await db.select({
     id: promotionRedemption.id, promotionId: promotionRedemption.promotionId,
     businessId: promotionRedemption.businessId, businessName: organization.name,
@@ -530,7 +530,8 @@ export async function setPromotionStatus(db: PlatformDb, actorUserId: string, id
   const { action, reason } = promotionStatusSchema.parse(raw);
   await requirePlatformAdmin(db, actorUserId);
   return db.transaction(async (tx) => {
-    const [promo] = await tx.select({ id: promotionCode.id, code: promotionCode.code, active: promotionCode.active, revokedAt: promotionCode.revokedAt }).from(promotionCode).where(eq(promotionCode.id, id)).for("update").limit(1);
+    // Les campagnes publiques ont leur propre route (public-campaigns.ts) et leurs propres traces.
+    const [promo] = await tx.select({ id: promotionCode.id, code: promotionCode.code, active: promotionCode.active, revokedAt: promotionCode.revokedAt }).from(promotionCode).where(and(eq(promotionCode.id, id), eq(promotionCode.audience, "private"))).for("update").limit(1);
     if (!promo) throw new CommercialError("Code promotionnel introuvable.", 404);
     if (promo.revokedAt) throw new CommercialError("Ce code est déjà révoqué, définitivement.", 409);
     const now = new Date();
@@ -761,7 +762,8 @@ async function redeemInTransaction(db: PlatformDb, actorUserId: string, business
     if (profile.status === "suspended") throw new CommercialError("Ce commerce est suspendu : contactez Qadr Agency.", 403, "business_suspended");
     const invalid = () => new CommercialError("Code promotionnel invalide.", 404, "invalid");
     const [promo] = await tx.select().from(promotionCode).where(eq(promotionCode.code, input.code)).for("update").limit(1);
-    if (!promo) throw invalid();
+    // Une campagne publique ne se réclame qu'à l'inscription (D-12-4) : ici, elle répond comme un code inconnu.
+    if (!promo || promo.audience !== "private") throw invalid();
 
     // Rejeu : le même commerce renvoie le même code, on rend le résultat déjà enregistré.
     const [previous] = await tx.select().from(promotionRedemption).where(and(eq(promotionRedemption.promotionId, promo.id), eq(promotionRedemption.businessId, businessId))).limit(1);

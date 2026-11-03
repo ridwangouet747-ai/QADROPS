@@ -40,6 +40,18 @@ export const wizardFr = {
     label: "Illustration décorative : votre boutique se construit au fil des étapes.", loading: "Préparation de l’illustration…",
     captions: { account: "Les fondations sont posées", identity: "La façade prend forme", details: "L’intérieur s’installe", branding: "Votre enseigne s’affiche", review: "Votre boutique est prête", welcome: "C’est ouvert !" },
   },
+  promo: {
+    link: "Vous avez un code promotionnel ?", title: "Code promotionnel", label: "Votre code", placeholder: "Ex. : LANCEMENT",
+    hint: "Facultatif. L’avantage est vérifié puis appliqué par le serveur au moment de la création du commerce.",
+    check: "Vérifier", checking: "Vérification…", remove: "Retirer le code", plan: "Formule concernée", choosePlan: "Choisissez la formule pour profiter de l’offre.",
+    valid: "Code accepté", days: "{days} jours offerts", percent: "Remise de {percent} %", fixed: "Remise de {amount}", amountOn: "soit {amount} sur la formule {plan}",
+    until: "Offre valable jusqu’au {date}", onPlan: "Formule : {plan}", applyNote: "L’avantage sera appliqué à la création de votre commerce.",
+    invalid: "Ce code n’est pas valable pour une inscription. Vérifiez la saisie ou continuez sans code.",
+    rateLimited: "Trop d’essais. Patientez quelques minutes avant de réessayer.", security: "La vérification de sécurité a échoué. Réessayez.",
+    network: "Pas de connexion : le code n’a pas pu être vérifié.", empty: "Saisissez un code.",
+    applied: "Offre appliquée : {advantage}.", appliedPending: "Remise enregistrée sur la formule {plan} : elle sera déduite de votre premier paiement.",
+    appliedUntil: "Essai {plan} jusqu’au {date}.", unavailable: "Le code n’a pas pu être appliqué (offre terminée, complète ou déjà utilisée) : votre commerce est créé sans avantage.",
+  },
   restored: "Nous avons repris votre saisie là où vous l’aviez laissée.",
 };
 
@@ -87,6 +99,18 @@ export const wizardEn: WizardMessages = {
     label: "Decorative illustration: your shop is built step by step.", loading: "Preparing the illustration…",
     captions: { account: "The foundations are laid", identity: "The storefront takes shape", details: "The interior settles in", branding: "Your sign lights up", review: "Your shop is ready", welcome: "We're open!" },
   },
+  promo: {
+    link: "Have a promo code?", title: "Promo code", label: "Your code", placeholder: "E.g. LAUNCH",
+    hint: "Optional. The benefit is checked, then applied by the server when your business is created.",
+    check: "Check", checking: "Checking…", remove: "Remove code", plan: "Plan", choosePlan: "Choose the plan to use the offer.",
+    valid: "Code accepted", days: "{days} free days", percent: "{percent}% off", fixed: "{amount} off", amountOn: "that is {amount} on the {plan} plan",
+    until: "Offer valid until {date}", onPlan: "Plan: {plan}", applyNote: "The benefit will be applied when your business is created.",
+    invalid: "This code is not valid for sign-up. Check what you typed or continue without a code.",
+    rateLimited: "Too many attempts. Wait a few minutes before trying again.", security: "The security check failed. Try again.",
+    network: "No connection: the code could not be checked.", empty: "Enter a code.",
+    applied: "Offer applied: {advantage}.", appliedPending: "Discount recorded on the {plan} plan: it will be deducted from your first payment.",
+    appliedUntil: "{plan} trial until {date}.", unavailable: "The code could not be applied (offer ended, full or already used): your business was created without the benefit.",
+  },
   restored: "We picked up where you left off.",
 };
 
@@ -130,6 +154,18 @@ export const wizardAr: WizardMessages = {
   scene: {
     label: "رسم توضيحي زخرفي: متجرك يُبنى خطوة بخطوة.", loading: "جارٍ تحضير الرسم…",
     captions: { account: "وُضعت الأساسات", identity: "الواجهة تتشكّل", details: "الداخل يتجهّز", branding: "لافتتك تظهر", review: "متجرك جاهز", welcome: "نحن مفتوحون!" },
+  },
+  promo: {
+    link: "هل لديك رمز ترويجي؟", title: "رمز ترويجي", label: "رمزك", placeholder: "مثال: LANCEMENT",
+    hint: "اختياري. يتحقق الخادم من الميزة ثم يطبّقها عند إنشاء متجرك.",
+    check: "تحقّق", checking: "جارٍ التحقق…", remove: "إزالة الرمز", plan: "الباقة", choosePlan: "اختر الباقة للاستفادة من العرض.",
+    valid: "الرمز مقبول", days: "{days} يوماً مجاناً", percent: "خصم {percent}٪", fixed: "خصم {amount}", amountOn: "أي {amount} على باقة {plan}",
+    until: "العرض صالح حتى {date}", onPlan: "الباقة: {plan}", applyNote: "ستُطبَّق الميزة عند إنشاء متجرك.",
+    invalid: "هذا الرمز غير صالح للتسجيل. تحقّق مما كتبته أو تابع دون رمز.",
+    rateLimited: "محاولات كثيرة جداً. انتظر بضع دقائق قبل إعادة المحاولة.", security: "فشل التحقق الأمني. أعد المحاولة.",
+    network: "لا يوجد اتصال: تعذّر التحقق من الرمز.", empty: "أدخل رمزاً.",
+    applied: "تم تطبيق العرض: {advantage}.", appliedPending: "سُجّل الخصم على باقة {plan}: سيُخصم من دفعتك الأولى.",
+    appliedUntil: "تجربة {plan} حتى {date}.", unavailable: "تعذّر تطبيق الرمز (انتهى العرض أو اكتمل أو استُخدم من قبل): أُنشئ متجرك دون الميزة.",
   },
   restored: "استأنفنا إدخالك من حيث توقفت.",
 };

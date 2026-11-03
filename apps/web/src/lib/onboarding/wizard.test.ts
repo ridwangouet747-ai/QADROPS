@@ -49,6 +49,18 @@ describe("brouillon et création", () => {
       .toEqual({ name: "Koné", activity: "hardware", storeFormat: "shop", creationKey: "cle-de-creation-0123456789" });
     expect(newCreationKey(() => "1234-5678-9abc-def0-1234")).toMatch(/^[A-Za-z0-9_-]{16,64}$/);
   });
+
+  it("garde le code promotionnel dans le brouillon et la charge utile, et ignore un code mal formé", () => {
+    const key = "cle-de-creation-0123456789";
+    const raw = serializeDraft({ step: "review", creationKey: key, business: { ...emptyBusiness, businessName: "Boutique Awa" }, account: {}, promotion: { code: "LANCEMENT", planCode: "PRO" } });
+    expect(parseDraft(raw)?.promotion).toEqual({ code: "LANCEMENT", planCode: "PRO" });
+    // Brouillon antérieur (sans promotion) toujours lisible.
+    expect(parseDraft(serializeDraft({ step: "review", creationKey: key, business: emptyBusiness, account: {} }))?.promotion).toBeUndefined();
+    expect(toCreateBusinessPayload({ ...emptyBusiness, businessName: "Koné" }, key, { code: "LANCEMENT" }))
+      .toEqual({ name: "Koné", activity: "general", storeFormat: "shop", promotion: { code: "LANCEMENT" }, creationKey: key });
+    expect(toCreateBusinessPayload({ ...emptyBusiness, businessName: "Koné" }, key, { code: "<script>" })).not.toHaveProperty("promotion");
+    expect(serializeDraft({ step: "review", creationKey: key, business: emptyBusiness, account: {}, promotion: { code: "x" } })).not.toContain("promotion");
+  });
 });
 
 describe("plan de la scène", () => {

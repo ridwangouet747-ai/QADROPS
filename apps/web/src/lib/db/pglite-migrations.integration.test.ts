@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies the eighteen committed migrations (0000-0017) and creates the expected tables", async () => {
+  it("applies the nineteen committed migrations (0000-0018) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,8 +24,8 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("18");
-    expect(tables.rows[0]?.count).toBe("57");
+    expect(applied.rows[0]?.count).toBe("19");
+    expect(tables.rows[0]?.count).toBe("58");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
     );
@@ -34,7 +34,7 @@ describe("versioned migrations on isolated PGlite", () => {
       "inventory_line", "inventory_scope_variant", "inventory_session", "invitation", "member", "notification", "notification_campaign", "notification_delivery", "notification_outbox",
       "notification_preference", "notification_template", "opening_balance", "opening_balance_payment", "organization", "payment",
       "payment_provider_event", "payment_refund", "platform_admin", "print_device", "print_job", "printer_settings", "product", "product_alias", "product_category",
-      "product_variant", "promotion_code", "promotion_eligible_business", "promotion_redemption", "purchase", "purchase_line",
+      "product_variant", "promotion_code", "promotion_eligible_business", "promotion_eligible_plan", "promotion_redemption", "purchase", "purchase_line",
       "purchase_payment", "push_subscription", "receipt_settings", "receivable_payment", "sale", "sale_line", "session",
       "stock_movement", "stock_opening", "stock_opening_line", "subscription_payment", "subscription_plan", "supplier", "user", "verification",
     ]);
@@ -76,6 +76,11 @@ describe("versioned migrations on isolated PGlite", () => {
       "select indexname from pg_indexes where schemaname='public' and indexname in ('customer_business_name_idx','sale_customer_idx','purchase_supplier_idx','purchase_payment_purchase_idx','purchase_payment_cash_session_idx','expense_cash_session_idx','refund_business_date_idx','refund_cash_session_idx','opening_payment_cash_session_idx','notification_delivery_subscription_idx','notification_delivery_attempted_idx') order by indexname",
     );
     expect(performanceIndexes.rows).toHaveLength(11);
+    // Migration 0018 (mission 12) : tout code existant reste privé ; une campagne publique est un autre type.
+    const audience = await client.query<{ column_default: string }>(
+      "select column_default from information_schema.columns where table_schema='public' and table_name='promotion_code' and column_name='audience'",
+    );
+    expect(audience.rows[0]?.column_default).toBe("'private'::text");
   });
 
   it("does not reapply migrations on a second migrate() call", async () => {
@@ -83,6 +88,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("18");
+    expect(applied.rows[0]?.count).toBe("19");
   });
 });

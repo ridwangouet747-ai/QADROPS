@@ -23,9 +23,10 @@ import { safeNext } from "@/lib/client/redirect";
 import type { MessageKey } from "@/lib/i18n/translate";
 import {
   accountSchema, activities, businessSchema, draftStorageKey, emptyBusiness, newCreationKey, parseDraft, scenePlan, serializeDraft,
-  storeFormats, toCreateBusinessPayload, wizardSteps, type AccountValues, type BusinessValues, type SceneStage, type WizardStep,
+  storeFormats, toCreateBusinessPayload, wizardSteps, type AccountValues, type BusinessValues, type SceneStage, type SignupPromotion, type WizardStep,
 } from "@/lib/onboarding/wizard";
 import { OnboardingScene } from "./onboarding-scene";
+import { PromoCodeBox, PromotionOutcome, type SignupOutcome } from "./promo-code-box";
 
 gsap.registerPlugin(useGSAP);
 
@@ -51,7 +52,13 @@ const storage = {
 export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }) {
   const { t, locale } = useI18n();
   const router = useRouter();
-  const next = safeNext(useSearchParams().get("next"));
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams.get("next"));
+  // Lien partagé (future page Pricing) : `?promo=CODE&plan=PRO` préremplit le champ, sans le vérifier.
+  const linkedPromo = (searchParams.get("promo") ?? "").slice(0, 40);
+  const linkedPlan = (searchParams.get("plan") ?? "").slice(0, 32);
+  const [promotion, setPromotion] = useState<SignupPromotion | null>(null);
+  const [promotionOutcome, setPromotionOutcome] = useState<SignupOutcome>(null);
   const [step, setStep] = useState<WizardStep>(entry === "onboarding" ? "identity" : "account");
   const [direction, setDirection] = useState(1);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
@@ -95,6 +102,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
     if (draft) {
       business.reset({ ...emptyBusiness, ...draft.business });
       account.reset({ ...emptyAccount, name: draft.account.name, email: draft.account.email });
+      if (draft.promotion) setPromotion(draft.promotion);
       if (draft.step !== "account") { setStep(draft.step); setRestored(true); }
     }
     fetch("/api/account/me", { cache: "no-store" }).then(async (response) => {
@@ -109,8 +117,8 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   /* Sauvegarde continue du brouillon (sans mot de passe). */
   useEffect(() => {
     if (!creationKey || phase === "welcome") return;
-    storage.write(serializeDraft({ step, creationKey, business: { ...emptyBusiness, ...values }, account: { name: accountName, email: accountEmail } }));
-  }, [values, step, creationKey, accountName, accountEmail, phase]);
+    storage.write(serializeDraft({ step, creationKey, business: { ...emptyBusiness, ...values }, account: { name: accountName, email: accountEmail }, promotion }));
+  }, [values, step, creationKey, accountName, accountEmail, phase, promotion]);
 
   /* Transition d'étape : fondu et léger glissement, rien si l'utilisateur réduit les animations. */
   useGSAP(() => {
@@ -180,7 +188,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
     setPhase("submitting"); setError("");
     let response: Response;
     try {
-      response = await fetch("/api/account/businesses", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(toCreateBusinessPayload(parsed.data, creationKey)) });
+      response = await fetch("/api/account/businesses", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(toCreateBusinessPayload(parsed.data, creationKey, promotion)) });
     } catch {
       setPhase("form"); setError(t("wizard.errors.network")); return;
     }
@@ -191,10 +199,13 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
       return;
     }
     // Confirmation du serveur reçue : seulement maintenant, la bienvenue.
+    const created = await response.json().catch(() => ({})) as { promotion?: SignupOutcome };
+    setPromotionOutcome(created.promotion ?? null);
     storage.clear();
     setPhase("welcome");
     track("signup_completed");
-    redirectTimer.current = setTimeout(() => router.push("/business/dashboard"), 3800);
+    // Un résultat de code promotionnel à lire laisse un peu plus de temps avant la redirection.
+    redirectTimer.current = setTimeout(() => router.push("/business/dashboard"), created.promotion ? 7000 : 3800);
   };
 
   const onLogo = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -243,6 +254,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
               <span data-welcome className="mx-auto grid size-14 place-items-center rounded-full bg-brand-gradient text-white shadow-brand"><Icon name="check" className="size-7" /></span>
               <h1 data-welcome className="m-0 mt-5 text-[1.9rem] leading-tight font-bold tracking-[-0.03em] text-ink">{t("wizard.welcome.title")}</h1>
               <p data-welcome className="m-0 mt-2 text-fg-muted">{t("wizard.welcome.body", { business: `⁨${businessLabel}⁩` })}</p>
+              {promotionOutcome && <div data-welcome className="mt-4 text-start"><PromotionOutcome outcome={promotionOutcome} /></div>}
               <span className="mt-6 block h-1.5 overflow-hidden rounded-full bg-surface-muted"><span data-progress className="block h-full origin-left rounded-full bg-brand rtl:origin-right" /></span>
               <p data-welcome className="m-0 mt-2 text-[0.8rem] text-fg-subtle">{t("wizard.welcome.redirecting")}</p>
               <Button data-welcome className="mt-5" size="lg" block onClick={() => router.push("/business/dashboard")} icon={<Icon name="forward" />}>{t("wizard.actions.goDashboard")}</Button>
@@ -364,6 +376,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
                         </span>
                       </ReviewBlock>
                       <p className="m-0 flex items-center gap-2 text-[0.8rem] text-fg-muted"><Icon name="info" className="size-4" />{t("wizard.review.currency")}</p>
+                      <PromoCodeBox value={promotion} onChange={setPromotion} initialCode={linkedPromo} initialPlan={linkedPlan} disabled={phase === "submitting"} />
                       <div className="mt-1 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
                         <Button variant="secondary" onClick={() => go("branding")} icon={<Icon name="back" />} disabled={phase === "submitting"}>{t("wizard.actions.back")}</Button>
                         <Button size="lg" loading={phase === "submitting"} onClick={() => void create()} icon={<Icon name="check" />}>{phase === "submitting" ? t("wizard.actions.creating") : t("wizard.actions.create")}</Button>

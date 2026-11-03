@@ -9,6 +9,7 @@ import { auditEvent, businessMemberAccess, businessProfile, invitation, member, 
 import { assertActiveMembership, BusinessContextError } from "./business-context";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { assertPlanQuota } from "./plan-limits";
+import { campaignOutcomeForBusiness, signupCampaignScope, type SignupCampaignScope } from "./public-campaigns";
 
 export const assignableRoles = ["owner", "admin", "cashier", "stock_manager", "accountant", "member"] as const;
 export type AssignableRole = (typeof assignableRoles)[number];
@@ -56,6 +57,11 @@ export const createBusinessInput = z.object({
   storeFormat: z.enum(storeFormats).optional(), displayName: z.string().trim().max(80).optional(),
   /** Identifiant du brouillon d'inscription : rejouer la même création renvoie le commerce déjà créé. */
   creationKey: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(),
+  /**
+   * Campagne publique choisie à l'inscription (mission 12) : seulement le code et la formule. Durée et
+   * remise sont relues par le serveur ; un code mal formé ne bloque pas la création (« unavailable »).
+   */
+  promotion: z.object({ code: z.string().max(60), planCode: z.string().max(60).optional() }).strict().optional(),
 });
 
 export function businessSlug(name: string) {
@@ -68,6 +74,10 @@ export function businessSlug(name: string) {
  * Avec une `creationKey` déjà utilisée par ce même propriétaire, renvoie le commerce existant au lieu d'en
  * créer un second (réponse perdue puis nouvel essai). Deux envois strictement simultanés restent protégés
  * par l'index unique sur `business_profile.creation_key` (voir docs/onboarding.md).
+ *
+ * Avec `promotion`, la campagne publique est réclamée dans la transaction qui crée le profil (crochet
+ * `afterCreateOrganization`) ; `promotion` dans la réponse dit si l'avantage a été appliqué. Un rejeu
+ * renvoie la réclamation déjà faite, jamais une seconde (docs/promotions.md).
  */
 export async function createBusiness(auth: QadrAuth, headers: Headers, raw: unknown, db?: CommercialDatabase) {
   const input = createBusinessInput.parse(raw);
@@ -80,18 +90,21 @@ export async function createBusiness(auth: QadrAuth, headers: Headers, raw: unkn
       .where(eq(businessProfile.creationKey, input.creationKey)).limit(1);
     if (existing) {
       await auth.api.setActiveOrganization({ headers, body: { organizationId: existing.id } });
-      return { id: existing.id, name: existing.name, replayed: true };
+      const claimed = await campaignOutcomeForBusiness(db, existing.id);
+      return { id: existing.id, name: existing.name, replayed: true, promotion: claimed ?? (input.promotion ? { status: "unavailable" as const } : null) };
     }
   }
+  const scope: SignupCampaignScope | undefined = input.promotion ? { request: input.promotion } : undefined;
   try {
-    const created = await auth.api.createOrganization({ headers, body: {
+    const createOrganization = () => auth.api.createOrganization({ headers, body: {
       name: input.name, slug: businessSlug(input.name), logo: input.logo,
       metadata: {
         activity: input.activity, phone: input.phone ?? "", address: input.address ?? "", storeFormat: input.storeFormat ?? "",
         displayName: input.displayName ?? "", creationKey: input.creationKey ?? "",
       }, keepCurrentActiveOrganization: false } });
+    const created = scope ? await signupCampaignScope.run(scope, createOrganization) : await createOrganization();
     if (!created) throw new BusinessContextError("Le commerce n’a pas pu être créé.", 500);
-    return { id: created.id, name: created.name, replayed: false };
+    return { id: created.id, name: created.name, replayed: false, promotion: scope ? scope.outcome ?? { status: "unavailable" as const } : null };
   } catch (error) {
     if (error instanceof BusinessContextError) throw error;
     return fromAuthError(error, "Le commerce n’a pas pu être créé.");
