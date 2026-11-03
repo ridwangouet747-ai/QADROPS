@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies the eighteen committed migrations (0000-0017) and creates the expected tables", async () => {
+  it("applies the nineteen committed migrations (0000-0018) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,8 +24,8 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("18");
-    expect(tables.rows[0]?.count).toBe("57");
+    expect(applied.rows[0]?.count).toBe("19");
+    expect(tables.rows[0]?.count).toBe("58");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
     );
@@ -36,7 +36,7 @@ describe("versioned migrations on isolated PGlite", () => {
       "payment_provider_event", "payment_refund", "platform_admin", "print_device", "print_job", "printer_settings", "product", "product_alias", "product_category",
       "product_variant", "promotion_code", "promotion_eligible_business", "promotion_redemption", "purchase", "purchase_line",
       "purchase_payment", "push_subscription", "receipt_settings", "receivable_payment", "sale", "sale_line", "session",
-      "stock_movement", "stock_opening", "stock_opening_line", "subscription_payment", "subscription_plan", "supplier", "user", "verification",
+      "stock_movement", "stock_opening", "stock_opening_line", "subscription_invoice", "subscription_payment", "subscription_plan", "supplier", "user", "verification",
     ]);
   });
 
@@ -76,6 +76,14 @@ describe("versioned migrations on isolated PGlite", () => {
       "select indexname from pg_indexes where schemaname='public' and indexname in ('customer_business_name_idx','sale_customer_idx','purchase_supplier_idx','purchase_payment_purchase_idx','purchase_payment_cash_session_idx','expense_cash_session_idx','refund_business_date_idx','refund_cash_session_idx','opening_payment_cash_session_idx','notification_delivery_subscription_idx','notification_delivery_attempted_idx') order by indexname",
     );
     expect(performanceIndexes.rows).toHaveLength(11);
+    // Migration 0018 (mission 12, L1b) : un événement prestataire inconnu reste sans commerce, dédupliqué
+    // globalement ; une seule facture d'abonnement ouverte par commerce.
+    const billing = await client.query<{ indexname: string }>(
+      "select indexname from pg_indexes where schemaname='public' and indexname in ('provider_event_provider_event_unique','subscription_invoice_one_open_unique','subscription_payment_provider_global_reference_unique') order by indexname",
+    );
+    expect(billing.rows.map((row) => row.indexname)).toEqual(["provider_event_provider_event_unique", "subscription_invoice_one_open_unique", "subscription_payment_provider_global_reference_unique"]);
+    const nullable = await client.query<{ is_nullable: string }>("select is_nullable from information_schema.columns where table_name='payment_provider_event' and column_name='business_id'");
+    expect(nullable.rows[0]?.is_nullable).toBe("YES");
   });
 
   it("does not reapply migrations on a second migrate() call", async () => {
@@ -83,6 +91,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("18");
+    expect(applied.rows[0]?.count).toBe("19");
   });
 });

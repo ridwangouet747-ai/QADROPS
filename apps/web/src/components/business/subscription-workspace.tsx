@@ -11,6 +11,7 @@ import { Icon } from "@/components/ui/icon";
 import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { intlLocale } from "@/lib/i18n/config";
 import { formatXof } from "@/lib/i18n/format";
+import { PayCard } from "./subscription-payment";
 import { finalizeCode, isPlausibleCode, normalizeCodeInput, redeemPromotionCode, type RedeemFailure, type RedeemSuccess } from "@/lib/subscription/redeem-outcome";
 
 type Lifecycle = "active" | "trial" | "pending" | "expired" | "suspended";
@@ -18,6 +19,9 @@ type Overview = {
   lifecycle: Lifecycle; canRedeem: boolean;
   subscription: { status: string; inForce: boolean; planCode: string; planName: string; origin: string; startsAt: string; endsAt: string; remainingDays: number } | null;
   pending: { id: string; planName: string; priceXof: string; durationDays: number } | null;
+  canPay?: boolean; onlinePayment?: boolean;
+  plans?: { code: string; name: string; priceXof: string; durationDays: number; description: string | null }[];
+  openInvoice?: { id: string; planCode: string; planName: string; amountXof: string; durationDays: number; pendingAttemptId: string | null } | null;
 };
 type LoadState = { overview: Overview | null; failure: "load" | "forbiddenView" | null };
 
@@ -95,7 +99,10 @@ export function SubscriptionWorkspace() {
           {overview?.lifecycle === "expired" && <p className="m-0 text-sm text-night-fg">{t("subscription.current.expiredHint")}</p>}
           {overview?.lifecycle === "suspended" && <p className="m-0 text-sm text-night-fg">{t("subscription.current.suspendedHint")}</p>}
         </Card>
-        <RedeemCard overview={overview} onActivated={reload} />
+        <div className="grid gap-4">
+          <PayCard overview={overview} />
+          <RedeemCard overview={overview} onActivated={reload} />
+        </div>
       </div>
     </div>
   );

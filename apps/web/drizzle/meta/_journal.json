@@ -127,6 +127,13 @@
       "when": 1793684469560,
       "tag": "0017_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793721354672,
+      "tag": "0018_subscription_billing_geniuspay",
+      "breakpoints": true
     }
   ]
 }
