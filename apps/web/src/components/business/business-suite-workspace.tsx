@@ -3,7 +3,10 @@
 import { Children, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { operationKeyFor, type OperationAttempt } from "@/lib/client/operation-key";
+import { errorMessageFor } from "@/lib/client/errors";
+import { formatDateTime, formatXof } from "@/lib/i18n/format";
 import { useI18n } from "@/components/i18n/i18n-provider";
+import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 import { useBusinessRole, type BusinessArea } from "./business-shell";
 
 type Row = Record<string, unknown>;
@@ -13,62 +16,63 @@ type CustomerRow = { id: string; name: string; phone: string | null; saleCount: 
 type SupplierRow = { id: string; name: string; phone: string | null; purchaseCount: string; purchaseTotalXof: string };
 type Settings = { name: string; phone: string | null; address: string | null; email: string | null; primaryColor: string; paperWidthMm: number; showLogo: boolean; receiptFooter: string | null; role?: string };
 type SupplierOption = { id: string; name: string };
+type Section = Exclude<BusinessArea, "dashboard" | "pos" | "products" | "stock" | "inventory" | "reports">;
 
 const paths: Record<string, string> = { sales: "/api/business/sales", customers: "/api/business/customers", suppliers: "/api/business/suppliers", purchases: "/api/business/purchases", expenses: "/api/business/expenses", settings: "/api/business/settings" };
-/** Listes chargées par pages `{ items, nextCursor }` (phase 6) ; les autres gardent la réponse historique. */
-const pagedSections = new Set(["customers", "suppliers"]);
+/**
+ * Listes chargées par pages `{ items, nextCursor }` (phase 6). Les journaux (ventes, achats, dépenses) sont triés du plus
+ * récent au plus ancien ; clients et fournisseurs par nom. Sans `limit`, l'API garde sa réponse historique (caisse, achats).
+ */
+const pagedSections = new Set(["customers", "suppliers", "sales", "purchases", "expenses"]);
 const PAGE_SIZE = 50;
-const headings: Record<string, [string, string, string]> = {
-  dashboard: ["ACTIVITÉ DU COMMERCE", "Vue d’ensemble", "Les chiffres et alertes issus des opérations enregistrées dans votre espace."],
-  products: ["CATALOGUE", "Produits", "Retrouvez vos articles, leurs prix et le niveau de stock associé."],
-  sales: ["ENCAISSEMENTS", "Ventes", "Historique des ventes, règlements confirmés et soldes restant dus."],
-  customers: ["RELATION CLIENT", "Clients & crédits", "Les comptes clients sont facultatifs pour une vente comptant."],
-  stock: ["DISPONIBILITÉ", "Stock", "Niveaux courants et journal traçable des mouvements."],
-  suppliers: ["APPROVISIONNEMENT", "Fournisseurs", "Contacts utiles et volumes d’achat reçus."],
-  purchases: ["APPROVISIONNEMENT", "Achats reçus", "Chaque réception augmente le stock et actualise le coût moyen pondéré."],
-  expenses: ["SUIVI DE CAISSE", "Dépenses", "Charges d’exploitation présentées à part des achats de stock."],
-  settings: ["IDENTITÉ DU COMMERCE", "Paramètres", "Coordonnées du commerce et préférences d’impression de ses reçus."],
-  modules: ["ESPACE DE TRAVAIL", "Tous les modules", "Accédez aux opérations disponibles pour votre commerce."]
+const headingKeys = ["sales", "customers", "suppliers", "purchases", "expenses", "settings", "modules"] as const;
+type HeadingKey = (typeof headingKeys)[number];
+const isHeadingKey = (value: string): value is HeadingKey => (headingKeys as readonly string[]).includes(value);
+
+const moduleKeys = ["dashboard", "pos", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "opening", "settings", "imports", "install"] as const;
+type ModuleKey = (typeof moduleKeys)[number];
+const modulePermissions: Record<string, readonly ModuleKey[]> = {
+  owner: moduleKeys, admin: moduleKeys,
+  stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening", "imports", "install"],
+  accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "install"],
+  cashier: ["pos", "products", "sales", "customers", "stock", "install"],
+  member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "install"],
 };
 
-const links = [
-  ["dashboard", "Vue d’ensemble", "Activité du jour, encaissements et alertes."], ["pos", "Caisse", "Recherche produit, panier, paiement et reçu."],
-  ["products", "Produits", "Catalogue, catégories, prix et unités."], ["sales", "Ventes", "Historique, détail, reçu et créances."],
-  ["customers", "Clients & crédits", "Comptes clients et soldes à régler."], ["stock", "Stock", "Quantités disponibles et mouvements."],
-  ["inventory", "Inventaires", "Comptage, écarts, validation à deux personnes."], ["suppliers", "Fournisseurs", "Contacts d’approvisionnement."],
-  ["purchases", "Achats reçus", "Réception des lignes et mise à jour du coût moyen."], ["expenses", "Dépenses", "Enregistrement des charges d’exploitation."],
-  ["reports", "Rapports", "Périodes, flux financiers, exports Excel, PDF et CSV."], ["opening", "Démarrage", "Stock de départ et anciennes dettes."], ["settings", "Paramètres", "Identité du commerce et format de reçu."],
-  ["imports", "Importer un catalogue", "Fichier CSV ou Excel, relu avant enregistrement."],
-  ["install", "Installer l’application", "Icône sur l’écran d’accueil, ouverture plein écran."],
-] as const;
+const expenseCategories = ["transport", "rent", "utilities", "supplies", "other"] as const;
+const isExpenseCategory = (value: string): value is (typeof expenseCategories)[number] => (expenseCategories as readonly string[]).includes(value);
 
-function money(value: unknown) {
-  if (value === null || value === undefined || value === "") return "—";
-  try { return `${new Intl.NumberFormat("fr-FR").format(BigInt(String(value)))} F CFA`; } catch { return "—"; }
-}
-function dateTime(value: unknown) {
-  if (!value) return "—";
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Abidjan" }).format(date);
+/** Réponse HTTP en erreur : le statut permet d'afficher un message traduit plutôt que la phrase française du serveur. */
+class HttpError extends Error {
+  constructor(public status: number, message?: string) { super(message); }
 }
 
-function PageHeading({ section, action }: { section: string; action?: ReactNode }) {
-  const [kicker, title, description] = headings[section] ?? headings.modules;
-  return <div className="business-heading"><div><p className="business-kicker">{kicker}</p><h1>{title}</h1><p>{description}</p></div>{action}</div>;
+async function readJson(response: Response) {
+  return await response.json().catch(() => ({})) as Payload & { items?: Row[]; nextCursor?: string | null };
+}
+
+function PageHeading({ section, action }: { section: Section; action?: ReactNode }) {
+  const { t } = useI18n();
+  const key: HeadingKey = isHeadingKey(section) ? section : "modules";
+  return <div className="business-heading"><div><p className="business-kicker">{t(`suite.headings.${key}.kicker`)}</p><h1>{t(`suite.headings.${key}.title`)}</h1><p>{t(`suite.headings.${key}.description`)}</p></div>{action}</div>;
 }
 
 function Panel({ title, detail, action, children, className = "" }: { title: string; detail?: string; action?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`panel suite-panel ${className}`}><header className="suite-panel-head"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</header>{children}</section>;
 }
 
-function DataTable({ columns, children, empty = "Aucune opération enregistrée pour le moment." }: { columns: string[]; children: ReactNode; empty?: string }) {
+function DataTable({ columns, children, empty }: { columns: string[]; children: ReactNode; empty: string }) {
   const hasRows = Children.count(children) > 0;
   return <div className="suite-table-scroll"><table className="suite-table"><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{children}</tbody>{!hasRows && <tfoot><tr><td colSpan={columns.length}>{empty}</td></tr></tfoot>}</table></div>;
 }
 
-export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessArea, "dashboard" | "pos" | "products" | "stock" | "inventory" | "reports"> }) {
+/** Téléphone, référence : toujours lus de gauche à droite, même au milieu d'une page arabe. */
+const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
+
+export function BusinessSuiteWorkspace({ section }: { section: Section }) {
   const role = useBusinessRole();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
   const canManageCustomers = ["owner", "admin", "cashier"].includes(role);
   const canManageSuppliers = ["owner", "admin", "stock_manager"].includes(role);
   const canManageExpenses = ["owner", "admin", "accountant"].includes(role);
@@ -88,60 +92,84 @@ export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessA
   const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadedMore, setLoadedMore] = useState(false);
+  /** Incrémenté à chaque rechargement : une page « suite » arrivée après un rechargement est ignorée (ni doublon ni mélange). */
+  const generation = useRef(0);
   const paged = pagedSections.has(section);
+
+  const money = (value: unknown) => formatXof(value === null || value === undefined ? null : String(value), locale);
+  const when = (value: unknown) => {
+    if (!value) return "—";
+    const date = new Date(String(value));
+    return Number.isNaN(date.getTime()) ? "—" : formatDateTime(date, locale, timeZone);
+  };
+  const messageFor = useCallback((caught: unknown, fallback: string) => {
+    if (caught instanceof HttpError) return errorMessageFor({ status: caught.status, serverMessage: caught.message || undefined, locale, t });
+    if (caught instanceof TypeError) return errorMessageFor({ status: null, locale, t });
+    return fallback;
+  }, [locale, t]);
 
   const fetchPage = useCallback(async (cursor: string | null) => {
     const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
     if (cursor) query.set("cursor", cursor);
     const response = await fetch(`${endpoint}?${query}`, { cache: "no-store" });
-    const result = await response.json() as Payload & { items?: Row[]; nextCursor?: string | null };
-    if (!response.ok) throw new Error(result.error || "Impossible de charger ces données.");
+    const result = await readJson(response);
+    if (!response.ok) throw new HttpError(response.status, result.error);
     return { items: result.items ?? [], nextCursor: result.nextCursor ?? null };
   }, [endpoint]);
 
   const reload = useCallback(async () => {
     if (!endpoint) return;
+    const current = ++generation.current;
     setError("");
     try {
       if (paged) {
-        // Après un ajout, on repart de la première page : la nouvelle fiche y apparaît à sa place alphabétique.
+        // Premier affichage ou après une écriture : on repart de la première page, la nouvelle ligne y apparaît à sa place.
         const page = await fetchPage(null);
+        if (current !== generation.current) return;
         setData({ [section]: page.items });
         setNextCursor(page.nextCursor);
+        setLoadedMore(false);
         return;
       }
       const response = await fetch(endpoint, { cache: "no-store" });
-      const result = await response.json() as Payload;
-      if (!response.ok) throw new Error(result.error || "Impossible de charger ces données.");
+      const result = await readJson(response);
+      if (!response.ok) throw new HttpError(response.status, result.error);
+      if (current !== generation.current) return;
       setData(result);
       if (section === "settings" && result.settings) setSettingsDraft(result.settings as unknown as Settings);
-      if (section === "purchases" && Array.isArray(result.suppliers)) {
-        setPurchaseDraft((current) => ({ ...current, supplierId: current.supplierId || String((result.suppliers as Row[])[0]?.id ?? "") }));
-      }
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Une erreur empêche le chargement."); }
-  }, [endpoint, section, paged, fetchPage]);
+    } catch (caught) {
+      // Les lignes déjà affichées restent en place : seul le message d'erreur s'ajoute.
+      if (current === generation.current) setError(messageFor(caught, t("suite.loadFailed")));
+    }
+  }, [endpoint, section, paged, fetchPage, messageFor, t]);
 
   async function loadMore() {
     if (!nextCursor || loadingMore) return;
+    const current = generation.current;
     setLoadingMore(true); setError("");
     try {
       const page = await fetchPage(nextCursor);
-      setData((current) => ({ ...current, [section]: [...((current?.[section] as Row[] | undefined) ?? []), ...page.items] }));
+      if (current !== generation.current) return;
+      setData((existing) => ({ ...existing, [section]: [...((existing?.[section] as Row[] | undefined) ?? []), ...page.items] }));
       setNextCursor(page.nextCursor);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : t("common.genericError")); }
+      setLoadedMore(true);
+    } catch (caught) { if (current === generation.current) setError(messageFor(caught, t("suite.loadFailed"))); }
     finally { setLoadingMore(false); }
   }
 
-  const moreButton = paged && nextCursor
-    ? <div className="pt-3"><button type="button" className="business-secondary w-full"onClick={() => void loadMore()} disabled={loadingMore} aria-busy={loadingMore}>{loadingMore ? t("common.loading") : t("common.loadMore")}</button></div>
-    : null;
+  const listFooter = paged && nextCursor
+    ? <div className="pt-3"><button type="button" className="business-secondary w-full" onClick={() => void loadMore()} disabled={loadingMore} aria-busy={loadingMore}>{loadingMore ? t("common.loading") : t("common.loadMore")}</button></div>
+    : paged && loadedMore ? <p className="m-0 pt-3 text-center text-xs text-fg-subtle" role="status">{t("suite.endOfList")}</p> : null;
+  const emptyText = (empty: string) => data ? empty : error ? "—" : t("common.loading");
 
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => {
     if (section !== "purchases") return;
     let active = true;
+    // Le formulaire de réception a besoin du catalogue et des fournisseurs complets : réponses historiques, sans `limit`.
     void Promise.all([fetch("/api/business/products", { cache: "no-store" }), fetch("/api/business/suppliers", { cache: "no-store" })]).then(async ([productsResponse, suppliersResponse]) => {
-      const [result, supplierResult] = await Promise.all([productsResponse.json(), suppliersResponse.json()]) as [Payload, Payload];
+      const [result, supplierResult] = await Promise.all([readJson(productsResponse), readJson(suppliersResponse)]);
       if (active && Array.isArray(result.products)) {
         setProductOptions(result.products as ProductRow[]);
         setPurchaseDraft((current) => ({ ...current, variantId: current.variantId || String((result.products as ProductRow[])[0]?.variantId ?? "") }));
@@ -159,67 +187,78 @@ export function BusinessSuiteWorkspace({ section }: { section: Exclude<BusinessA
     try {
       const payload = idempotent ? { ...body, idempotencyKey: operationKeyFor(attemptRef, { url, body }) } : body;
       const response = await fetch(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-      const result = await response.json() as Payload;
-      if (!response.ok) throw new Error(result.error || "L’opération n’a pas abouti.");
+      const result = await readJson(response);
+      if (!response.ok) throw new HttpError(response.status, result.error);
       if (idempotent) attemptRef.current = null;
       setNotice(success); await reload();
       if (section === "customers") setCustomerDraft({ name: "", phone: "" });
       if (section === "suppliers") setSupplierDraft({ name: "", phone: "" });
       if (section === "expenses") setExpenseDraft({ category: "transport", description: "", amountXof: "", paymentMethod: "cash" });
       if (section === "purchases") setPurchaseDraft((current) => ({ ...current, reference: `ACH-${Date.now().toString().slice(-8)}`, quantity: "1", unitCostXof: "", paidXof: "0" }));
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "L’opération n’a pas abouti."); }
+    } catch (caught) {
+      // Sans réponse, l'écriture n'est ni réussie ni échouée de façon certaine : la clé d'idempotence est conservée pour réessayer.
+      setError(caught instanceof TypeError ? t("pwa.network.requestFailed") : messageFor(caught, t("common.genericError")));
+    }
     finally { setBusy(false); }
   }
 
+  const alerts = <>{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}</>;
+
   if (section === "modules") {
-    const permissions: Record<string, string[]> = { owner: links.map(([key]) => key), admin: links.map(([key]) => key), stock_manager: ["dashboard", "products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "reports", "opening", "imports", "install"], accountant: ["dashboard", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "expenses", "reports", "install"], cashier: ["pos", "products", "sales", "customers", "stock", "install"], member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "install"] };
-    const allowed = permissions[role] ?? permissions.member;
-    return <><PageHeading section={section} /><div className="suite-module-grid">{links.filter(([key]) => allowed.includes(key)).map(([key, label, description], index) => <Link className="suite-module-link" href={`/business/${key}`} key={key}><span className="suite-module-index">{String(index + 1).padStart(2, "0")}</span><strong>{label}</strong><span>{description}</span><b aria-hidden="true">↗</b></Link>)}</div></>;
+    const allowed = modulePermissions[role] ?? modulePermissions.member;
+    return <><PageHeading section={section} /><div className="suite-module-grid">{moduleKeys.filter((key) => allowed.includes(key)).map((key, index) => <Link className="suite-module-link" href={`/business/${key}`} key={key}><span className="suite-module-index">{String(index + 1).padStart(2, "0")}</span><strong>{t(`suite.modules.${key}.label`)}</strong><span>{t(`suite.modules.${key}.detail`)}</span><b aria-hidden="true" className="inline-block rtl:-scale-x-100">↗</b></Link>)}</div></>;
   }
 
   if (section === "sales") {
     const rows = (data?.sales as Row[] | undefined) ?? [];
-    return <><PageHeading section={section} action={<Link className="business-primary suite-primary-link" href="/business/pos">Nouvelle vente</Link>} />{error && <p className="business-alert" role="alert">{error}</p>}
-      <Panel title="Journal des ventes" detail={`${rows.length} opération(s) affichée(s)`}><DataTable columns={["Référence", "Client", "Date", "Total", "Confirmé", "À régler", "Reçu"]} empty={data ? "Aucune vente enregistrée." : "Chargement…"}>{rows.map((row) => <tr key={String(row.id)}><td><Link href={`/business/sales/${row.id}`}>{String(row.reference)}</Link></td><td>{String(row.customerName ?? "Comptant")}</td><td>{dateTime(row.occurredAt)}</td><td>{money(row.totalXof)}</td><td>{money(row.paidXof)}</td><td>{money(row.dueXof)}</td><td><Link className="suite-text-link" href={`/business/sales/${row.id}/receipt`}>Imprimer</Link></td></tr>)}</DataTable></Panel>
+    const columns = (["reference", "customer", "date", "total", "confirmed", "due", "receipt"] as const).map((key) => t(`suite.sales.columns.${key}`));
+    return <><PageHeading section={section} action={<Link className="business-primary suite-primary-link" href="/business/pos">{t("suite.sales.newSale")}</Link>} />{alerts}
+      <Panel title={t("suite.sales.journal")} detail={data ? t(nextCursor ? "suite.sales.shownMore" : "suite.sales.shown", { count: rows.length }) : undefined}><DataTable columns={columns} empty={emptyText(t("suite.sales.empty"))}>{rows.map((row) => <tr key={String(row.id)}><td className="py-1"><Link className="inline-flex min-h-11 items-center" href={`/business/sales/${row.id}`}><Ltr>{String(row.reference)}</Ltr></Link></td><td>{row.customerName ? String(row.customerName) : t("suite.sales.walkIn")}</td><td>{when(row.occurredAt)}</td><td>{money(row.totalXof)}</td><td>{money(row.paidXof)}</td><td>{money(row.dueXof)}</td><td className="py-1"><Link className="suite-text-link inline-flex min-h-11 items-center" href={`/business/sales/${row.id}/receipt`}>{t("suite.sales.print")}</Link></td></tr>)}</DataTable>{listFooter}</Panel>
     </>;
   }
 
   if (section === "customers") {
     const rows = (data?.customers as CustomerRow[] | undefined) ?? [];
-    return <><PageHeading section={section} action={<Link className="business-secondary suite-primary-link" href="/business/pos">Vente comptant sans client</Link>} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}
-        <div className="suite-two-column">{canManageCustomers && <Panel title="Nouveau client" detail="Créer une fiche seulement si le suivi le nécessite."><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/customers", "POST", customerDraft, "Client ajouté.")}><label>Nom du client<input required maxLength={160} value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /></label><label>Téléphone (facultatif)<input type="tel" maxLength={60} value={customerDraft.phone} onChange={(event) => setCustomerDraft({ ...customerDraft, phone: event.target.value })} /></label><button className="business-primary" disabled={busy}>{busy ? "Enregistrement…" : "Ajouter le client"}</button></form></Panel>}
-        <Panel title="Comptes clients" detail="Le solde est recalculé depuis les ventes et paiements confirmés."><DataTable columns={["Client", "Téléphone", "Ventes", "Solde dû"]} empty={data ? "Aucun client enregistré." : "Chargement…"}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone || "—"}</td><td>{row.saleCount}</td><td className={BigInt(row.balanceXof) > 0n ? "suite-due" : ""}>{money(row.balanceXof)}</td></tr>)}</DataTable>{moreButton}</Panel></div>
-      <p className="business-footnote">Un règlement mobile saisi manuellement correspond à une réception vérifiée par l’équipe. Les paiements initiés via un fournisseur externe restent en attente tant qu’aucune intégration ne les confirme.</p>
+    const columns = (["customer", "phone", "sales", "balance"] as const).map((key) => t(`suite.customers.columns.${key}`));
+    return <><PageHeading section={section} action={<Link className="business-secondary suite-primary-link" href="/business/pos">{t("suite.customers.walkInSale")}</Link>} />{alerts}
+        <div className="suite-two-column">{canManageCustomers && <Panel title={t("suite.customers.newTitle")} detail={t("suite.customers.newDetail")}><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/customers", "POST", customerDraft, t("suite.customers.added"))}><label>{t("suite.customers.name")}<input required maxLength={160} value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} /></label><label>{t("suite.customers.phoneOptional")}<input type="tel" dir="ltr" maxLength={60} value={customerDraft.phone} onChange={(event) => setCustomerDraft({ ...customerDraft, phone: event.target.value })} /></label><button className="business-primary" disabled={busy}>{busy ? t("common.saving") : t("suite.customers.add")}</button></form></Panel>}
+        <Panel title={t("suite.customers.listTitle")} detail={t("suite.customers.listDetail")}><DataTable columns={columns} empty={emptyText(t("suite.customers.empty"))}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone ? <Ltr>{row.phone}</Ltr> : "—"}</td><td>{row.saleCount}</td><td className={BigInt(row.balanceXof) > 0n ? "suite-due" : ""}>{money(row.balanceXof)}</td></tr>)}</DataTable>{listFooter}</Panel></div>
+      <p className="business-footnote">{t("suite.customers.footnote")}</p>
     </>;
   }
 
   if (section === "suppliers") {
     const rows = (data?.suppliers as SupplierRow[] | undefined) ?? [];
-    return <><PageHeading section={section} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}<div className="suite-two-column">{canManageSuppliers && <Panel title="Ajouter un fournisseur"><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/suppliers", "POST", supplierDraft, "Fournisseur ajouté.")}><label>Nom ou raison sociale<input required maxLength={160} value={supplierDraft.name} onChange={(event) => setSupplierDraft({ ...supplierDraft, name: event.target.value })} /></label><label>Téléphone<input type="tel" maxLength={60} value={supplierDraft.phone} onChange={(event) => setSupplierDraft({ ...supplierDraft, phone: event.target.value })} /></label><button className="business-primary" disabled={busy}>Enregistrer le fournisseur</button></form></Panel>}<Panel title="Fournisseurs actifs"><DataTable columns={["Fournisseur", "Téléphone", "Achats reçus", "Montant total"]} empty={data ? "Aucun fournisseur enregistré." : "Chargement…"}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone ?? "—"}</td><td>{row.purchaseCount}</td><td>{money(row.purchaseTotalXof)}</td></tr>)}</DataTable>{moreButton}</Panel></div></>;
+    const columns = (["supplier", "phone", "purchases", "total"] as const).map((key) => t(`suite.suppliers.columns.${key}`));
+    return <><PageHeading section={section} />{alerts}<div className="suite-two-column">{canManageSuppliers && <Panel title={t("suite.suppliers.addTitle")}><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/suppliers", "POST", supplierDraft, t("suite.suppliers.added"))}><label>{t("suite.suppliers.name")}<input required maxLength={160} value={supplierDraft.name} onChange={(event) => setSupplierDraft({ ...supplierDraft, name: event.target.value })} /></label><label>{t("suite.suppliers.phone")}<input type="tel" dir="ltr" maxLength={60} value={supplierDraft.phone} onChange={(event) => setSupplierDraft({ ...supplierDraft, phone: event.target.value })} /></label><button className="business-primary" disabled={busy}>{busy ? t("common.saving") : t("suite.suppliers.save")}</button></form></Panel>}<Panel title={t("suite.suppliers.listTitle")}><DataTable columns={columns} empty={emptyText(t("suite.suppliers.empty"))}>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong></td><td>{row.phone ? <Ltr>{row.phone}</Ltr> : "—"}</td><td>{row.purchaseCount}</td><td>{money(row.purchaseTotalXof)}</td></tr>)}</DataTable>{listFooter}</Panel></div></>;
   }
 
   if (section === "purchases") {
     const rows = (data?.purchases as Row[] | undefined) ?? []; const suppliers = supplierOptions;
-    return <><PageHeading section={section} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}<div className="suite-two-column">{canManageSuppliers && <Panel title="Réceptionner un achat" detail="La réception actualise le stock et son coût moyen pondéré."><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/purchases", "POST", { ...purchaseDraft, lines: [{ variantId: purchaseDraft.variantId, quantity: purchaseDraft.quantity, unitCostXof: purchaseDraft.unitCostXof }] }, "Approvisionnement reçu ; stock et coût moyen mis à jour.", true)}>
-      <label>Fournisseur<select required value={purchaseDraft.supplierId} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, supplierId: event.target.value })}><option value="">Choisir…</option>{suppliers.map((row) => <option value={String(row.id)} key={String(row.id)}>{String(row.name)}</option>)}</select></label><label>Référence d’achat<input required value={purchaseDraft.reference} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, reference: event.target.value })} /></label>
-      <label>Article / variante<select required value={purchaseDraft.variantId} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, variantId: event.target.value })}><option value="">Choisir…</option>{productOptions.map((row) => <option value={row.variantId} key={row.variantId}>{row.name} · {row.variantLabel} ({row.sku ?? "sans SKU"})</option>)}</select></label><div className="suite-form-row"><label>Quantité reçue<input required inputMode="decimal" pattern="[0-9]+(\\.[0-9]{1,6})?" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label><label>Coût unitaire (XOF)<input required inputMode="numeric" pattern="[0-9]+" value={purchaseDraft.unitCostXof} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, unitCostXof: event.target.value })} /></label></div><div className="suite-form-row"><label>Payé au fournisseur<input inputMode="numeric" pattern="[0-9]*" value={purchaseDraft.paidXof} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, paidXof: event.target.value })} /></label><label>Mode de règlement<select value={purchaseDraft.paymentMethod} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, paymentMethod: event.target.value })}><option value="cash">Espèces</option><option value="wave">Wave (saisie manuelle)</option><option value="orange_money">Orange Money (saisie manuelle)</option><option value="mtn_momo">MTN MoMo (saisie manuelle)</option><option value="other">Autre</option></select></label></div><button className="business-primary" disabled={busy || !suppliers.length || !productOptions.length}>{busy ? "Réception en cours…" : "Confirmer la réception"}</button>
-      </form>{!suppliers.length && <p className="suite-form-help">Ajoutez d’abord un fournisseur dans le module Fournisseurs.</p>}</Panel>}
-      <Panel title="Derniers achats" detail="Les achats de stock sont séparés des dépenses d’exploitation."><DataTable columns={["Référence", "Fournisseur", "Date", "Total reçu", "Règlement"]} empty={data ? "Aucun achat réceptionné." : "Chargement…"}>{rows.map((row) => <tr key={String(row.id)}><td><strong>{String(row.reference)}</strong></td><td>{String(row.supplierName)}</td><td>{dateTime(row.occurredAt)}</td><td>{money(row.totalXof)}</td><td>{money(row.paidXof)}</td></tr>)}</DataTable></Panel></div></>;
+    const columns = (["reference", "supplier", "date", "total", "paid"] as const).map((key) => t(`suite.purchases.columns.${key}`));
+    return <><PageHeading section={section} />{alerts}<div className="suite-two-column">{canManageSuppliers && <Panel title={t("suite.purchases.receiveTitle")} detail={t("suite.purchases.receiveDetail")}><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/purchases", "POST", { ...purchaseDraft, lines: [{ variantId: purchaseDraft.variantId, quantity: purchaseDraft.quantity, unitCostXof: purchaseDraft.unitCostXof }] }, t("suite.purchases.received"), true)}>
+      <label>{t("suite.purchases.supplier")}<select required value={purchaseDraft.supplierId} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, supplierId: event.target.value })}><option value="">{t("suite.purchases.choose")}</option>{suppliers.map((row) => <option value={String(row.id)} key={String(row.id)}>{String(row.name)}</option>)}</select></label><label>{t("suite.purchases.reference")}<input required dir="ltr" value={purchaseDraft.reference} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, reference: event.target.value })} /></label>
+      <label>{t("suite.purchases.item")}<select required value={purchaseDraft.variantId} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, variantId: event.target.value })}><option value="">{t("suite.purchases.choose")}</option>{productOptions.map((row) => <option value={row.variantId} key={row.variantId}>{row.name} · {row.variantLabel} ({row.sku ?? t("suite.purchases.noSku")})</option>)}</select></label><div className="suite-form-row"><label>{t("suite.purchases.quantity")}<input required dir="ltr" inputMode="decimal" pattern="[0-9]+(\\.[0-9]{1,6})?" value={purchaseDraft.quantity} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, quantity: event.target.value })} /></label><label>{t("suite.purchases.unitCost")}<input required dir="ltr" inputMode="numeric" pattern="[0-9]+" value={purchaseDraft.unitCostXof} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, unitCostXof: event.target.value })} /></label></div><div className="suite-form-row"><label>{t("suite.purchases.paid")}<input dir="ltr" inputMode="numeric" pattern="[0-9]*" value={purchaseDraft.paidXof} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, paidXof: event.target.value })} /></label><label>{t("suite.purchases.paymentMethod")}<select value={purchaseDraft.paymentMethod} onChange={(event) => setPurchaseDraft({ ...purchaseDraft, paymentMethod: event.target.value })}><option value="cash">{t("suite.payment.cash")}</option><option value="wave">{t("suite.payment.waveManual")}</option><option value="orange_money">{t("suite.payment.orangeMoneyManual")}</option><option value="mtn_momo">{t("suite.payment.mtnMomoManual")}</option><option value="other">{t("suite.payment.other")}</option></select></label></div><button className="business-primary" disabled={busy || !suppliers.length || !productOptions.length}>{busy ? t("suite.purchases.submitting") : t("suite.purchases.submit")}</button>
+      </form>{!suppliers.length && <p className="suite-form-help">{t("suite.purchases.needSupplier")}</p>}</Panel>}
+      <Panel title={t("suite.purchases.listTitle")} detail={t("suite.purchases.listDetail")}><DataTable columns={columns} empty={emptyText(t("suite.purchases.empty"))}>{rows.map((row) => <tr key={String(row.id)}><td><strong><Ltr>{String(row.reference)}</Ltr></strong></td><td>{String(row.supplierName)}</td><td>{when(row.occurredAt)}</td><td>{money(row.totalXof)}</td><td>{money(row.paidXof)}</td></tr>)}</DataTable>{listFooter}</Panel></div></>;
   }
 
   if (section === "expenses") {
     const rows = (data?.expenses as Row[] | undefined) ?? [];
-    return <><PageHeading section={section} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}<div className="suite-two-column">{canManageExpenses && <Panel title="Nouvelle dépense" detail="N’enregistrez pas l’achat de marchandises comme charge courante."><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/expenses", "POST", expenseDraft, "Dépense enregistrée.", true)}><label>Catégorie<select value={expenseDraft.category} onChange={(event) => setExpenseDraft({ ...expenseDraft, category: event.target.value })}><option value="transport">Transport</option><option value="rent">Loyer</option><option value="utilities">Électricité / eau</option><option value="supplies">Fournitures</option><option value="other">Autre</option></select></label><label>Description<input required maxLength={240} value={expenseDraft.description} onChange={(event) => setExpenseDraft({ ...expenseDraft, description: event.target.value })} /></label><label>Montant (XOF)<input required inputMode="numeric" pattern="[0-9]+" value={expenseDraft.amountXof} onChange={(event) => setExpenseDraft({ ...expenseDraft, amountXof: event.target.value })} /></label><label>Payée par<select value={expenseDraft.paymentMethod} onChange={(event) => setExpenseDraft({ ...expenseDraft, paymentMethod: event.target.value })}><option value="cash">Espèces (sort de ma caisse)</option><option value="wave">Wave</option><option value="orange_money">Orange Money</option><option value="mtn_momo">MTN MoMo</option><option value="other">Autre</option></select></label><button className="business-primary" disabled={busy}>Enregistrer la dépense</button></form></Panel>}<Panel title="Dépenses récentes"><DataTable columns={["Date", "Catégorie", "Description", "Montant"]} empty={data ? "Aucune dépense saisie." : "Chargement…"}>{rows.map((row) => <tr key={String(row.id)}><td>{dateTime(row.occurredAt)}</td><td>{String(row.category)}</td><td>{String(row.description)}</td><td>{money(row.amountXof)}</td></tr>)}</DataTable></Panel></div></>;
+    const columns = (["date", "category", "description", "amount"] as const).map((key) => t(`suite.expenses.columns.${key}`));
+    // Catégorie libre côté serveur : les catégories proposées sont traduites, une valeur ancienne ou inconnue s'affiche telle quelle.
+    const categoryLabel = (value: unknown) => { const raw = String(value ?? ""); return isExpenseCategory(raw) ? t(`suite.expenses.categories.${raw}`) : raw; };
+    return <><PageHeading section={section} />{alerts}<div className="suite-two-column">{canManageExpenses && <Panel title={t("suite.expenses.newTitle")} detail={t("suite.expenses.newDetail")}><form className="suite-form" onSubmit={(event) => void submit(event, "/api/business/expenses", "POST", expenseDraft, t("suite.expenses.saved"), true)}><label>{t("suite.expenses.category")}<select value={expenseDraft.category} onChange={(event) => setExpenseDraft({ ...expenseDraft, category: event.target.value })}>{expenseCategories.map((value) => <option value={value} key={value}>{t(`suite.expenses.categories.${value}`)}</option>)}</select></label><label>{t("suite.expenses.description")}<input required maxLength={240} value={expenseDraft.description} onChange={(event) => setExpenseDraft({ ...expenseDraft, description: event.target.value })} /></label><label>{t("suite.expenses.amount")}<input required dir="ltr" inputMode="numeric" pattern="[0-9]+" value={expenseDraft.amountXof} onChange={(event) => setExpenseDraft({ ...expenseDraft, amountXof: event.target.value })} /></label><label>{t("suite.expenses.paidBy")}<select value={expenseDraft.paymentMethod} onChange={(event) => setExpenseDraft({ ...expenseDraft, paymentMethod: event.target.value })}><option value="cash">{t("suite.payment.cashDrawer")}</option><option value="wave">{t("suite.payment.wave")}</option><option value="orange_money">{t("suite.payment.orangeMoney")}</option><option value="mtn_momo">{t("suite.payment.mtnMomo")}</option><option value="other">{t("suite.payment.other")}</option></select></label><button className="business-primary" disabled={busy}>{busy ? t("common.saving") : t("suite.expenses.save")}</button></form></Panel>}<Panel title={t("suite.expenses.listTitle")}><DataTable columns={columns} empty={emptyText(t("suite.expenses.empty"))}>{rows.map((row) => <tr key={String(row.id)}><td>{when(row.occurredAt)}</td><td>{categoryLabel(row.category)}</td><td>{String(row.description)}</td><td>{money(row.amountXof)}</td></tr>)}</DataTable>{listFooter}</Panel></div></>;
   }
 
   if (section === "settings") {
     const settings = settingsDraft ?? data?.settings as Settings | undefined;
-    return <><PageHeading section={section} />{error && <p className="business-alert" role="alert">{error}</p>}{notice && <p className="business-notice" role="status">{notice}</p>}{settings && <form className="suite-settings" onSubmit={(event) => void submit(event, "/api/business/settings", "PATCH", { ...settings, email: settings.email || "", receiptFooter: settings.receiptFooter || null }, "Paramètres du commerce enregistrés.")}>
-      <Panel title="Profil commercial" detail="Ces informations identifient votre commerce dans les pages et documents."><div className="suite-form-grid"><label>Nom commercial<input required value={settings.name} onChange={(event) => setSettingsDraft({ ...settings, name: event.target.value })} /></label><label>Téléphone professionnel<input type="tel" value={settings.phone ?? ""} onChange={(event) => setSettingsDraft({ ...settings, phone: event.target.value || null })} /></label><label className="suite-span-two">Adresse<input value={settings.address ?? ""} onChange={(event) => setSettingsDraft({ ...settings, address: event.target.value || null })} /></label><label>E-mail professionnel<input type="email" value={settings.email ?? ""} onChange={(event) => setSettingsDraft({ ...settings, email: event.target.value || null })} /></label><label>Devise<select value="XOF" disabled><option>XOF — Franc CFA BCEAO</option></select></label><label>Fuseau horaire<select value="Africa/Abidjan" disabled><option>Africa/Abidjan</option></select></label><label>Couleur principale<input type="color" value={settings.primaryColor} onChange={(event) => setSettingsDraft({ ...settings, primaryColor: event.target.value })} /></label></div></Panel>
-      <Panel title="Reçu thermique" detail="L’impression s’effectue depuis le navigateur ; aucune imprimante n’est détectée automatiquement."><div className="suite-form-grid"><label>Largeur du ticket<select value={settings.paperWidthMm} onChange={(event) => setSettingsDraft({ ...settings, paperWidthMm: Number(event.target.value) })}><option value={58}>58 mm</option><option value={80}>80 mm</option></select></label><label className="suite-checkbox"><input type="checkbox" checked={settings.showLogo} onChange={(event) => setSettingsDraft({ ...settings, showLogo: event.target.checked })} />Afficher le logo du commerce (si configuré)</label><label className="suite-span-two">Message de pied de ticket<textarea maxLength={300} value={settings.receiptFooter ?? ""} onChange={(event) => setSettingsDraft({ ...settings, receiptFooter: event.target.value || null })} /></label></div><div className="suite-receipt-preview"><small>APERÇU DU REÇU</small><strong>{settings.name}</strong><span>{settings.phone || "Téléphone à renseigner"}</span><span>Vente · 12 500 F CFA</span><em>{settings.receiptFooter || "Merci de votre visite"}</em><span>{settings.paperWidthMm} mm · exemple de mise en page</span></div></Panel>
-      <div className="suite-save-row"><span>XOF · Africa/Abidjan</span>{canManageSettings ? <button className="business-primary" disabled={busy}>{busy ? "Enregistrement…" : "Enregistrer les paramètres"}</button> : <span>Lecture seule selon votre rôle.</span>}</div>
-    </form>}{!settings && !error && <p className="suite-loading">Chargement des paramètres…</p>}</>;
+    return <><PageHeading section={section} />{alerts}{settings && <form className="suite-settings" onSubmit={(event) => void submit(event, "/api/business/settings", "PATCH", { ...settings, email: settings.email || "", receiptFooter: settings.receiptFooter || null }, t("suite.settings.saved"))}>
+      <Panel title={t("suite.settings.profileTitle")} detail={t("suite.settings.profileDetail")}><div className="suite-form-grid"><label>{t("suite.settings.name")}<input required value={settings.name} onChange={(event) => setSettingsDraft({ ...settings, name: event.target.value })} /></label><label>{t("suite.settings.phone")}<input type="tel" dir="ltr" value={settings.phone ?? ""} onChange={(event) => setSettingsDraft({ ...settings, phone: event.target.value || null })} /></label><label className="suite-span-two">{t("suite.settings.address")}<input value={settings.address ?? ""} onChange={(event) => setSettingsDraft({ ...settings, address: event.target.value || null })} /></label><label>{t("suite.settings.email")}<input type="email" dir="ltr" value={settings.email ?? ""} onChange={(event) => setSettingsDraft({ ...settings, email: event.target.value || null })} /></label><label>{t("suite.settings.currency")}<select value="XOF" disabled><option value="XOF">{t("suite.settings.currencyOption")}</option></select></label><label>{t("suite.settings.timeZone")}<select value={timeZone} disabled><option value={timeZone}>{timeZone}</option></select></label><label>{t("suite.settings.primaryColor")}<input type="color" value={settings.primaryColor} onChange={(event) => setSettingsDraft({ ...settings, primaryColor: event.target.value })} /></label></div></Panel>
+      <Panel title={t("suite.settings.receiptTitle")} detail={t("suite.settings.receiptDetail")}><div className="suite-form-grid"><label>{t("suite.settings.paperWidth")}<select value={settings.paperWidthMm} onChange={(event) => setSettingsDraft({ ...settings, paperWidthMm: Number(event.target.value) })}><option value={58}>{t("suite.settings.widthOption", { width: 58 })}</option><option value={80}>{t("suite.settings.widthOption", { width: 80 })}</option></select></label><label className="suite-checkbox"><input type="checkbox" checked={settings.showLogo} onChange={(event) => setSettingsDraft({ ...settings, showLogo: event.target.checked })} />{t("suite.settings.showLogo")}</label><label className="suite-span-two">{t("suite.settings.footer")}<textarea maxLength={300} value={settings.receiptFooter ?? ""} onChange={(event) => setSettingsDraft({ ...settings, receiptFooter: event.target.value || null })} /></label></div><div className="suite-receipt-preview"><small>{t("suite.settings.previewTitle")}</small><strong>{settings.name}</strong><span>{settings.phone ? <Ltr>{settings.phone}</Ltr> : t("suite.settings.phoneMissing")}</span><span>{t("suite.settings.previewSale", { amount: formatXof("12500", locale) })}</span><em>{settings.receiptFooter || t("suite.settings.previewFooter")}</em><span>{t("suite.settings.previewWidth", { width: settings.paperWidthMm })}</span></div></Panel>
+      <div className="suite-save-row"><span><Ltr>XOF · {timeZone}</Ltr></span>{canManageSettings ? <button className="business-primary" disabled={busy}>{busy ? t("common.saving") : t("suite.settings.save")}</button> : <span>{t("suite.settings.readOnly")}</span>}</div>
+    </form>}{!settings && !error && <p className="suite-loading">{t("suite.settings.loading")}</p>}</>;
   }
 
-  return <><PageHeading section={section} /><p className="suite-empty">Cette section n’est pas disponible.</p></>;
+  return <><PageHeading section={section} /><p className="suite-empty">{t("suite.unavailable")}</p></>;
 }

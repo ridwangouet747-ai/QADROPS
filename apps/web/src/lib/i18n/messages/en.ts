@@ -9,6 +9,7 @@ import { importsEn } from "./imports";
 import { exportsEn } from "./exports";
 import { wizardEn } from "./wizard";
 import { platformEn } from "./platform";
+import { suiteEn } from "./suite";
 import type { Messages } from "./fr";
 
 export const en: Messages = {
@@ -740,5 +741,6 @@ export const en: Messages = {
   pwa: pwaEn,
   imports: importsEn,
   exports: exportsEn,
+  suite: suiteEn,
   analytics: { consent: { title: "Usage measurement", body: "Do you agree that Qadr Ops anonymously measures how the app is used, to improve it? No amount, name or sale content is sent. You can refuse with no consequence.", accept: "Accept", refuse: "Refuse" } },
 };

@@ -18,5 +18,5 @@ export default async function BusinessSectionPage({ params }: { params: Promise<
   if (area === "products") return <BusinessShell active={area} preview={preview}><ProductsWorkspace /></BusinessShell>;
   if (area === "stock") return <BusinessShell active={area} preview={preview}><StockWorkspace /></BusinessShell>;
   if (area === "pos") return <BusinessShell active={area} preview={preview}><PosWorkspace /></BusinessShell>;
-  return <BusinessShell active={area} preview={preview}><BusinessSuiteWorkspace section={area} /></BusinessShell>;
+  return <BusinessShell active={area} preview={preview}><BusinessSuiteWorkspace key={area} section={area} /></BusinessShell>;
 }

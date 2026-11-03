@@ -93,7 +93,7 @@ Le modèle est celui de `GET /api/business/products?limit=`. Si `limit` ou `curs
   - un curseur de A rejoué dans B ne renvoie que des lignes de B ;
   - un membre de B ne lit pas A (`403`) ;
   - un curseur falsifié donne `400`.
-- **Écrans non modifiés.** La suite commerciale lit encore les listes complètes. Un bouton « Voir plus » reste à brancher, avec des textes traduits.
+- **Écrans (mission 12, lot L3).** Produits et stock (niveaux, mouvements) utilisaient déjà `usePagedList`. Clients, fournisseurs, ventes, achats et dépenses (`business-suite-workspace.tsx`) chargent désormais 50 lignes, puis « Charger la suite » ajoute la page suivante sans retirer les lignes affichées ; en fin de liste, le bouton disparaît et « Toutes les lignes sont affichées » s'affiche. Après une écriture, la liste repart de la première page ; une page « suite » arrivée après un rechargement est ignorée. Ces écrans n'ont ni filtre ni recherche côté client. La caisse et le formulaire de réception d'achat lisent toujours le catalogue et les fournisseurs complets, sans `limit`.
 - La liste complète des clients et sa page n'utilisent pas le même plan, et les deux ont été mesurés :
   - la page lit les ventes client par client (`LATERAL`, index) ;
   - la liste complète agrège en une passe les seules ventes rattachées à un client.
@@ -129,4 +129,4 @@ Seules des créations d'index : la migration n'est pas destructive. Chaque index
 
 - Durées sur Neon et sous charge concurrente réelle (B-1). PGlite n'a qu'une connexion, si bien que l'interblocage de `updateBusinessSettings` ne peut pas y être reproduit. Sa correction est raisonnée, pas démontrée.
 - Plans d'exécution sur PostgreSQL réel avec des statistiques de production.
-- Bouton « Voir plus » dans les écrans.
+- Comportement du bouton « Charger la suite » sur plus de quelques centaines de lignes réelles : vérifié seulement en aperçu local (PGlite, 53 dépenses d'essai).
