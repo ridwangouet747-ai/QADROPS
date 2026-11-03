@@ -2,7 +2,8 @@
  * Validation serveur Cloudflare Turnstile (Siteverify). Le widget ne protège rien à lui seul :
  * chaque jeton est vérifié ici, une seule fois, avec le secret qui ne quitte jamais le serveur.
  */
-export const turnstileActions = ["login", "register", "password-reset"] as const;
+// « promotion-check » : vérification publique d'un code de campagne (mission 12, /api/public/campaigns/check).
+export const turnstileActions = ["login", "register", "password-reset", "promotion-check"] as const;
 export type TurnstileAction = (typeof turnstileActions)[number];
 
 /** En-tête qui transporte le jeton du widget vers les routes Better Auth protégées. */

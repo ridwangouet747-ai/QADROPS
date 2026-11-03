@@ -141,6 +141,13 @@
       "when": 1793748828424,
       "tag": "0019_stored_files",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793749558680,
+      "tag": "0020_public_campaigns",
+      "breakpoints": true
     }
   ]
 }

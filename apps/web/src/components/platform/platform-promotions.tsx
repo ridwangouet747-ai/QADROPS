@@ -6,6 +6,7 @@ import { cn } from "@/components/ui/cn";
 import { Icon } from "@/components/ui/icon";
 import { intlLocale } from "@/lib/i18n/config";
 import { formatXof } from "@/lib/i18n/format";
+import { PlatformCampaigns } from "./platform-campaigns";
 import { PfPageHeader } from "./platform-shell";
 import {
   PfBadge, PfButton, PfCard, PfDialog, PfEmpty, PfField, PfInput, PfNotice, PfReasonDialog, PfSegmented, PfSelect, PfSkeleton,
@@ -25,7 +26,22 @@ type StatusAction = { action: "pause" | "resume" | "revoke"; promotion: Promotio
 const today = () => new Date().toISOString().slice(0, 10);
 const stateTone = (state: State) => (state === "active" ? "solid" : state === "revoked" ? "alert" : state === "paused" || state === "scheduled" ? "muted" : "outline") as "solid" | "alert" | "muted" | "outline";
 
+/** Codes privés (mission 08) et campagnes publiques (mission 12) : deux systèmes séparés, une seule page. */
 export function PlatformPromotions() {
+  const { t } = useI18n();
+  const [view, setView] = useState<"private" | "public">("private");
+  return (
+    <>
+      <div className="mb-4">
+        <PfSegmented label={t("platform.campaigns.tabs.label")} value={view} onChange={setView}
+          options={[{ value: "private", label: t("platform.campaigns.tabs.private") }, { value: "public", label: t("platform.campaigns.tabs.public") }]} />
+      </div>
+      {view === "private" ? <PrivatePromotions /> : <PlatformCampaigns />}
+    </>
+  );
+}
+
+function PrivatePromotions() {
   const { t, locale } = useI18n();
   const [promotions, setPromotions] = useState<Promotion[] | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);

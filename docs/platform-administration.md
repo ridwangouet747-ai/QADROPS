@@ -89,12 +89,14 @@ Le contrôle plateforme ne donne pas d'accès implicite aux ventes, clients, lig
 | Commerces | `/platform/businesses` | Recherche et filtre, fiche administrative, suspension/réactivation confirmée et auditée. |
 | Abonnements | `/platform/subscriptions` | Périodes, essais, plans, statuts et seuls les paiements `subscription_payment`. |
 | Forfaits | `/platform/plans` | Création, activation/désactivation et fonctionnalités/quotas allow-listés. |
-| Promotions | `/platform/promotions` | Création, activation/désactivation, périodes, types d'avantage, éligibilité, plafond et utilisations. |
+| Promotions | `/platform/promotions` | Onglet « Codes privés » : création, activation/désactivation, périodes, types d'avantage, éligibilité, plafond et utilisations. Onglet « Campagnes publiques » (mission 12) : offres réclamables seulement à l'inscription, voir `docs/promotions.md`. |
 | Audit | `/platform/audit` | Événements globaux de plateforme, sans secrets ni contenu de paiement. |
 
 Les routes JSON correspondantes sont sous `/api/platform/*`. La route commerçant `/api/business/subscription/promotion` exige le rôle commercial `owner` ou `admin` du commerce de la session ; un code de réduction ne s'applique qu'à un abonnement en attente, un code d'accès ouvre ou prolonge un essai (voir « Saisie d'un code par le commerçant »).
 
 ## Règles financières et promotions
+
+> Mission 12 : les **campagnes publiques** (`audience = 'public'`, `kind = 'campaign'`) sont un système distinct des codes privés décrits ici, avec leurs propres routes `/api/platform/campaigns/*` et une vérification publique sans session. Un code public est refusé par la route privée comme un code inconnu. Modèle, règles et contrat : `docs/promotions.md`.
 
 - Les indicateurs de paiements plateforme ne lisent que `subscription_payment` avec statut confirmé. Ils n'additionnent jamais les `payment` des ventes client.
 - Un code est non cumulable. Il peut porter une réduction en pourcentage ou en montant XOF, une fenêtre de validité, un plafond et une liste d'entreprises éligibles (liste vide = toutes).

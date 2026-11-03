@@ -8,6 +8,7 @@ import { getDatabase } from "@/lib/db/client";
 import { authSchema, businessProfile, receiptSettings } from "@/lib/db/schema";
 import { assertProductionAuthUrl, readEnvironment } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
+import { claimPublicCampaignSafely, signupCampaignScope } from "@/lib/domain/public-campaigns";
 import { defaultLocale, localeCookie, resolveLocale, type Locale } from "@/lib/i18n/config";
 import { clientIpHeaders } from "./client-ip-headers";
 import { deliverEmail, emailRequestScope, resolveEmailTransport, type EmailLogger, type EmailMessage, type EmailTransport } from "./email";
@@ -151,18 +152,27 @@ export function createQadrAuth(options: AuthOptions) {
             throw new APIError("BAD_REQUEST", { message: "BUSINESS_ACTIVITY_REQUIRED" });
           }
         },
-        afterCreateOrganization: async ({ organization: created }) => {
+        afterCreateOrganization: async ({ organization: created, user }) => {
           const metadata = (typeof created.metadata === "string" ? JSON.parse(created.metadata) : created.metadata ?? {}) as {
             activity?: BusinessActivity; phone?: string; address?: string; storeFormat?: string; creationKey?: string; displayName?: string;
           };
           const storeFormat = (storeFormats as readonly string[]).includes(metadata.storeFormat ?? "") ? metadata.storeFormat! : null;
-          // Une clé déjà portée par un autre commerce n'est pas reprise : le profil est toujours créé.
-          const [taken] = metadata.creationKey ? await db.select({ id: businessProfile.businessId }).from(businessProfile).where(eq(businessProfile.creationKey, metadata.creationKey)).limit(1) : [];
-          await db.insert(businessProfile).values({
-            businessId: created.id, activity: metadata.activity ?? "general", phone: metadata.phone || null, address: metadata.address || null,
-            storeFormat, creationKey: taken ? null : metadata.creationKey || null,
-          }).onConflictDoNothing();
-          await db.insert(receiptSettings).values({ businessId: created.id, displayName: metadata.displayName || null }).onConflictDoNothing();
+          // Campagne publique choisie à l'inscription (mission 12) : transmise par account.ts hors des métadonnées.
+          const campaign = signupCampaignScope.getStore();
+          // Profil, réglages de reçu et réclamation éventuelle de la campagne : une seule transaction.
+          await db.transaction(async (tx) => {
+            // Une clé déjà portée par un autre commerce n'est pas reprise : le profil est toujours créé.
+            const [taken] = metadata.creationKey ? await tx.select({ id: businessProfile.businessId }).from(businessProfile).where(eq(businessProfile.creationKey, metadata.creationKey)).limit(1) : [];
+            const inserted = await tx.insert(businessProfile).values({
+              businessId: created.id, activity: metadata.activity ?? "general", phone: metadata.phone || null, address: metadata.address || null,
+              storeFormat, creationKey: taken ? null : metadata.creationKey || null,
+            }).onConflictDoNothing().returning({ businessId: businessProfile.businessId });
+            await tx.insert(receiptSettings).values({ businessId: created.id, displayName: metadata.displayName || null }).onConflictDoNothing();
+            // Sans profil créé ici (doublon strictement simultané), aucune réclamation : jamais deux fois.
+            if (campaign && inserted.length) {
+              campaign.outcome = await claimPublicCampaignSafely(tx, { businessId: created.id, userId: user.id, request: campaign.request });
+            }
+          });
         },
       },
     })],

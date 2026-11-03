@@ -8,7 +8,7 @@
 2. **Commerce** : nom, activité (quincaillerie, téléphonie, boutique générale, vêtements), type (boutique, kiosque, dépôt/grossiste, autre).
 3. **Coordonnées** : téléphone et adresse, facultatifs.
 4. **Identité** : logo facultatif (PNG/JPEG/WebP, réduit à 256 px, contrôles existants), nom affiché sur les documents (`receipt_settings.display_name`).
-5. **Vérification** : récapitulatif, retour possible à chaque étape, création via la route existante `POST /api/account/businesses`.
+5. **Vérification** : récapitulatif, retour possible à chaque étape, création via la route existante `POST /api/account/businesses`. Le lien discret « Vous avez un code promotionnel ? » (mission 12) permet de vérifier une **campagne publique** (Turnstile, sans rien consommer) ; le code retenu part avec la création, qui seule applique l'avantage, et la bienvenue affiche le résultat (appliqué ou non). `?promo=` et `?plan=` préremplissent le champ. Détails : `docs/promotions.md`.
 
 Validation : React Hook Form 7.89 + Zod + `@hookform/resolvers` 5.9.1, schémas purs dans `src/lib/onboarding/wizard.ts`, erreurs traduites sous chaque champ. Brouillon dans `sessionStorage` (jamais le mot de passe, jamais localStorage/IndexedDB), avec une `creationKey` : rejouer la création renvoie le même commerce (`replayed: true`) ; une clé déjà utilisée par un autre compte n'est jamais reprise. La bienvenue n'apparaît qu'après la réponse 201 du serveur ; une erreur réseau ou serveur laisse le formulaire et le brouillon intacts. Formulaires en `method="post"` et boutons inactifs avant hydratation : aucune donnée personnelle ne peut finir dans l'URL.
 

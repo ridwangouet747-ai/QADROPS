@@ -44,14 +44,26 @@ export type BusinessValues = z.infer<typeof businessSchema>;
 
 export const emptyBusiness: BusinessValues = { businessName: "", activity: "general", storeFormat: "shop", phone: "", address: "", logo: "", displayName: "" };
 
+/**
+ * Code de campagne publique retenu à l'étape récapitulative (docs/promotions.md). Ce n'est qu'une
+ * demande : le serveur revérifie tout au moment de créer le commerce et peut la refuser.
+ */
+export const signupPromotionSchema = z.object({
+  code: z.string().trim().min(3).max(40).regex(/^[A-Za-z0-9_-]+$/),
+  planCode: z.string().trim().min(2).max(32).optional(),
+}).strict();
+export type SignupPromotion = z.infer<typeof signupPromotionSchema>;
+
 /** Corps envoyé à POST /api/account/businesses (route et service existants). */
-export function toCreateBusinessPayload(values: BusinessValues, creationKey: string) {
+export function toCreateBusinessPayload(values: BusinessValues, creationKey: string, promotion?: SignupPromotion | null) {
+  const promo = promotion ? signupPromotionSchema.safeParse(promotion) : null;
   return {
     name: values.businessName.trim(), activity: values.activity, storeFormat: values.storeFormat,
     ...(values.phone.trim() ? { phone: values.phone.trim() } : {}),
     ...(values.address.trim() ? { address: values.address.trim() } : {}),
     ...(values.logo ? { logo: values.logo } : {}),
     ...(values.displayName.trim() ? { displayName: values.displayName.trim() } : {}),
+    ...(promo?.success ? { promotion: promo.data } : {}),
     creationKey,
   };
 }
@@ -68,6 +80,8 @@ const draftSchema = z.object({
     phone: z.string().max(40), address: z.string().max(200), logo: z.string().max(200_000), displayName: z.string().max(80),
   }),
   account: z.object({ name: z.string().max(100), email: z.string().max(254) }),
+  // Facultatif : un brouillon antérieur à la mission 12 reste lisible.
+  promotion: signupPromotionSchema.optional(),
 });
 export type WizardDraft = z.infer<typeof draftSchema>;
 
@@ -75,11 +89,13 @@ export type WizardDraft = z.infer<typeof draftSchema>;
  * Brouillon conservé pour reprendre après un rechargement : uniquement des informations non
  * sensibles. Le mot de passe et sa confirmation ne sont jamais copiés, quel que soit l'objet reçu.
  */
-export function serializeDraft(input: { step: WizardStep; creationKey: string; business: BusinessValues; account: Partial<AccountValues> }) {
+export function serializeDraft(input: { step: WizardStep; creationKey: string; business: BusinessValues; account: Partial<AccountValues>; promotion?: SignupPromotion | null }) {
+  const promotion = input.promotion ? signupPromotionSchema.safeParse(input.promotion) : null;
   const draft: WizardDraft = {
     version: 1, step: input.step, creationKey: input.creationKey,
     business: { ...emptyBusiness, ...pick(input.business, ["businessName", "activity", "storeFormat", "phone", "address", "logo", "displayName"]) },
     account: { name: input.account.name ?? "", email: input.account.email ?? "" },
+    ...(promotion?.success ? { promotion: promotion.data } : {}),
   };
   return JSON.stringify(draft);
 }

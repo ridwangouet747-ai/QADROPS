@@ -275,10 +275,26 @@ export const promotionCode = pgTable("promotion_code", {
   campaign: text("campaign"), batchId: text("batch_id"), createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), revokedAt: timestamp("revoked_at", { withTimezone: true }),
   revokedByUserId: text("revoked_by_user_id").references(() => user.id, { onDelete: "restrict" }), revokeReason: text("revoke_reason"),
+  /**
+   * Mission 12 (D-12-4) : `private` (défaut, tout l'historique) = code remis à un commerce déjà inscrit,
+   * appliqué sur /business/subscription ; `public` = campagne d'acquisition, réclamée à l'inscription.
+   * Chaque parcours refuse l'autre audience.
+   */
+  audience: text("audience").notNull().default("private"),
+  /** Texte de l'offre affiché au public, { fr, en, ar } ; campagnes publiques seulement. */
+  publicDescription: jsonb("public_description"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
 }, (t) => [
-  check("promotion_kind_check", sql`${t.kind} in ('discount','access')`),
+  check("promotion_kind_check", sql`${t.kind} in ('discount','access','campaign')`),
+  // « campaign » : jours offerts et/ou remise (jamais deux remises), au moins un avantage ; les formules
+  // éligibles sont dans promotion_eligible_plan (plan_id reste nul).
   check("promotion_discount_check", sql`(${t.kind} = 'discount' and ((${t.discountPercent} between 1 and 100 and ${t.discountXof} is null) or (${t.discountXof} > 0 and ${t.discountPercent} is null)))
-    or (${t.kind} = 'access' and ${t.discountPercent} is null and ${t.discountXof} is null and ${t.planId} is not null and ${t.grantDays} between 1 and 3650)`),
+    or (${t.kind} = 'access' and ${t.discountPercent} is null and ${t.discountXof} is null and ${t.planId} is not null and ${t.grantDays} between 1 and 3650)
+    or (${t.kind} = 'campaign' and ${t.planId} is null and (${t.grantDays} is null or ${t.grantDays} between 1 and 3650)
+      and (${t.discountPercent} is null or ${t.discountPercent} between 1 and 100) and (${t.discountXof} is null or ${t.discountXof} > 0)
+      and (${t.discountPercent} is null or ${t.discountXof} is null) and num_nonnulls(${t.grantDays}, ${t.discountPercent}, ${t.discountXof}) >= 1)`),
+  check("promotion_audience_check", sql`(${t.audience} = 'private' and ${t.kind} in ('discount','access'))
+    or (${t.audience} = 'public' and ${t.kind} = 'campaign' and ${t.campaign} is not null and ${t.publicDescription} is not null)`),
   check("promotion_limit_positive", sql`${t.maxRedemptions} is null or ${t.maxRedemptions} > 0`), check("promotion_validity_order", sql`${t.endsAt} is null or ${t.endsAt} > ${t.startsAt}`),
   index("promotion_batch_idx").on(t.batchId),
 ]);
@@ -287,6 +303,12 @@ export const promotionEligibleBusiness = pgTable("promotion_eligible_business", 
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.promotionId, t.businessId], name: "promotion_eligible_business_pk" })]);
+/** Formules sur lesquelles une campagne publique peut être réclamée (au moins une, exigé par le service). */
+export const promotionEligiblePlan = pgTable("promotion_eligible_plan", {
+  promotionId: text("promotion_id").notNull().references(() => promotionCode.id, { onDelete: "restrict" }),
+  planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.promotionId, t.planId], name: "promotion_eligible_plan_pk" })]);
 export const businessSubscription = pgTable("business_subscription", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }),
   status: text("status").notNull(), startsAt: timestamp("starts_at", { withTimezone: true }).notNull(), endsAt: timestamp("ends_at", { withTimezone: true }).notNull(), trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
@@ -350,7 +372,10 @@ export const promotionRedemption = pgTable("promotion_redemption", {
   businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), subscriptionId: text("subscription_id").notNull(),
   codeSnapshot: text("code_snapshot").notNull(), discountAmountXof: bigint("discount_amount_xof", { mode: "bigint" }).notNull().default(sql`0`),
   redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [foreignKey({ columns: [t.businessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "promotion_subscription_tenant_fk" }), unique("promotion_business_once_unique").on(t.promotionId, t.businessId), check("promotion_redemption_discount_nonnegative", sql`${t.discountAmountXof} >= 0`)]);
+  /** Compte qui a réclamé une campagne publique (une fois par compte) ; nul pour les codes privés. */
+  redeemedByUserId: text("redeemed_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+}, (t) => [foreignKey({ columns: [t.businessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "promotion_subscription_tenant_fk" }), unique("promotion_business_once_unique").on(t.promotionId, t.businessId), check("promotion_redemption_discount_nonnegative", sql`${t.discountAmountXof} >= 0`),
+  uniqueIndex("promotion_redemption_user_once_unique").on(t.promotionId, t.redeemedByUserId).where(sql`${t.redeemedByUserId} is not null`)]);
 
 export const auditEvent = pgTable("audit_event", {
   id: text("id").primaryKey(), businessId: text("business_id").references(() => businessProfile.businessId, { onDelete: "restrict" }), actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "restrict" }),
@@ -589,6 +614,6 @@ export const databaseSchema = {
   ...authSchema, businessProfile, businessMemberAccess, platformAdmin, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
-  promotionCode, promotionEligibleBusiness, businessSubscription, subscriptionInvoice, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
+  promotionCode, promotionEligibleBusiness, promotionEligiblePlan, businessSubscription, subscriptionInvoice, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
   storedFile, importBatch, importRow, productAlias,
 };
