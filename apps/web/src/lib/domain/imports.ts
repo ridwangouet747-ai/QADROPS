@@ -2,7 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "@/lib/auth/permissions";
-import { auditEvent, importBatch, importRow, member, product, productAlias, productCategory, productVariant } from "@/lib/db/schema";
+import { auditEvent, importBatch, importRow, member, product, productAlias, productCategory, productVariant, storedFile } from "@/lib/db/schema";
+import { DOWNLOAD_URL_TTL_SECONDS, getFileStorage } from "@/lib/storage/config";
+import type { StoredFileType } from "@/lib/storage/file-type";
+import type { FileStorage } from "@/lib/storage/types";
 import {
   duplicateRows, evaluateRow, widerRows, IMPORT_FIELDS, inferMapping, normalizeText, prepareCatalog, rowStatus,
   type Candidate, type CatalogEntry, type ColumnMapping, type ImportField, type PreparedCatalog, type RowDecision, type RowDecisionState,
@@ -13,15 +16,21 @@ import { IMPORT_LIMITS, readSpreadsheet, SpreadsheetError, type Cell } from "@/l
 import { CommercialError, insertProduct, type CommercialDatabase } from "./commercial";
 import { abidjanToday, assertReferenceDate, writeStockOpening } from "./opening";
 import { assertBusinessOperational, idempotencyKeySchema, runIdempotent, type CommercialTransaction } from "./operation-guard";
+import { confirmStoredFile, deleteStoredFileNow, openStoredFile, scheduleStoredFileDeletion, uploadBusinessFile } from "./stored-files";
 
 /*
  * Qadr Capture (mission 11, phase 3) : import d'un catalogue depuis un CSV ou un classeur XLSX.
- * Le fichier est lu une fois puis oublié ; chaque ligne garde ses cellules d'origine (provenance) jusqu'à
+ * Le fichier est lu une fois ; chaque ligne garde ses cellules d'origine (provenance) jusqu'à
  * l'application ou l'abandon. Rien n'est écrit dans le catalogue avant la confirmation explicite du commerçant,
  * et l'application passe par les mêmes règles que la saisie manuelle (insertProduct, writeStockOpening).
+ * Mission 12 (lot L2) : quand le stockage privé est configuré, le fichier d'origine y est conservé
+ * (`import_batch.source_file_id`) ; sinon il ne l'est pas, et l'écran le dit.
  */
 
 type Context = { businessId: string; actorUserId: string };
+/** `storage` absent : stockage de l'application (`getFileStorage()`) ; `null` : aucun stockage. */
+type StorageOption = { storage?: FileStorage | null };
+const storageOf = (options: StorageOption) => ("storage" in options ? options.storage ?? null : getFileStorage());
 type Reader = CommercialDatabase | CommercialTransaction;
 
 /** Au plus 200 lignes par transaction : c'est aussi la limite d'un stock d'ouverture. */
@@ -105,7 +114,25 @@ const safeFileName = (value: string) => value.replace(/^.*[\\/]/, "").replace(/\
 
 /* ------------------------------------------------------------------ Création */
 
-export async function createCatalogImport(db: CommercialDatabase, input: Context & { fileName: string; bytes: Buffer }) {
+/**
+ * Conserve l'original s'il y a un stockage. Un refus (type, taille) ou une panne du stockage n'empêche pas
+ * l'import : l'original n'est alors simplement pas conservé (le fichier a déjà été lu et validé).
+ */
+async function keepOriginal(db: CommercialDatabase, storage: FileStorage | null, input: Context & { fileName: string; bytes: Buffer }) {
+  if (!storage) return null;
+  try {
+    const result = await uploadBusinessFile(db, storage, { ...input, purpose: "import_source", displayName: input.fileName });
+    return result.fileId;
+  } catch (error) {
+    if (error instanceof CommercialError && (error.code === "file_type_refused" || error.code === "file_too_large")) {
+      console.warn(JSON.stringify({ event: "import.original_not_kept", code: error.code }));
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function createCatalogImport(db: CommercialDatabase, input: Context & { fileName: string; bytes: Buffer }, options: StorageOption = {}) {
   await requirePermission(db, input, ["product", "create"]);
   if (input.bytes.byteLength > IMPORT_LIMITS.fileBytes) spreadsheetFailure(new SpreadsheetError("too_large", "Le fichier dépasse 2 Mo."));
   const fileSha256 = createHash("sha256").update(input.bytes).digest("hex");
@@ -130,29 +157,34 @@ export async function createCatalogImport(db: CommercialDatabase, input: Context
   const withStock = await variantsWithStock(db, input.businessId, evaluated.flatMap((row) => (row.matchVariantId ? [row.matchVariantId] : [])));
   const rows = finalize(evaluated, withStock, headerRowNumber);
   const id = randomUUID();
+  // Dépôt de l'original AVANT la transaction (appel réseau) ; il n'est confirmé (`stored`) que si l'import est créé.
+  const uploadedFileId = await keepOriginal(db, storageOf(options), input);
+  let originalStored = false;
   try {
     await db.transaction(async (tx) => {
       await assertBusinessOperational(tx, input.businessId);
       const [open] = await tx.select({ count: sql<string>`count(*)::text` }).from(importBatch).where(and(eq(importBatch.businessId, input.businessId), eq(importBatch.status, "review")));
       if (Number(open?.count ?? 0) >= OPEN_IMPORTS_LIMIT) throw new CommercialError(`Terminez ou abandonnez un des ${OPEN_IMPORTS_LIMIT} imports en cours avant d’en commencer un autre.`, 409, "import_too_many_open");
+      originalStored = uploadedFileId !== null && await confirmStoredFile(tx, input.businessId, uploadedFileId);
       await tx.insert(importBatch).values({ id, businessId: input.businessId, kind: "catalog", fileName: safeFileName(input.fileName), fileType: sheet.fileType, fileSha256,
         fileSize: input.bytes.byteLength, sheetName: sheet.sheetName, headerRowNumber, columnCount: sheet.columnCount, rowCount: dataRows.length,
-        mapping, createdByUserId: input.actorUserId });
+        mapping, createdByUserId: input.actorUserId, sourceFileId: originalStored ? uploadedFileId : null });
       for (let start = 0; start < rows.length; start += APPLY_CHUNK) {
         await tx.insert(importRow).values(rows.slice(start, start + APPLY_CHUNK).map((row) => ({ id: randomUUID(), businessId: input.businessId, batchId: id,
           rowNumber: row.rowNumber, cells: row.cells, edits: row.edits, values: row.values, issues: row.issues, candidates: row.candidates,
           decision: row.decision, decisionSource: row.decisionSource, matchVariantId: row.matchVariantId, status: row.status })));
       }
       await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "import.created",
-        entityType: "import_batch", entityId: id, metadata: { kind: "catalog", fileType: sheet.fileType, rowCount: dataRows.length } });
+        entityType: "import_batch", entityId: id, metadata: { kind: "catalog", fileType: sheet.fileType, rowCount: dataRows.length, originalStored } });
     });
   } catch (error) {
-    // Deux envois simultanés du même fichier : l'index unique en garde un seul.
+    // Deux envois simultanés du même fichier : l'index unique en garde un seul. L'original déposé pour
+    // l'import perdant reste `pending` et sera supprimé comme orphelin.
     const concurrent = await findSameFile();
-    if (concurrent) return { id: concurrent.id, existing: true };
+    if (concurrent) return { id: concurrent.id, existing: true, originalStored: false };
     throw error;
   }
-  return { id, existing: false };
+  return { id, existing: false, originalStored };
 }
 
 /* ------------------------------------------------------------------ Lecture */
@@ -186,10 +218,16 @@ export async function getImportBatch(db: CommercialDatabase, context: Context, b
     .where(and(eq(productVariant.businessId, context.businessId), inArray(productVariant.id, chosen))) : [];
   const nameOf = new Map(names.map((row) => [row.id, row.name]));
   const header = batch.headerRowNumber === null ? null : rows.find((row) => row.rowNumber === batch.headerRowNumber)?.cells ?? null;
+  const [source] = batch.sourceFileId ? await db.select({ status: storedFile.status, retentionUntil: storedFile.retentionUntil }).from(storedFile)
+    .where(and(eq(storedFile.businessId, context.businessId), eq(storedFile.id, batch.sourceFileId))).limit(1) : [];
+  // Fichier d'origine : `stored` (téléchargeable jusqu'à l'échéance), `deleted` (supprimé ou échu) ou `none` (jamais conservé).
+  const originalAvailable = source?.status === "stored" && source.retentionUntil > new Date();
+  const original = { status: !source ? "none" as const : originalAvailable ? "stored" as const : "deleted" as const,
+    retentionUntil: originalAvailable ? source!.retentionUntil.toISOString() : null };
   return {
     batch: { id: batch.id, fileName: batch.fileName, fileType: batch.fileType, status: batch.status, sheetName: batch.sheetName, headerRowNumber: batch.headerRowNumber,
       columnCount: batch.columnCount, rowCount: batch.rowCount, mapping: batch.mapping as ColumnMapping[], mappingConfirmed: batch.mappingConfirmedAt !== null,
-      createdAt: batch.createdAt.toISOString(), appliedAt: batch.appliedAt?.toISOString() ?? null, summary: batch.summary, header },
+      createdAt: batch.createdAt.toISOString(), appliedAt: batch.appliedAt?.toISOString() ?? null, summary: batch.summary, header, original },
     counts: countByStatus(rows.filter((row) => row.rowNumber !== batch.headerRowNumber)),
     rows: rows.filter((row) => row.rowNumber !== batch.headerRowNumber).map((row) => ({ ...row,
       matchName: row.matchVariantId ? nameOf.get(row.matchVariantId) ?? null : null, appliedName: row.appliedVariantId ? nameOf.get(row.appliedVariantId) ?? null : null })),
@@ -440,17 +478,48 @@ export async function applyImportBatch(db: CommercialDatabase, context: Context,
   });
 }
 
-/** Abandon : les cellules des lignes non appliquées sont effacées ; ce qui a déjà été appliqué reste tracé. */
-export async function discardImportBatch(db: CommercialDatabase, context: Context, batchId: string) {
+/**
+ * Abandon : les cellules des lignes non appliquées sont effacées ; ce qui a déjà été appliqué reste tracé.
+ * Le fichier d'origine conservé est supprimé aussitôt (au mieux), sinon au prochain passage planifié.
+ */
+export async function discardImportBatch(db: CommercialDatabase, context: Context, batchId: string, options: StorageOption = {}) {
   await requirePermission(db, context, ["product", "create"]);
-  return db.transaction(async (tx) => {
+  const now = new Date();
+  const result = await db.transaction(async (tx) => {
     await assertBusinessOperational(tx, context.businessId);
     const batch = await lockReviewBatch(tx, context, batchId);
     await tx.update(importRow).set({ cells: [], edits: {}, values: {}, candidates: [] })
       .where(and(eq(importRow.businessId, context.businessId), eq(importRow.batchId, batch.id), ne(importRow.status, "applied")));
-    await tx.update(importBatch).set({ status: "discarded", updatedAt: new Date() }).where(and(eq(importBatch.businessId, context.businessId), eq(importBatch.id, batch.id)));
+    await tx.update(importBatch).set({ status: "discarded", updatedAt: now }).where(and(eq(importBatch.businessId, context.businessId), eq(importBatch.id, batch.id)));
+    if (batch.sourceFileId) await scheduleStoredFileDeletion(tx, context.businessId, batch.sourceFileId, now);
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: context.businessId, actorUserId: context.actorUserId, eventType: "import.discarded",
       entityType: "import_batch", entityId: batch.id, metadata: {} });
-    return { status: "discarded" };
+    return { status: "discarded" as const, sourceFileId: batch.sourceFileId };
   });
+  if (result.sourceFileId) await deleteStoredFileNow(db, storageOf(options), context.businessId, result.sourceFileId, "import_discarded", now);
+  return { status: result.status };
+}
+
+/* ------------------------------------------------------------------ Fichier d'origine */
+
+/**
+ * Téléchargement du fichier d'origine d'un import. Même permission que la lecture de l'import ; le fichier
+ * est cherché par l'import, dans le seul commerce de la session. Un import d'un autre commerce, un import sans
+ * original, un original supprimé ou échu répondent tous la même chose : « Fichier introuvable » (404).
+ * R2 : URL signée de quelques minutes. Stockage mémoire (tests, aperçu) : contenu servi par la route.
+ */
+export async function getImportOriginal(db: CommercialDatabase, context: Context, batchId: string, options: StorageOption & { now?: Date } = {}) {
+  await requirePermission(db, context, ["product", "create"]);
+  const now = options.now ?? new Date();
+  const [file] = await db.select({ id: storedFile.id, objectKey: storedFile.objectKey, fileType: storedFile.fileType, sha256: storedFile.sha256,
+    displayName: storedFile.displayName, sizeBytes: storedFile.sizeBytes }).from(importBatch)
+    .innerJoin(storedFile, and(eq(storedFile.businessId, importBatch.businessId), eq(storedFile.id, importBatch.sourceFileId)))
+    .where(and(eq(importBatch.businessId, context.businessId), eq(importBatch.id, batchId), eq(storedFile.status, "stored"), sql`${storedFile.retentionUntil} > ${now.toISOString()}::timestamptz`))
+    .limit(1);
+  if (!file) throw new CommercialError("Fichier introuvable.", 404);
+  const storage = storageOf(options);
+  if (!storage) throw new CommercialError("Le stockage des fichiers n’est pas disponible : le fichier d’origine ne peut pas être lu pour le moment.", 503, "storage_unavailable");
+  const opened = await openStoredFile(storage, { ...file, fileType: file.fileType as StoredFileType }, DOWNLOAD_URL_TTL_SECONDS);
+  if (!opened) throw new CommercialError("Fichier introuvable.", 404);
+  return opened;
 }

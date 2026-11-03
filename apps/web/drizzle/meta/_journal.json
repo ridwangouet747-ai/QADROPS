@@ -134,6 +134,13 @@
       "when": 1793721354672,
       "tag": "0018_subscription_billing_geniuspay",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793748828424,
+      "tag": "0019_stored_files",
+      "breakpoints": true
     }
   ]
 }

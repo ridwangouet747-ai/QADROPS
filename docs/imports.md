@@ -95,14 +95,23 @@ Le même fichier (même empreinte SHA-256) envoyé une deuxième fois rouvre l'i
   - Les quantités ne s'appliquent qu'aux produits qui n'ont pas encore de stock.
 - **Alias** : quand une ligne est rattachée sous un autre nom, ce nom devient un alias du produit pour ce commerce seulement. Le rapprochement sera « certain » au prochain import.
 - **Audit** : `import.created`, `import.rows_applied`, `import.applied`, `import.discarded`.
-- **Abandon** : les cellules lues des lignes non appliquées sont effacées, et le fichier peut être envoyé de nouveau.
+- **Abandon** : les cellules lues des lignes non appliquées sont effacées, et le fichier peut être envoyé de nouveau. L'original conservé (ci-dessous) est supprimé aussitôt (`deletion_reason = import_discarded`).
+
+### Fichier d'origine (mission 12, lot L2, `docs/storage-r2.md`)
+
+- Quand un stockage privé est configuré (Cloudflare R2 en production, mémoire en test et en aperçu), l'original CSV/XLSX est gardé **tel quel** et rattaché à l'import (`import_batch.source_file_id` → `stored_file`, clé composée `(business_id, id)`).
+- Le type est vérifié par son contenu (signature), jamais par l'extension ; un exécutable renommé ou un classeur à macros est refusé par le stockage.
+- Conservation par défaut : **90 jours** (`QADR_STORAGE_IMPORT_RETENTION_DAYS`), puis suppression par le passage planifié quotidien. Taille maximale conservée : **2 Mio** (`QADR_STORAGE_IMPORT_MAX_BYTES`), la même que celle de l'import.
+- **L'import ne dépend jamais du stockage.** Sans stockage configuré, ou si l'envoi échoue, l'import est créé normalement, l'original n'est pas gardé et l'écran l'indique (« Fichier d'origine non conservé »). Une ligne restée `pending` après un envoi échoué est nettoyée par le passage planifié au bout d'une heure.
+- Téléchargement : `GET /api/business/imports/{id}/original`, permission `product:create` et commerce de la session. Réponse identique (404 « Fichier introuvable. ») pour un import d'un autre commerce, un import inconnu, un original non gardé, échu ou supprimé.
 
 API :
 - `GET`/`POST /api/business/imports` (envoi en `multipart/form-data`, champ `file`) ;
 - `GET`/`PATCH /api/business/imports/{id}` (colonnes) ;
 - `PATCH /api/business/imports/{id}/rows/{rowId}` ;
 - `POST /api/business/imports/{id}/apply` ;
-- `POST /api/business/imports/{id}/discard`.
+- `POST /api/business/imports/{id}/discard` ;
+- `GET /api/business/imports/{id}/original` (fichier d'origine, s'il a été conservé).
 
 ## Documents scannés et photos (décision D-03)
 
@@ -115,10 +124,11 @@ API :
 
 ## Limites connues
 
-- **Fichier d'origine non conservé**
-  - Seules les cellules lues sont stockées (`import_row.cells`), avec le numéro de ligne d'origine.
-  - Ce numéro sert de provenance. La table `source_reference` prévue au plan 3.1 n'a pas été créée : `import_row` porte cette information pour les tableurs.
-- **Pas de purge automatique** des imports abandonnés ou anciens. La durée de rétention reste à fixer.
+- **Provenance**
+  - Les cellules lues sont stockées (`import_row.cells`), avec le numéro de ligne d'origine ; l'original n'est gardé que si un stockage est configuré (voir plus haut).
+  - La table `source_reference` prévue au plan 3.1 n'a pas été créée : `import_row` porte cette information pour les tableurs.
+  - Le stockage R2 n'a **jamais été contacté en réel** (voir `docs/storage-r2.md` § Limites).
+- **Pas de purge automatique** des imports abandonnés ou anciens (seul l'original stocké a une échéance). La durée de rétention des lignes reste à fixer.
 - Un seul type d'import : le **catalogue**, avec le stock de départ. Dettes, fournisseurs et achats ne sont pas encore importables.
 - Une seule feuille par classeur.
 - **Données non appliquées**

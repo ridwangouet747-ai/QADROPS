@@ -36,6 +36,7 @@ type Summary = { created: number; matched: number; skipped: number; stockLines: 
 type Batch = {
   id: string; fileName: string; fileType: "csv" | "xlsx"; status: "review" | "applying" | "applied" | "discarded"; sheetName: string | null; headerRowNumber: number | null;
   columnCount: number; rowCount: number; mapping: Mapping[]; mappingConfirmed: boolean; createdAt: string; appliedAt: string | null; summary: Summary | null; header: Cell[] | null;
+  original: { status: "stored" | "deleted" | "none"; retentionUntil: string | null };
 };
 type Detail = { batch: Batch; counts: Record<RowStatus, number>; rows: ImportRow[] };
 type BatchItem = { id: string; fileName: string; fileType: string; status: Batch["status"]; rowCount: number; createdAt: string; pending: number };
@@ -187,6 +188,7 @@ export function ImportReviewWorkspace({ importId, existing }: { importId: string
         {notice && <Alert tone="success" onDismiss={() => setNotice("")} dismissLabel={t("common.close")}>{notice}</Alert>}
         {error && <Alert tone="danger" onDismiss={() => setError("")} dismissLabel={t("common.close")}>{error}</Alert>}
         {batch.sheetName && <p className="m-0 text-sm text-fg-muted">{t("imports.review.sheet", { name: batch.sheetName })}</p>}
+        <OriginalFile batch={batch} />
         <ColumnsCard detail={detail} editable={editable} mutate={mutate} />
         <RowsCard detail={detail} editable={editable && batch.mappingConfirmed} mutate={mutate} />
         <ApplyCard detail={detail} editable={editable} mutate={mutate} onApplied={(text) => setNotice(text)} />
@@ -196,6 +198,24 @@ export function ImportReviewWorkspace({ importId, existing }: { importId: string
 }
 
 type Mutate = (action: () => Promise<unknown>, success?: string) => Promise<boolean>;
+
+/** Fichier d'origine : téléchargeable seulement s'il est réellement conservé ; sinon l'écran le dit. */
+function OriginalFile({ batch }: { batch: Batch }) {
+  const { t, locale } = useI18n();
+  const timeZone = useBusinessTimeZone();
+  const { status, retentionUntil } = batch.original;
+  if (status === "stored" && retentionUntil) {
+    return (
+      <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
+        <span>{t("imports.review.originalStored", { date: formatDateTime(retentionUntil, locale, timeZone) })}</span>
+        <a href={`/api/business/imports/${batch.id}/original`} rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-brand">
+          {t("imports.review.originalDownload")}
+        </a>
+      </p>
+    );
+  }
+  return <p className="m-0 text-sm text-fg-muted">{t(status === "deleted" ? "imports.review.originalDeleted" : "imports.review.originalNone")}</p>;
+}
 
 function ColumnsCard({ detail, editable, mutate }: { detail: Detail; editable: boolean; mutate: Mutate }) {
   const { t } = useI18n();

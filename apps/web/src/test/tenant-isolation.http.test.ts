@@ -15,6 +15,7 @@ import * as dashboardRoute from "@/app/api/business/dashboard/route";
 import * as expensesRoute from "@/app/api/business/expenses/route";
 import * as importApplyRoute from "@/app/api/business/imports/[importId]/apply/route";
 import * as importDiscardRoute from "@/app/api/business/imports/[importId]/discard/route";
+import * as importOriginalRoute from "@/app/api/business/imports/[importId]/original/route";
 import * as importRoute from "@/app/api/business/imports/[importId]/route";
 import * as importRowRoute from "@/app/api/business/imports/[importId]/rows/[rowId]/route";
 import * as importsRoute from "@/app/api/business/imports/route";
@@ -210,6 +211,22 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
       expectSameAsUnknown(
         await h.call(importRoute.GET, { path: `/api/business/imports/${b.import}`, actor: ownerA, params: { importId: b.import } }),
         await h.call(importRoute.GET, { path: `/api/business/imports/${UNKNOWN_ID}`, actor: ownerA, params: { importId: UNKNOWN_ID } }));
+    });
+
+    it("le fichier d'origine d'un import de B est introuvable pour A, comme un import inexistant (mission 12, L2)", async () => {
+      // Préalable : l'original de B est bien conservé et lisible par B lui-même.
+      const own = await h.call(importOriginalRoute.GET, { path: `/api/business/imports/${b.import}/original`, actor: ownerB, params: { importId: b.import } });
+      expect(own.status).toBe(200);
+      expect(own.text).toContain("Article importé Bêta");
+      const forB = await h.call(importOriginalRoute.GET, { path: `/api/business/imports/${b.import}/original`, actor: ownerA, params: { importId: b.import } });
+      expectSameAsUnknown(forB,
+        await h.call(importOriginalRoute.GET, { path: `/api/business/imports/${UNKNOWN_ID}/original`, actor: ownerA, params: { importId: UNKNOWN_ID } }));
+      expect(forB.headers.get("location")).toBeNull();
+      // Un identifiant de commerce glissé dans l'URL ou les en-têtes ne change rien.
+      const smuggled = await h.call(importOriginalRoute.GET, { path: `/api/business/imports/${b.import}/original?businessId=${businessB}`, actor: ownerA,
+        params: { importId: b.import }, headers: { "x-business-id": businessB } });
+      expect(smuggled.status).toBe(404);
+      expectNoLeak(smuggled);
     });
 
     it("les listes de A ne contiennent aucune donnée de B, même avec des paramètres pointant vers B", async () => {
