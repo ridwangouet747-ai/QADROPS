@@ -151,6 +151,8 @@ La « Subscription API » de GeniusPay (prélèvement automatique) ne fonctionne
 
 ## 8. Points GeniusPay à confirmer avant la production
 
+La liste complète des questions, le message prêt à envoyer à GeniusPay et le protocole d'essai sandbox sont dans `docs/engineering/geniuspay-questions.md` (relecture de la documentation du 2026-11-04). Un webhook refusé indique dans le journal la variante de signature reconnue, sans jamais l'accepter.
+
 - **URL de base** : la documentation cite `geniuspay.ci/api/v1/merchant`, le SDK `pay.genius.ci` et la Subscription API `api.geniuspay.ci`. Le défaut retenu est le premier ; il reste surchargeable par `GENIUSPAY_BASE_URL`.
 - **Chaîne signée** : l'exemple PHP ré-encode le JSON au lieu de signer le corps brut. Nous signons et vérifions `timestamp + "." + corps brut`. L'encodage (hexadécimal présumé) est aussi à confirmer.
 - **Statuts** : les listes diffèrent selon les pages (`cancelled`/`canceled`, `processing`, `expired`). Un statut inconnu ne change rien à la tentative et n'est donc jamais pris pour un succès.
@@ -158,7 +160,7 @@ La « Subscription API » de GeniusPay (prélèvement automatique) ne fonctionne
 - **Identifiant d'événement** : le champ `id` du payload n'est pas nommé dans la documentation, et `X-Webhook-Delivery` est facultatif.
 - **Préfixe de référence** : l'exemple de webhook montre `TXN-…`, l'API `MTX-…`. Le motif accepté est `[A-Za-z0-9_-]{1,64}`.
 - **Moyens de paiement** : `mtn_money` ou `mtn_momo` ? Les deux sont acceptés à la lecture.
-- **Champ `environment`** : sa présence dans la réponse de `GET /payments/{ref}` est à confirmer. **Point bloquant** : le code exige aujourd'hui qu'il soit présent et égal à l'environnement de la clé. S'il manque, la relecture est rejetée (`environment_mismatch`) et aucun paiement ne serait activé. Si GeniusPay confirme son absence, il faudra accepter l'environnement de la clé (une clé sandbox ne lit que des paiements sandbox) et ajouter un test.
+- **Champ `environment`** : sa présence et ses valeurs (`live` ou `production`) sont à confirmer. Depuis le correctif du 2026-11-04, un champ absent ou inconnu ne bloque plus : l'environnement retenu est celui de la clé qui relit le paiement. Une valeur `sandbox`/`live` différente de la clé reste une anomalie.
 
 ## 9. Limites connues
 

@@ -45,7 +45,9 @@ export type ProviderPayment = {
 
 export type WebhookVerification =
   | { ok: true; timestamp: number }
-  | { ok: false; reason: "not_configured" | "missing_headers" | "bad_timestamp" | "stale" | "bad_signature" };
+  | { ok: false; reason: "not_configured" | "missing_headers" | "bad_timestamp" | "stale" | "bad_signature";
+      /** Diagnostic seulement (journaux) : variante de signature qui aurait correspondu. Ne rend JAMAIS l'événement valide. */
+      variant?: string | null };
 
 export interface BillingProvider {
   readonly name: "geniuspay";

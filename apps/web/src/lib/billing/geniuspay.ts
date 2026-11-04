@@ -78,14 +78,52 @@ export function verifyGeniusPayWebhookSignature(secret: string | undefined, rawB
   const signature = headers.get("x-webhook-signature")?.trim();
   const timestamp = headers.get("x-webhook-timestamp")?.trim();
   if (!signature || !timestamp) return { ok: false, reason: "missing_headers" };
-  if (!/^\d{1,12}$/.test(timestamp)) return { ok: false, reason: "bad_timestamp" };
+  const refuse = (reason: "bad_timestamp" | "stale" | "bad_signature"): WebhookVerification => {
+    const variant = diagnoseGeniusPaySignature(secret, rawBody, timestamp, signature);
+    return variant ? { ok: false, reason, variant } : { ok: false, reason };
+  };
+  if (!/^\d{1,12}$/.test(timestamp)) return refuse("bad_timestamp");
   const seconds = Number(timestamp);
+  // Horodatage hors fenêtre : rien à diagnostiquer sur le format (des millisecondes échouent déjà ci-dessus).
   if (Math.abs(Math.floor(now.getTime() / 1000) - seconds) > GENIUSPAY_WEBHOOK_TOLERANCE_SECONDS) return { ok: false, reason: "stale" };
-  if (!/^[0-9a-fA-F]{64}$/.test(signature)) return { ok: false, reason: "bad_signature" };
+  if (!/^[0-9a-fA-F]{64}$/.test(signature)) return refuse("bad_signature");
   const expected = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`, "utf8").digest();
   const given = Buffer.from(signature, "hex");
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return { ok: false, reason: "bad_signature" };
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return refuse("bad_signature");
   return { ok: true, timestamp: seconds };
+}
+
+/** Ré-encodage à la manière de `json_encode` de PHP (exemple de la documentation) : `/` et non-ASCII échappés. */
+function phpJsonEncode(value: unknown) {
+  return JSON.stringify(value).replace(/\//g, "\\/").replace(/[\u0080-￿]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+/**
+ * Après un refus seulement : cherche quelle lecture de la documentation aurait produit la signature reçue
+ * (encodage hex/base64, corps brut ou JSON ré-encodé, horodatage inclus ou non, en secondes ou en millisecondes),
+ * pour que le premier essai sandbox réponde lui-même aux questions ouvertes (docs/engineering/geniuspay-questions.md).
+ * Le résultat n'est qu'un libellé pour les journaux : il ne rend JAMAIS un événement valide et ne contient ni secret,
+ * ni signature, ni contenu du corps. Ni la fenêtre de 300 s ni la comparaison en temps constant ne sont utiles ici.
+ */
+export function diagnoseGeniusPaySignature(secret: string, rawBody: string, timestamp: string, signature: string): string | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(rawBody); } catch { parsed = undefined; }
+  const bodies: [string, string][] = [["corps_brut", rawBody]];
+  if (parsed !== undefined) bodies.push(["json_reencode", JSON.stringify(parsed)], ["json_php", phpJsonEncode(parsed)]);
+  const messages: [string, (body: string) => string][] = [["horodatage_point_corps", (body) => `${timestamp}.${body}`], ["corps_seul", (body) => body]];
+  const prefixed = /^sha256=/i.test(signature);
+  const given = signature.replace(/^sha256=/i, "");
+  const unit = /^\d{13}$/.test(timestamp) ? "+horodatage_ms" : "";
+  for (const [bodyLabel, body] of bodies) {
+    for (const [messageLabel, message] of messages) {
+      const digest = createHmac("sha256", secret).update(message(body), "utf8").digest();
+      const encodings: [string, string][] = [["hex", digest.toString("hex")], ["base64", digest.toString("base64")], ["base64url", digest.toString("base64url")]];
+      for (const [encoding, text] of encodings) {
+        if (given === text || (encoding === "hex" && given.toLowerCase() === text)) return `${encoding}+${messageLabel}+${bodyLabel}${unit}${prefixed ? "+prefixe_sha256" : ""}`;
+      }
+    }
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------ Lecture des réponses */

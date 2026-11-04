@@ -55,10 +55,31 @@ describe("signature des webhooks GeniusPay", () => {
     expect(verifyGeniusPayWebhookSignature(SECRET, body, headers({ "x-webhook-timestamp": String(ts) }), now)).toEqual({ ok: false, reason: "missing_headers" });
     expect(verifyGeniusPayWebhookSignature(SECRET, body, headers({ "x-webhook-signature": sign(body, ts) }), now)).toEqual({ ok: false, reason: "missing_headers" });
     expect(verifyGeniusPayWebhookSignature(SECRET, body, headers({ "x-webhook-signature": sign(body, ts), "x-webhook-timestamp": "2026-11-03T10:00:00Z" }), now)).toEqual({ ok: false, reason: "bad_timestamp" });
-    expect(verifyGeniusPayWebhookSignature(SECRET, body, headers({ "x-webhook-signature": `sha256=${sign(body, ts)}`, "x-webhook-timestamp": String(ts) }), now)).toEqual({ ok: false, reason: "bad_signature" });
-    expect(verifyGeniusPayWebhookSignature(SECRET, body, headers({ "x-webhook-signature": Buffer.from(sign(body, ts), "hex").toString("base64"), "x-webhook-timestamp": String(ts) }), now)).toEqual({ ok: false, reason: "bad_signature" });
+    // Préfixe ou base64 : refusés, mais le format est reconnu pour le journal de l'essai sandbox.
+    expect(verifyGeniusPayWebhookSignature(SECRET, body, headers({ "x-webhook-signature": `sha256=${sign(body, ts)}`, "x-webhook-timestamp": String(ts) }), now))
+      .toEqual({ ok: false, reason: "bad_signature", variant: "hex+horodatage_point_corps+corps_brut+prefixe_sha256" });
+    expect(verifyGeniusPayWebhookSignature(SECRET, body, headers({ "x-webhook-signature": Buffer.from(sign(body, ts), "hex").toString("base64"), "x-webhook-timestamp": String(ts) }), now))
+      .toEqual({ ok: false, reason: "bad_signature", variant: "base64+horodatage_point_corps+corps_brut" });
     expect(verifyGeniusPayWebhookSignature(undefined, body, headers({ "x-webhook-signature": sign(body, ts), "x-webhook-timestamp": String(ts) }), now)).toEqual({ ok: false, reason: "not_configured" });
     expect(verifyGeniusPayWebhookSignature("", body, headers({ "x-webhook-signature": sign(body, ts, ""), "x-webhook-timestamp": String(ts) }), now)).toEqual({ ok: false, reason: "not_configured" });
+  });
+
+  it("diagnostic des formats ambigus de la documentation : toujours refusés, seulement nommés", () => {
+    const hmac = (message: string) => createHmac("sha256", SECRET).update(message).digest("hex");
+    const check = (rawBody: string, signature: string, timestamp: string) => verifyGeniusPayWebhookSignature(SECRET, rawBody, headers({ "x-webhook-signature": signature, "x-webhook-timestamp": timestamp }), now);
+    // Horodatage en millisecondes.
+    const ms = String(now.getTime());
+    expect(check(body, hmac(`${ms}.${body}`), ms)).toEqual({ ok: false, reason: "bad_timestamp", variant: "hex+horodatage_point_corps+corps_brut+horodatage_ms" });
+    // Corps seul, sans horodatage.
+    expect(check(body, hmac(body), String(ts))).toEqual({ ok: false, reason: "bad_signature", variant: "hex+corps_seul+corps_brut" });
+    // Signature calculée sur un JSON compact alors que le corps reçu est indenté.
+    expect(check(JSON.stringify(JSON.parse(body), null, 2), sign(body, ts), String(ts))).toEqual({ ok: false, reason: "bad_signature", variant: "hex+horodatage_point_corps+json_reencode" });
+    // `json_encode` de PHP : barres obliques et caractères non ASCII échappés.
+    const accented = '{"id":"evt-2","event":"payment.success","data":{"reference":"MTX-A1B2C3D4E5","description":"Abonnement Équipe","url":"https://x.test/a"}}';
+    const php = accented.replace(/\//g, "\\/").replace("É", "\\u00c9");
+    expect(check(accented, hmac(`${ts}.${php}`), String(ts))).toEqual({ ok: false, reason: "bad_signature", variant: "hex+horodatage_point_corps+json_php" });
+    // Mauvais secret : aucun format ne correspond, rien n'est nommé.
+    expect(check(body, sign(body, ts, "whsec_autre_secret_x"), String(ts))).toEqual({ ok: false, reason: "bad_signature" });
   });
 });
 

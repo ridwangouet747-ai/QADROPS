@@ -477,7 +477,8 @@ export async function handleGeniusPayWebhook(db: CommercialDatabase, billing: Bi
   const provider = billing.provider;
   const verification = provider.verifyWebhook(rawBody, headers, now);
   if (!verification.ok) {
-    console.warn(`[facturation] webhook GeniusPay refusé : ${verification.reason}`);
+    // Variante éventuelle : un libellé de format seulement, jamais le corps ni la signature (diagnostic de l'essai sandbox).
+    console.warn(`[facturation] webhook GeniusPay refusé : ${verification.reason}${verification.variant ? ` (variante reconnue : ${verification.variant})` : ""}`);
     return { status: 401, body: { error: "invalid_signature" } };
   }
   let payload: Record<string, unknown>;
