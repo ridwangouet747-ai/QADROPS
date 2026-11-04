@@ -78,11 +78,12 @@ Les lots qui modifient `schema.ts` ne génèrent qu'une migration chacun ; elles
 - 2026-11-03 : audit, lecture GeniusPay, lancement de L1 à L4.
 - 2026-11-03 : L4 fusionné (`docs/qadr-capture-models.md`), L3 fusionné (ventes, achats, dépenses, clients, fournisseurs paginés et traduits).
 - 2026-11-04 : L1b fusionné (migration 0018, `docs/billing-geniuspay.md`) ; correctif : `environment` absent de `GET /payments/{reference}` ne bloque plus l'activation. L2 fusionné (migration renumérotée 0019, `docs/storage-r2.md`, `DATABASE_URL_UNPOOLED` pour les migrations). L1a fusionné (migration renumérotée 0020, `docs/promotions.md`). Migrations régénérées à la fusion, SQL identique à celui des lots.
+- 2026-11-04 : vérification navigateur sur l'aperçu local (PGlite, fr et ar) : abonnement sans paiement en ligne configuré, page de retour (paiement inconnu), console des campagnes (création, modification, arabe), code à l'inscription (`?promo=`, vérification, arabe), original d'un import (téléchargement identique octet pour octet, adaptateur mémoire). Quatre défauts corrigés (`8ae2c76`) : ligne de campagne écrasée, date de campagne décalée d'un jour à l'est de Greenwich, `?promo=` perdu au passage par la connexion, en-tête débordant entre lg et xl. Non vérifié : paiement GeniusPay réel (aucune clé), R2 réel, création effective d'un commerce avec le code.
 
 ## 7. Suite (bloc 2)
 
 1. Déduire la remise d'une campagne publique (`promotion_redemption.discount_amount_xof`) de la première facture d'abonnement : aujourd'hui elle est seulement conservée.
 2. Faire confirmer par GeniusPay les points du §2 (signature exacte, URL de base, statuts, relances), puis un essai sandbox autorisé par le propriétaire sur une préproduction HTTPS.
 3. Bucket R2 de test créé par le propriétaire, puis aller-retour réel (import, téléchargement, abandon, purge).
-4. Vérification navigateur des nouveaux parcours (inscription avec code, console des campagnes, paiement et page de retour), y compris en arabe.
+4. ~~Vérification navigateur des nouveaux parcours~~ (faite le 2026-11-04, voir §6). Reste : parcours complet d'inscription jusqu'à la création du commerce avec le code, et paiement sandbox (point 2).
 5. L5 (Qadr Capture) : PDF textuels natifs stockés dans R2, après décision du propriétaire sur le point 7 du §4.
