@@ -60,7 +60,8 @@ function Brand() {
   return (
     <Link href="/business/dashboard" aria-label={t("shell.homeLink")} dir="ltr" className="flex shrink-0 items-center gap-2.5 text-ink no-underline">
       <span aria-hidden="true" className="grid size-10 place-items-center rounded-[13px] bg-brand-gradient text-lg font-extrabold text-white shadow-brand">Q</span>
-      <span className="hidden leading-none min-[400px]:grid">
+      {/* Entre lg et xl, la barre des modules occupe la place du nom (sinon débordement, surtout en arabe). */}
+      <span className="hidden leading-none min-[400px]:grid lg:hidden xl:grid">
         <strong className="text-[1.05rem] font-extrabold tracking-[-0.02em]">QADR OPS</strong>
         <small className="mt-1 hidden text-[0.68rem] font-medium text-fg-subtle 2xl:block">{t("shell.tagline")}</small>
       </span>
@@ -139,7 +140,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
             <nav aria-label={t("shell.modulesNavigation")} className="mx-auto hidden items-center gap-0.5 rounded-full bg-night p-1.5 shadow-raised lg:flex">
               {desktopMain.map((item) => (
                 <Link key={item.key} href={item.href} aria-current={item.key === active ? "page" : undefined}
-                  className={cn("flex min-h-10 items-center gap-1.5 rounded-full px-3.5 text-[0.86rem] font-semibold whitespace-nowrap no-underline transition-colors",
+                  className={cn("flex min-h-10 items-center gap-1.5 rounded-full px-3 text-[0.86rem] xl:px-3.5 font-semibold whitespace-nowrap no-underline transition-colors",
                     item.key === active ? "bg-brand-gradient text-white shadow-brand" : "text-night-fg hover:text-white")}>
                   {item.key === active && <Icon name={item.icon} className="size-4" />}
                   {t(`shell.items.${item.key}.label`)}
@@ -157,7 +158,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
                   <Icon name="settings" />
                 </Link>
               )}
-              <Link href="/select-business" aria-label={t("selectBusiness.switch")} className="hidden items-center gap-2.5 rounded-full border border-line bg-surface py-1 ps-1 pe-4 text-inherit no-underline hover:border-brand-tint md:flex max-w-52" title={t("selectBusiness.switch")}>
+              <Link href="/select-business" aria-label={t("selectBusiness.switch")} className="hidden items-center gap-2.5 rounded-full border border-line bg-surface py-1 ps-1 pe-4 text-inherit no-underline hover:border-brand-tint md:flex max-w-52 lg:hidden xl:flex" title={t("selectBusiness.switch")}>
                 <Monogram text={displayName} className="size-9" />
                 <span className="grid min-w-0 leading-tight">
                   <small className="truncate text-[0.66rem] font-semibold tracking-[0.06em] whitespace-nowrap text-fg-subtle">{t("shell.activeBusiness")}</small>

@@ -151,7 +151,7 @@ export function PfField({ label, hint, error, children }: { label: string; hint?
   const id = useId();
   const describedBy = [hint ? `${id}-hint` : null, error ? `${id}-error` : null].filter(Boolean).join(" ") || undefined;
   return (
-    <div className="grid min-w-0 gap-1.5">
+    <div className="grid min-w-0 content-start gap-1.5">
       <label htmlFor={id} className="text-[0.82rem] font-semibold text-pf-ink">{label}</label>
       {children({ id, "aria-describedby": describedBy, "aria-invalid": error ? true : undefined })}
       {hint && <p id={`${id}-hint`} className="m-0 text-[0.76rem] text-pf-muted">{hint}</p>}

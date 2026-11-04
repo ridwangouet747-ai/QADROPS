@@ -106,7 +106,17 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
       if (draft.step !== "account") { setStep(draft.step); setRestored(true); }
     }
     fetch("/api/account/me", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) { if (entry === "onboarding") router.replace("/login?next=/onboarding"); return; }
+      if (!response.ok) {
+        // Le code d'un lien partagé (`?promo=`, `?plan=`) doit survivre au détour par la connexion.
+        if (entry === "onboarding") {
+          const kept = new URLSearchParams();
+          if (linkedPromo) kept.set("promo", linkedPromo);
+          if (linkedPlan) kept.set("plan", linkedPlan);
+          const target = kept.size ? `/onboarding?${kept}` : "/onboarding";
+          router.replace(`/login?next=${encodeURIComponent(target)}`);
+        }
+        return;
+      }
       const me = await response.json() as { user?: { email?: string } };
       setSessionEmail(me.user?.email ?? "");
       setStep((current) => (current === "account" ? "identity" : current));

@@ -23,7 +23,8 @@ type Business = { businessId: string; name: string };
 type Duration = "7" | "21" | "30" | "90" | "custom";
 type StatusAction = { action: "pause" | "resume" | "revoke"; promotion: Promotion } | null;
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Jour local, cohérent avec l'envoi de minuit local (`${jour}T00:00:00`) ; le jour UTC décalerait la date proposée.
+const today = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; };
 const stateTone = (state: State) => (state === "active" ? "solid" : state === "revoked" ? "alert" : state === "paused" || state === "scheduled" ? "muted" : "outline") as "solid" | "alert" | "muted" | "outline";
 
 /** Codes privés (mission 08) et campagnes publiques (mission 12) : deux systèmes séparés, une seule page. */

@@ -29,8 +29,11 @@ type Plan = { id: string; name: string; active: boolean };
 type DiscountKind = "none" | "percent" | "fixed";
 type StatusAction = { action: "pause" | "resume" | "revoke"; campaign: Campaign } | null;
 
-const today = () => new Date().toISOString().slice(0, 10);
-const day = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 10) : "");
+// Le formulaire envoie minuit *local* (`${jour}T00:00:00`) : la relecture doit donc reprendre le jour local, pas le
+// jour UTC, sinon une campagne du 4 se rouvre au 3 dans un fuseau à l'est de Greenwich.
+const localDay = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+const today = () => localDay(new Date());
+const day = (iso: string | null) => (iso ? localDay(new Date(iso)) : "");
 const stateTone = (state: State) => (state === "active" ? "solid" : state === "revoked" ? "alert" : state === "paused" || state === "scheduled" ? "muted" : "outline") as "solid" | "alert" | "muted" | "outline";
 
 const emptyForm = () => ({
@@ -141,7 +144,7 @@ export function PlatformCampaigns() {
           : (
             <ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none gap-1.5 p-0">
               {campaigns.map((campaign) => (
-                <li key={campaign.id} className="grid items-center gap-3 rounded-[20px] px-3 py-3 hover:bg-pf-raised sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto_auto] sm:px-4">
+                <li key={campaign.id} className="grid items-center gap-3 rounded-[20px] px-3 py-3 hover:bg-pf-raised sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto] sm:px-4 2xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_minmax(0,0.8fr)_auto_auto]">
                   <span className="min-w-0">
                     <code dir="ltr" className="block truncate font-mono text-[0.86rem] font-semibold text-pf-ink">{campaign.code}</code>
                     <span dir="auto" className="block truncate text-[0.74rem] text-pf-muted">{campaign.name}</span>
@@ -157,7 +160,8 @@ export function PlatformCampaigns() {
                     <span className="block text-[0.74rem] text-pf-muted">{campaign.remaining === null ? t("platform.campaigns.unlimited") : t("platform.campaigns.remaining", { count: campaign.remaining })}</span>
                   </span>
                   <PfBadge tone={stateTone(campaign.state)}>{t(`platform.promotions.state.${campaign.state}`)}</PfBadge>
-                  <span className="flex flex-wrap gap-1.5">
+                  {/* Sous la largeur 2xl, les actions passent sur leur propre ligne : sinon elles écrasent le code et l'offre. */}
+                  <span className="flex flex-wrap gap-1.5 sm:col-span-full 2xl:col-span-1">
                     <PfButton size="sm" variant="light" icon="eye" onClick={() => void openDetail(campaign)}>{t("platform.campaigns.details")}</PfButton>
                     {editable(campaign) && <PfButton size="sm" variant="light" icon="edit" onClick={() => openEdit(campaign)}>{t("platform.campaigns.edit")}</PfButton>}
                     {editable(campaign) && (campaign.active
@@ -203,7 +207,7 @@ export function PlatformCampaigns() {
           </fieldset>
           <div className="grid gap-4 sm:grid-cols-3">
             <PfField label={t("platform.campaigns.grantDays")} hint={t("platform.campaigns.grantDaysHint")}>{(props) => <PfInput {...props} type="number" inputMode="numeric" min={1} max={365} value={form.grantDays} onChange={(event) => set({ grantDays: event.target.value })} />}</PfField>
-            <div className="grid content-start gap-2">
+            <div className="grid content-start gap-2 sm:col-span-2">
               <span className="text-[0.82rem] font-semibold text-pf-ink">{t("platform.campaigns.discount")}</span>
               <PfSegmented label={t("platform.campaigns.discount")} value={form.discount} onChange={(discount) => set({ discount })}
                 options={[{ value: "none", label: t("platform.campaigns.discountNone") }, { value: "percent", label: t("platform.campaigns.discountPercent") }, { value: "fixed", label: t("platform.campaigns.discountFixed") }]} />
