@@ -95,7 +95,7 @@ Une offre valable renvoie les champs suivants :
 4. Une seule réclamation par compte. Un même utilisateur peut créer plusieurs commerces, mais une campagne ne lui profite qu'une fois. La contrainte unique sert de seconde défense.
 5. L'abonnement est créé selon les états de la machine à états (`origin = 'promotion'`) :
    - avec des **jours offerts**, un abonnement `trialing` naît sur la formule, `trial_ends_at` valant maintenant plus N jours ;
-   - avec une **remise seule**, l'abonnement est `pending` sur la formule et la remise est conservée dans `promotion_redemption.discount_amount_xof`. Elle sera déduite par la facture d'abonnement (lot GeniusPay). Aucun `subscription_payment` n'est créé ici et aucun encaissement n'est simulé ;
+   - avec une **remise seule**, l'abonnement est `pending` sur la formule et la remise est conservée dans `promotion_redemption.discount_amount_xof`. Elle est déduite de la première facture d'abonnement payée de cette formule (`docs/billing-geniuspay.md` § 5 bis). Aucun `subscription_payment` n'est créé ici et aucun encaissement n'est simulé ;
    - avec les deux, l'essai démarre et la remise est conservée pour la première facture.
 6. La réclamation porte `redeemed_by_user_id`, et l'audit `subscription.campaign_claimed` est écrit.
 
@@ -186,7 +186,7 @@ Autres tests :
 ## Limites connues
 
 - Limite de tentatives en mémoire par instance : voir plus haut.
-- La remise d'une campagne est seulement **conservée**. Sa déduction sur une facture dépend du lot GeniusPay, qui n'est pas intégré ici.
+- La remise d'une campagne est déduite une seule fois, sur la première facture payée de la formule choisie (`docs/billing-geniuspay.md` § 5 bis). Si une autre formule est payée d'abord, la remise est perdue. Une campagne révoquée après l'inscription ne retire pas la remise (hypothèse à confirmer).
 - La concurrence réelle sur Neon, avec plusieurs connexions et des verrous de ligne, n'a pas été mesurée (B-1).
 - Pas de page Pricing ni de page d'atterrissage : seul le contrat ci-dessus est fourni.
 - Le parcours dans le navigateur (Turnstile réel, affichage RTL du champ) n'a pas été vérifié de bout en bout par une session de navigateur dans ce lot. Les tests couvrent l'API et les fonctions pures.

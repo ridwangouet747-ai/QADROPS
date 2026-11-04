@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gte, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import type { BillingAvailability } from "../billing";
 import { GENIUSPAY_MINIMUM_XOF, subscriptionMethodFromGeniusPay } from "../billing/geniuspay";
 import { BillingProviderError, type BillingProvider, type ProviderPayment } from "../billing/provider";
-import { auditEvent, businessProfile, businessSubscription, member, paymentProviderEvent, subscriptionInvoice, subscriptionPayment, subscriptionPlan } from "../db/schema";
+import { auditEvent, businessProfile, businessSubscription, member, paymentProviderEvent, promotionCode, promotionRedemption, subscriptionInvoice, subscriptionPayment, subscriptionPlan } from "../db/schema";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { idempotencyKeySchema, type CommercialTransaction } from "./operation-guard";
 import { assertTransition, isInForce } from "./subscription-lifecycle";
@@ -99,8 +99,8 @@ export async function openInvoiceSummary(db: Pick<CommercialDatabase, "select">,
     .where(and(eq(subscriptionPayment.businessId, businessId), eq(subscriptionPayment.invoiceId, invoice.id), eq(subscriptionPayment.status, "pending")))
     .orderBy(desc(subscriptionPayment.occurredAt)).limit(1);
   return {
-    id: invoice.id, planCode: invoice.planCode, planName: invoice.planName, amountXof: invoice.amountXof.toString(), durationDays: invoice.durationDays,
-    pendingAttemptId: attempt && isReusable(attempt, now, 0) ? attempt.id : null,
+    id: invoice.id, planCode: invoice.planCode, planName: invoice.planName, amountXof: invoice.amountXof.toString(), discountXof: invoice.discountXof.toString(),
+    durationDays: invoice.durationDays, pendingAttemptId: attempt && isReusable(attempt, now, 0) ? attempt.id : null,
   };
 }
 
@@ -108,6 +108,39 @@ function isReusable(attempt: Attempt, now: Date, margin = REUSE_MARGIN_MS) {
   if (attempt.status !== "pending" || !attempt.checkoutUrl || !attempt.providerReference) return false;
   const expiresAt = attempt.checkoutExpiresAt ?? new Date(attempt.occurredAt.getTime() + CHECKOUT_LIFETIME_MS);
   return expiresAt.getTime() - margin > now.getTime();
+}
+
+/* ------------------------------------------------------------------ Remise d'une campagne publique */
+
+/**
+ * Remise réservée à l'inscription par une campagne publique (`promotion_redemption.discount_amount_xof`), encore
+ * disponible pour la première facture payée du commerce :
+ * - seulement une campagne PUBLIQUE avec un montant de remise positif (les codes privés n'ont pas de remise sur facture) ;
+ * - seulement tant qu'aucune facture d'abonnement n'est payée : la première facture payée consomme la remise, même si
+ *   elle porte sur une autre formule (la remise est alors perdue) ;
+ * - seulement sur la formule choisie à l'inscription, au montant figé lors de la réclamation.
+ * Une campagne révoquée après l'inscription ne retire pas la remise déjà accordée.
+ */
+export async function availableCampaignDiscount(db: Pick<CommercialDatabase, "select">, businessId: string) {
+  const [paid] = await db.select({ id: subscriptionInvoice.id }).from(subscriptionInvoice)
+    .where(and(eq(subscriptionInvoice.businessId, businessId), eq(subscriptionInvoice.status, "paid"))).limit(1);
+  if (paid) return null;
+  const [row] = await db.select({ id: promotionRedemption.id, code: promotionRedemption.codeSnapshot, amountXof: promotionRedemption.discountAmountXof,
+    planId: subscriptionPlan.id, planCode: subscriptionPlan.code })
+    .from(promotionRedemption)
+    .innerJoin(promotionCode, eq(promotionCode.id, promotionRedemption.promotionId))
+    .innerJoin(businessSubscription, and(eq(businessSubscription.businessId, promotionRedemption.businessId), eq(businessSubscription.id, promotionRedemption.subscriptionId)))
+    .innerJoin(subscriptionPlan, eq(subscriptionPlan.id, businessSubscription.planId))
+    .where(and(eq(promotionRedemption.businessId, businessId), eq(promotionCode.audience, "public"), gt(promotionRedemption.discountAmountXof, 0n)))
+    .orderBy(asc(promotionRedemption.redeemedAt)).limit(1);
+  return row ?? null;
+}
+
+/** Montant à facturer pour une formule : prix officiel moins la remise de campagne applicable (plafonnée au prix). */
+export function invoicePricing(plan: { id: string; priceXof: bigint }, discount: Awaited<ReturnType<typeof availableCampaignDiscount>>) {
+  const applies = Boolean(discount && discount.planId === plan.id);
+  const discountXof = applies ? (discount!.amountXof < plan.priceXof ? discount!.amountXof : plan.priceXof) : 0n;
+  return { amountXof: plan.priceXof - discountXof, discountXof, promotionRedemptionId: applies ? discount!.id : null, code: applies ? discount!.code : null };
 }
 
 /* ------------------------------------------------------------------ Création d'un paiement */
@@ -125,23 +158,33 @@ async function prepareCheckout(db: CommercialDatabase, provider: BillingProvider
     if (!plan) throw new CommercialError("Formule introuvable.", 404, "plan_not_found");
     if (plan.currency !== "XOF" || plan.priceXof < GENIUSPAY_MINIMUM_XOF) throw new CommercialError("Cette formule ne peut pas être payée en ligne.", 422, "amount_too_low");
 
+    // Lue sous le verrou du profil : une facture payée entre-temps consomme la remise.
+    const pricing = invoicePricing(plan, await availableCampaignDiscount(tx, businessId));
+    if (pricing.amountXof < GENIUSPAY_MINIMUM_XOF) {
+      throw new CommercialError("Après la remise de votre code, le montant à payer est trop faible pour un paiement en ligne. Contactez Qadr Agency.", 422, "amount_too_low");
+    }
+
     let invoice: Invoice | undefined = (await tx.select().from(subscriptionInvoice).where(and(eq(subscriptionInvoice.businessId, businessId), eq(subscriptionInvoice.status, "open"))).for("update").limit(1))[0];
-    if (invoice && (invoice.planId !== plan.id || invoice.amountXof !== plan.priceXof || invoice.durationDays !== plan.durationDays)) {
-      // Autre formule (ou prix modifié depuis) : la facture ouverte n'est annulée que si aucun paiement n'y est en cours.
+    if (invoice && (invoice.planId !== plan.id || invoice.amountXof !== pricing.amountXof || invoice.discountXof !== pricing.discountXof
+      || invoice.promotionRedemptionId !== pricing.promotionRedemptionId || invoice.durationDays !== plan.durationDays)) {
+      // Autre formule (ou prix ou remise modifiés depuis) : la facture ouverte n'est annulée que si aucun paiement n'y est en cours.
       const live = await tx.select({ id: subscriptionPayment.id }).from(subscriptionPayment)
         .where(and(eq(subscriptionPayment.businessId, businessId), eq(subscriptionPayment.invoiceId, invoice.id), eq(subscriptionPayment.status, "pending"))).limit(1);
-      if (live.length) throw new CommercialError("Un paiement est déjà en cours pour une autre formule. Terminez-le ou attendez son expiration.", 409, "payment_in_progress");
+      if (live.length) throw new CommercialError("Un paiement est déjà en cours pour une autre formule ou un autre montant. Terminez-le ou attendez son expiration.", 409, "payment_in_progress");
       await tx.update(subscriptionInvoice).set({ status: "void", voidedAt: now, updatedAt: now }).where(eq(subscriptionInvoice.id, invoice.id));
       await audit(tx, { businessId, actorUserId, eventType: "subscription.invoice_voided", entityType: "subscription_invoice", entityId: invoice.id, now,
         metadata: { before: { status: "open", planCode: invoice.planCode }, after: { status: "void" }, reason: "Nouvelle formule choisie", result: "success" } });
       invoice = undefined;
     }
     if (!invoice) {
-      const values = { id: randomUUID(), businessId, planId: plan.id, planCode: plan.code, planName: plan.name, amountXof: plan.priceXof, currency: "XOF",
+      // `amount_xof` est le montant NET payé chez GeniusPay ; la remise et son origine restent sur la facture.
+      const values = { id: randomUUID(), businessId, planId: plan.id, planCode: plan.code, planName: plan.name, amountXof: pricing.amountXof, currency: "XOF",
+        discountXof: pricing.discountXof, promotionRedemptionId: pricing.promotionRedemptionId,
         durationDays: plan.durationDays, status: "open", createdByUserId: actorUserId, createdAt: now, updatedAt: now };
       [invoice] = await tx.insert(subscriptionInvoice).values(values).returning();
       await audit(tx, { businessId, actorUserId, eventType: "subscription.invoice_created", entityType: "subscription_invoice", entityId: invoice!.id, now,
-        metadata: { after: { status: "open", planCode: plan.code, amountXof: plan.priceXof.toString(), currency: "XOF", durationDays: plan.durationDays }, result: "success" } });
+        metadata: { after: { status: "open", planCode: plan.code, amountXof: pricing.amountXof.toString(), currency: "XOF", durationDays: plan.durationDays,
+          priceXof: plan.priceXof.toString(), discountXof: pricing.discountXof.toString(), promotionRedemptionId: pricing.promotionRedemptionId, promotionCode: pricing.code }, result: "success" } });
     }
 
     if (input.allowReuse) {
@@ -386,7 +429,7 @@ async function confirmAttempt(tx: CommercialTransaction, attempt: Attempt, metho
   await confirm(subscriptionId);
   await audit(tx, { businessId, actorUserId: null, eventType: "subscription.payment_activated", entityType: "subscription", entityId: subscriptionId, now,
     metadata: { invoiceId: invoice.id, attemptId: attempt.id, planCode: invoice.planCode, amountXof: invoice.amountXof.toString(), currency: invoice.currency,
-      before, after: { status: "active", startsAt: periodStartsAt.toISOString(), endsAt: periodEndsAt.toISOString() }, result: "success" } });
+      discountXof: invoice.discountXof.toString(), promotionRedemptionId: invoice.promotionRedemptionId, before, after: { status: "active", startsAt: periodStartsAt.toISOString(), endsAt: periodEndsAt.toISOString() }, result: "success" } });
 }
 
 /* ------------------------------------------------------------------ Page de retour */

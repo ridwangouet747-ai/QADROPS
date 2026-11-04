@@ -8,7 +8,7 @@ Ce parcours ne concerne que l'abonnement. Il ne touche ni aux ventes ni aux paie
 
 ## 1. Parcours
 
-1. **Facture.** `POST /api/business/subscription/checkout`, réservé au **propriétaire** (`subscriptionPaymentRoles = ["owner"]`). Il exige une clé d'idempotence fournie par le client et une formule active (`planCode`) en XOF d'au moins 200 F (sinon `422 amount_too_low`). Un commerce suspendu est refusé (`403 business_suspended`) ; un commerce expiré peut payer. La transaction verrouille le profil du commerce (`FOR UPDATE`), puis réutilise la facture `open` ou en crée une (`subscription_invoice`, une seule ouverte par commerce). Le montant, la devise XOF et la durée sont copiés de la formule au moment de la facture. Si une autre formule est choisie (ou si le prix a changé), la facture ouverte est annulée (`void`, audit `subscription.invoice_voided`), à condition qu'aucun paiement n'y soit en cours.
+1. **Facture.** `POST /api/business/subscription/checkout`, réservé au **propriétaire** (`subscriptionPaymentRoles = ["owner"]`). Il exige une clé d'idempotence fournie par le client et une formule active (`planCode`) en XOF d'au moins 200 F (sinon `422 amount_too_low`). Un commerce suspendu est refusé (`403 business_suspended`) ; un commerce expiré peut payer. La transaction verrouille le profil du commerce (`FOR UPDATE`), puis réutilise la facture `open` ou en crée une (`subscription_invoice`, une seule ouverte par commerce). Le montant, la devise XOF et la durée sont copiés de la formule au moment de la facture. La remise d'une campagne publique est déduite de la première facture (voir § 5 bis). Si une autre formule est choisie (ou si le prix ou la remise ont changé), la facture ouverte est annulée (`void`, audit `subscription.invoice_voided`), à condition qu'aucun paiement n'y soit en cours.
 2. **Tentative.** Une ligne `subscription_payment` (`pending`, `provider = 'geniuspay'`) est liée à la facture.
 3. **Checkout.** Appel de `POST /payments` sans `payment_method`. GeniusPay renvoie une `reference` (`MTX-…`) et une `checkout_url` (valable 24 h, HTTPS vérifié). Les métadonnées `qadr_invoice` et `qadr_attempt` sont envoyées. Le navigateur est redirigé vers `checkout_url`.
    - Même clé d'idempotence rejouée : la même tentative est renvoyée (200, `replayed`).
@@ -101,6 +101,30 @@ Activation à la confirmation :
 
 La console plateforme (`platform.ts`, filtre `billed`) exclut désormais aussi les tentatives `failed`, `canceled` et `expired`.
 
+## 5 bis. Remise d'une campagne publique sur la première facture (bloc 2)
+
+La remise réclamée à l'inscription (`promotion_redemption.discount_amount_xof`, voir `docs/promotions.md`) est déduite par `prepareCheckout`, sous le verrou du profil :
+
+- **R1.** Seulement une campagne **publique** (`promotion_code.audience = 'public'`) avec une remise positive. Les codes privés ne donnent aucune remise sur facture.
+- **R2.** Seulement sur la formule choisie à l'inscription (celle de l'abonnement de la réclamation). Une autre formule est facturée au prix plein.
+- **R3.** Une seule fois : la remise reste disponible tant qu'**aucune** facture du commerce n'est payée. La première facture payée la consomme, même si elle porte sur une autre formule. Dans ce cas, la remise est perdue (l'interface le signale).
+- **R4.** Montant figé lors de la réclamation, plafonné au prix actuel de la formule.
+- **R5.** Si le montant net est inférieur au minimum GeniusPay (200 F), la demande est refusée (`422 amount_too_low`, message « contactez Qadr Agency »). Aucune facture n'est créée et rien n'est activé sans paiement.
+- **R6.** Révoquer ou mettre en pause la campagne après l'inscription ne retire pas la remise déjà accordée. *Hypothèse à confirmer par le propriétaire.*
+
+Effets sur la facture :
+
+- `amount_xof` devient le **montant net**, celui qui est envoyé à GeniusPay et comparé lors de la vérification. Le prix brut vaut `amount_xof + discount_xof`.
+- `discount_xof` et `promotion_redemption_id` gardent la trace de la remise.
+- Contraintes SQL :
+  - `subscription_invoice_discount_check` : une remise existe si et seulement si une réclamation est liée ;
+  - FK composée `subscription_invoice_redemption_tenant_fk` : pas de réclamation d'un autre commerce ;
+  - index unique `subscription_invoice_redemption_once_unique` : une réclamation ne sert qu'à une facture ouverte ou payée (une facture annulée la libère).
+- Les audits `subscription.invoice_created` et `subscription.payment_activated` portent `discountXof` et `promotionRedemptionId`.
+- `GET /api/business/subscription` renvoie `campaignDiscount: { planCode, discountXof, amountXof }` (propriétaire seulement), calculé par le serveur comme sur la facture. `openInvoice.discountXof` décrit la facture ouverte.
+
+Migration : `drizzle/0021_campaign_discount_on_invoice.sql`. L'ordre de deux instructions a été corrigé à la main : la contrainte unique `promotion_redemption_business_id_unique` doit précéder la clé étrangère qui s'appuie sur elle. Le SQL et l'instantané restent ceux de `drizzle-kit generate`.
+
 ## 6. Schéma (migration 0018)
 
 `drizzle/0018_subscription_billing_geniuspay.sql`, générée par `drizzle-kit generate`. **Aucun SQL manuel.**
@@ -139,7 +163,7 @@ La « Subscription API » de GeniusPay (prélèvement automatique) ne fonctionne
 ## 9. Limites connues
 
 - Rien n'a été testé en réel (GeniusPay, Neon, Vercel Cron). L'interface n'a pas été vérifiée visuellement dans un navigateur.
-- Les remises des codes promotionnels ne s'appliquent pas aux factures : le prix payé est celui de la formule.
+- Seule la remise d'une **campagne publique** s'applique, une fois (§ 5 bis). Les remises des codes privés ne s'appliquent pas aux factures.
 - Un remboursement (`refunded`) est enregistré, mais ne raccourcit pas automatiquement la période déjà accordée.
 - Deux paiements réussis pour la même facture sont détectés (audit `payment_duplicate`), mais leur remboursement reste manuel.
 - Le rapprochement ne tourne qu'une fois par jour (cron existant). Entre-temps, la page de retour et le webhook assurent la confirmation.
@@ -149,6 +173,7 @@ La « Subscription API » de GeniusPay (prélèvement automatique) ne fonctionne
 
 - `src/lib/billing/geniuspay.test.ts` : signature, tolérance, normalisation, configuration, appels simulés.
 - `src/test/subscription-billing.http.test.ts` : parcours complet par le harnais PGlite (rôle, idempotence, réutilisation, échec de création, webhook signé et dédupliqué, montant ou métadonnées falsifiés, référence inconnue, absence de régression, renouvellement à partir de la fin, changement de formule, commerce expiré, cron).
+- `src/test/campaign-invoice-discount.http.test.ts` : remise de campagne sur la première facture (montant net envoyé, réutilisation, activation, une seule fois, autre formule, perte de la remise, montant trop faible, contraintes SQL, réclamation d'un autre commerce).
 - `src/test/tenant-isolation.http.test.ts` : un paiement de B est introuvable pour A, et A ne paie que sa propre facture.
 
 Le faux GeniusPay remplace uniquement `fetch`, avec des valeurs de test évidentes. Tout appel vers une autre adresse échoue.

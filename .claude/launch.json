@@ -26,6 +26,18 @@
       "port": 8787
     },
     {
+      "name": "qadr-web-preview-billing-display",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/web", "run", "preview"],
+      "env": {
+        "GENIUSPAY_API_KEY": "pk_sandbox_test_harnais",
+        "GENIUSPAY_API_SECRET": "sk_sandbox_test_harnais",
+        "GENIUSPAY_WEBHOOK_SECRET": "whsec_test_harnais_qadr_ops",
+        "GENIUSPAY_BASE_URL": "https://geniuspay.test.invalid/api/v1/merchant"
+      },
+      "port": 3001
+    },
+    {
       "name": "qadr-web-preview-turnstile-test",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "apps/web", "run", "preview"],

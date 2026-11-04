@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { businessProfile, businessSubscription, member, subscriptionPlan } from "../db/schema";
 import { hasBusinessPermission } from "../auth/permissions";
 import { CommercialError, type CommercialDatabase } from "./commercial";
-import { listPayablePlans, openInvoiceSummary, subscriptionPaymentRoles } from "./subscription-billing";
+import { availableCampaignDiscount, invoicePricing, listPayablePlans, openInvoiceSummary, subscriptionPaymentRoles } from "./subscription-billing";
 import { businessLifecycle, isInForce, remainingDays } from "./subscription-lifecycle";
 
 /** Rôles autorisés à appliquer un code Qadr Agency (même règle que redeemSubscriptionPromotion). */
@@ -28,18 +28,26 @@ export async function getBusinessSubscriptionOverview(db: Pick<CommercialDatabas
   const pending = rows.find((row) => row.status === "pending");
   const roles = membership.role.split(",").map((role) => role.trim());
   const canPay = profile.status !== "suspended" && roles.some((role) => (subscriptionPaymentRoles as readonly string[]).includes(role));
+  const plans = await listPayablePlans(db);
+  // Remise de la campagne choisie à l'inscription, calculée par le serveur comme sur la facture (jamais dans le navigateur).
+  const discount = canPay ? await availableCampaignDiscount(db, businessId) : null;
+  const discountPlan = discount ? plans.find((plan) => plan.code === discount.planCode) : undefined;
+  const discountPricing = discount && discountPlan ? invoicePricing({ id: discount.planId, priceXof: BigInt(discountPlan.priceXof) }, discount) : null;
   return {
     lifecycle: businessLifecycle(profile.status, rows, now),
     canRedeem: profile.status !== "suspended" && roles.some((role) => (promotionRedeemRoles as readonly string[]).includes(role)),
     // Paiement en ligne GeniusPay (mission 12) : réservé au propriétaire, seulement si le serveur est configuré.
     canPay,
     onlinePayment: options.onlinePayment ?? false,
-    plans: await listPayablePlans(db),
+    plans,
+    campaignDiscount: discountPricing && discountPlan ? { planCode: discountPlan.code, discountXof: discountPricing.discountXof.toString(), amountXof: discountPricing.amountXof.toString() } : null,
     openInvoice: canPay ? await openInvoiceSummary(db, businessId, now) : null,
     subscription: shown ? {
       status: shown.status, inForce: Boolean(inForce), planCode: shown.planCode, planName: shown.planName, origin: shown.origin,
       startsAt: shown.startsAt, endsAt: shown.endsAt, remainingDays: inForce ? remainingDays(shown.endsAt, now) : 0,
     } : null,
-    pending: pending ? { id: pending.id, planName: pending.planName, priceXof: pending.priceXof.toString(), durationDays: pending.durationDays } : null,
+    pending: pending ? { id: pending.id, planName: pending.planName, priceXof: pending.priceXof.toString(), durationDays: pending.durationDays,
+      // Montant réellement dû quand la remise de campagne porte sur cette formule (même calcul que la facture).
+      amountDueXof: discountPricing && discountPlan?.code === pending.planCode ? discountPricing.amountXof.toString() : pending.priceXof.toString() } : null,
   };
 }

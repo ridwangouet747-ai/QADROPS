@@ -331,6 +331,8 @@ export const subscriptionInvoice = pgTable("subscription_invoice", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }), planCode: text("plan_code").notNull(), planName: text("plan_name").notNull(),
   amountXof: bigint("amount_xof", { mode: "bigint" }).notNull(), currency: text("currency").notNull().default("XOF"), durationDays: integer("duration_days").notNull(),
+  /** Remise d'une campagne publique déduite du prix de la formule : `amount_xof` est le montant NET à payer. */
+  discountXof: bigint("discount_xof", { mode: "bigint" }).notNull().default(sql`0`), promotionRedemptionId: text("promotion_redemption_id"),
   status: text("status").notNull().default("open"), subscriptionId: text("subscription_id"),
   periodStartsAt: timestamp("period_starts_at", { withTimezone: true }), periodEndsAt: timestamp("period_ends_at", { withTimezone: true }),
   createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
@@ -343,6 +345,10 @@ export const subscriptionInvoice = pgTable("subscription_invoice", {
   check("subscription_invoice_status_check", sql`${t.status} in ('open','paid','void')`),
   check("subscription_invoice_amount_positive", sql`${t.amountXof} > 0 and ${t.durationDays} > 0`),
   check("subscription_invoice_currency_check", sql`${t.currency} = 'XOF'`),
+  foreignKey({ columns: [t.businessId, t.promotionRedemptionId], foreignColumns: [promotionRedemption.businessId, promotionRedemption.id], name: "subscription_invoice_redemption_tenant_fk" }),
+  check("subscription_invoice_discount_check", sql`${t.discountXof} >= 0 and (${t.promotionRedemptionId} is null) = (${t.discountXof} = 0)`),
+  // Une remise de campagne ne sert qu'une fois : une seule facture ouverte ou payée la porte (une facture annulée la libère).
+  uniqueIndex("subscription_invoice_redemption_once_unique").on(t.promotionRedemptionId).where(sql`${t.promotionRedemptionId} is not null and ${t.status} in ('open','paid')`),
   check("subscription_invoice_paid_check", sql`${t.status} <> 'paid' or (${t.paidAt} is not null and ${t.subscriptionId} is not null and ${t.periodStartsAt} is not null and ${t.periodEndsAt} > ${t.periodStartsAt})`)]);
 /**
  * Règlement d'abonnement. Historiquement une ligne par paiement saisi (code de réduction : `method = 'other'`,
@@ -374,7 +380,7 @@ export const promotionRedemption = pgTable("promotion_redemption", {
   redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
   /** Compte qui a réclamé une campagne publique (une fois par compte) ; nul pour les codes privés. */
   redeemedByUserId: text("redeemed_by_user_id").references(() => user.id, { onDelete: "restrict" }),
-}, (t) => [foreignKey({ columns: [t.businessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "promotion_subscription_tenant_fk" }), unique("promotion_business_once_unique").on(t.promotionId, t.businessId), check("promotion_redemption_discount_nonnegative", sql`${t.discountAmountXof} >= 0`),
+}, (t) => [foreignKey({ columns: [t.businessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "promotion_subscription_tenant_fk" }), unique("promotion_redemption_business_id_unique").on(t.businessId, t.id), unique("promotion_business_once_unique").on(t.promotionId, t.businessId), check("promotion_redemption_discount_nonnegative", sql`${t.discountAmountXof} >= 0`),
   uniqueIndex("promotion_redemption_user_once_unique").on(t.promotionId, t.redeemedByUserId).where(sql`${t.redeemedByUserId} is not null`)]);
 
 export const auditEvent = pgTable("audit_event", {

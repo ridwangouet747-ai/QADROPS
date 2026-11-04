@@ -18,7 +18,7 @@ type Lifecycle = "active" | "trial" | "pending" | "expired" | "suspended";
 type Overview = {
   lifecycle: Lifecycle; canRedeem: boolean;
   subscription: { status: string; inForce: boolean; planCode: string; planName: string; origin: string; startsAt: string; endsAt: string; remainingDays: number } | null;
-  pending: { id: string; planName: string; priceXof: string; durationDays: number } | null;
+  pending: { id: string; planName: string; priceXof: string; amountDueXof?: string; durationDays: number } | null;
   canPay?: boolean; onlinePayment?: boolean;
   plans?: { code: string; name: string; priceXof: string; durationDays: number; description: string | null }[];
   openInvoice?: { id: string; planCode: string; planName: string; amountXof: string; durationDays: number; pendingAttemptId: string | null } | null;
@@ -95,7 +95,7 @@ export function SubscriptionWorkspace() {
             </dl>
           )}
           {overview && !current && <p className="m-0 text-sm text-night-fg">{t("subscription.current.noneHint")}</p>}
-          {overview?.pending && <p className="m-0 rounded-[14px] bg-night-soft/70 p-3 text-sm text-white">{t("subscription.current.pendingPlan", { plan: overview.pending.planName })} · {formatXof(overview.pending.priceXof, locale)}</p>}
+          {overview?.pending && <p className="m-0 rounded-[14px] bg-night-soft/70 p-3 text-sm text-white">{t("subscription.current.pendingPlan", { plan: overview.pending.planName })} · {formatXof(overview.pending.amountDueXof ?? overview.pending.priceXof, locale)}</p>}
           {overview?.lifecycle === "expired" && <p className="m-0 text-sm text-night-fg">{t("subscription.current.expiredHint")}</p>}
           {overview?.lifecycle === "suspended" && <p className="m-0 text-sm text-night-fg">{t("subscription.current.suspendedHint")}</p>}
         </Card>

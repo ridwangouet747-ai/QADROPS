@@ -21,6 +21,8 @@ type Plan = { code: string; name: string; priceXof: string; durationDays: number
 export type PayOverview = {
   lifecycle: string; canPay?: boolean; onlinePayment?: boolean; plans?: Plan[];
   openInvoice?: { planCode: string; pendingAttemptId: string | null } | null;
+  /** Remise de la campagne d'inscription, déjà calculée par le serveur (montant net = celui de la facture). */
+  campaignDiscount?: { planCode: string; discountXof: string; amountXof: string } | null;
 };
 type PayError = "billing_unavailable" | "provider_unavailable" | "payment_in_progress" | "checkout_in_progress" | "plan_not_found" | "amount_too_low"
   | "business_suspended" | "forbidden" | "network" | "unknown";
@@ -44,8 +46,10 @@ export function PayCard({ overview }: { overview: PayOverview | null }) {
   // Même clé tant que la demande n'a pas reçu de réponse définitive : une coupure réseau ne crée pas deux paiements.
   const key = useRef<{ plan: string; value: string } | null>(null);
   const sending = useRef(false);
-  const chosen = selected ?? overview?.openInvoice?.planCode ?? (plans.length === 1 ? plans[0]!.code : null);
+  const discount = overview?.campaignDiscount ?? null;
+  const chosen = selected ?? overview?.openInvoice?.planCode ?? discount?.planCode ?? (plans.length === 1 ? plans[0]!.code : null);
   const plan = plans.find((item) => item.code === chosen) ?? null;
+  const amountOf = (item: Plan) => (discount?.planCode === item.code ? discount.amountXof : item.priceXof);
 
   const pay = async () => {
     if (!plan || sending.current) return;
@@ -91,6 +95,7 @@ export function PayCard({ overview }: { overview: PayOverview | null }) {
           <ul className="m-0 grid list-none gap-2 p-0" aria-label={t("subscription.pay.title")}>
             {plans.map((item) => {
               const active = item.code === chosen;
+              const discounted = discount?.planCode === item.code;
               return (
                 <li key={item.code}>
                   <button type="button" aria-pressed={active} onClick={() => { setSelected(item.code); setFailure(null); }}
@@ -99,9 +104,13 @@ export function PayCard({ overview }: { overview: PayOverview | null }) {
                     <span className="min-w-0">
                       <span dir="auto" className="block font-bold text-ink">{item.name}</span>
                       <span className="block text-sm text-fg-muted">{t("subscription.pay.perDuration", { count: item.durationDays })}</span>
+                      {discounted && <Badge tone="success" className="mt-1">{t("subscription.pay.discount", { amount: formatXof(discount.discountXof, locale) })}</Badge>}
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
-                      <span className="numeric text-base font-bold text-ink">{formatXof(item.priceXof, locale)}</span>
+                      <span className="grid justify-items-end">
+                        {discounted && <s className="numeric text-xs text-fg-subtle">{formatXof(item.priceXof, locale)}</s>}
+                        <span className="numeric text-base font-bold text-ink">{formatXof(amountOf(item), locale)}</span>
+                      </span>
                       {active && <Icon name="check" className="size-5 text-brand" />}
                     </span>
                   </button>
@@ -111,8 +120,9 @@ export function PayCard({ overview }: { overview: PayOverview | null }) {
           </ul>
           <Button variant="cta" size="lg" block loading={busy} disabled={!plan} onClick={() => void pay()} icon={<Icon name="wallet" />}>
             {busy ? t("subscription.pay.redirecting") : overview.openInvoice?.pendingAttemptId && overview.openInvoice.planCode === chosen
-              ? t("subscription.pay.resume") : plan ? t("subscription.pay.submit", { amount: formatXof(plan.priceXof, locale) }) : t("subscription.pay.choose")}
+              ? t("subscription.pay.resume") : plan ? t("subscription.pay.submit", { amount: formatXof(amountOf(plan), locale) }) : t("subscription.pay.choose")}
           </Button>
+          {discount && <p className="m-0 text-xs text-fg-subtle">{t("subscription.pay.discountHint")}</p>}
           <p className="m-0 text-xs text-fg-subtle">{t("subscription.pay.renewHint")}</p>
           <p className="m-0 text-xs text-fg-subtle">{t("subscription.pay.activationHint")}</p>
         </>
