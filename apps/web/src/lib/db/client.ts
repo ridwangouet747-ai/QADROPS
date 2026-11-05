@@ -3,6 +3,7 @@ import { attachDatabasePool } from "@vercel/functions";
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { databaseSchema } from "./schema";
 import { requireDatabaseUrl } from "@/lib/env";
+import { isLocalPreview } from "@/lib/preview/mode";
 
 function openDatabase(url: string) {
   // Pool uses the Node.js WebSocket implementation and supports interactive transactions.
@@ -22,12 +23,18 @@ const databases = new Map<string, ReturnType<typeof openDatabase>>();
 /**
  * Base partagée par toutes les requêtes du processus (une connexion par URL). Auparavant, chaque
  * requête ouvrait un pool jamais fermé, ce qui laissait des connexions ouvertes vers Neon.
+ *
+ * Refusée en aperçu local : `scripts/preview.mjs` retire `DATABASE_URL`, mais `next dev` recharge ensuite
+ * `.env.local`. Sans ce garde-fou, une route oubliée de l'aperçu joindrait Neon. Les routes passent par
+ * `getRuntimeDatabase()` (`./runtime`) ou par le contexte de commerce, qui choisissent la base de démonstration.
  */
-export function getDatabase(url = requireDatabaseUrl()) {
-  let database = databases.get(url);
+export function getDatabase(url?: string) {
+  if (isLocalPreview()) throw new Error("Aperçu local : la base Neon n'est jamais utilisée (base de démonstration en mémoire).");
+  const target = url ?? requireDatabaseUrl();
+  let database = databases.get(target);
   if (!database) {
-    database = openDatabase(url);
-    databases.set(url, database);
+    database = openDatabase(target);
+    databases.set(target, database);
   }
   return database;
 }

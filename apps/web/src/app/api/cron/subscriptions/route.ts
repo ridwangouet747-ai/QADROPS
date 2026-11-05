@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { timingSafeEqual } from "node:crypto";
 import { getBillingProvider } from "@/lib/billing";
-import { getDatabase } from "@/lib/db/client";
+import { getRuntimeDatabase } from "@/lib/db/runtime";
 import { errorResponse } from "@/lib/domain/business-context";
 import { purgeStoredFiles } from "@/lib/domain/stored-files";
 import { reconcilePendingSubscriptionPayments } from "@/lib/domain/subscription-billing";
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   const expected = Buffer.from(`Bearer ${secret}`);
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return new Response(null, { status: 401 });
   try {
-    const db = getDatabase();
+    const db = await getRuntimeDatabase();
     // Rapprochement GeniusPay d'abord : un paiement abouti dont le webhook s'est perdu prolonge l'abonnement
     // avant le passage d'expiration. Une panne du prestataire n'empêche jamais l'expiration.
     let billing: Awaited<ReturnType<typeof reconcilePendingSubscriptionPayments>> | { error: true };

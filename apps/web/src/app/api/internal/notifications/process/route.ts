@@ -1,6 +1,5 @@
 import { isCronAuthorized } from "@/lib/cron-auth";
-import { getDatabase } from "@/lib/db/client";
-import type { CommercialDatabase } from "@/lib/domain/commercial";
+import { getRuntimeDatabase } from "@/lib/db/runtime";
 import { enqueueExpiringSubscriptions, processNotificationOutbox } from "@/lib/domain/notifications";
 import { pushSenderFromEnvironment } from "@/lib/notifications/server";
 
@@ -16,7 +15,7 @@ async function handle(request: Request) {
   if (!isCronAuthorized(request.headers.get("authorization"), [process.env.NOTIFICATIONS_CRON_SECRET, process.env.CRON_SECRET])) {
     return Response.json({ error: "Non autorisé." }, { status: 401 });
   }
-  const db = getDatabase() as unknown as CommercialDatabase;
+  const db = await getRuntimeDatabase();
   const expiring = await enqueueExpiringSubscriptions(db);
   const summary = await processNotificationOutbox(db, { sender: pushSenderFromEnvironment(), limit: 100 });
   return Response.json({ expiring, ...summary });

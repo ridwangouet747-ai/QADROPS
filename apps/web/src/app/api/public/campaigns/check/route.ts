@@ -1,8 +1,7 @@
 import { clientIpFrom } from "@/lib/auth/client-ip-headers";
 import { turnstileHeader, verifyTurnstile } from "@/lib/auth/turnstile";
-import { getDatabase } from "@/lib/db/client";
+import { getRuntimeDatabase } from "@/lib/db/runtime";
 import { errorResponse, parseJsonRequest } from "@/lib/domain/business-context";
-import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { checkPublicCampaign } from "@/lib/domain/public-campaigns";
 import { readEnvironment } from "@/lib/env";
 import { publicCampaignCheckLimiter } from "@/lib/rate-limit";
@@ -20,13 +19,6 @@ export const runtime = "nodejs";
  * Turnstile (action « promotion-check ») est exigé dès que les clés sont configurées, toujours en production.
  */
 const noStore = { "cache-control": "no-store" };
-
-function publicDatabase(): Promise<CommercialDatabase> | CommercialDatabase {
-  if (process.env.QADR_PREVIEW_MODE === "true" && process.env.NODE_ENV === "development") {
-    return import("@/lib/preview/database").then(async ({ getPreviewDatabase }) => await getPreviewDatabase() as unknown as CommercialDatabase);
-  }
-  return getDatabase() as unknown as CommercialDatabase;
-}
 
 export async function POST(request: Request) {
   try {
@@ -47,6 +39,6 @@ export async function POST(request: Request) {
       return Response.json({ error: "La vérification de sécurité a échoué. Réessayez.", code: "turnstile_failed" }, { status: 400, headers: noStore });
     }
     const body = await parseJsonRequest(request);
-    return Response.json(await checkPublicCampaign(await publicDatabase(), body), { headers: noStore });
+    return Response.json(await checkPublicCampaign(await getRuntimeDatabase(), body), { headers: noStore });
   } catch (error) { return errorResponse(error); }
 }

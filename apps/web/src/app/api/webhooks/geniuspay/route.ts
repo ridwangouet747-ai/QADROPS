@@ -1,4 +1,4 @@
-import { getDatabase } from "@/lib/db/client";
+import { getRuntimeDatabase } from "@/lib/db/runtime";
 import { getBillingProvider } from "@/lib/billing";
 import { errorResponse } from "@/lib/domain/business-context";
 import { handleGeniusPayWebhook } from "@/lib/domain/subscription-billing";
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return Response.json({ error: "payload_too_large" }, { status: 413 });
     const rawBody = await request.text();
     if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) return Response.json({ error: "payload_too_large" }, { status: 413 });
-    const result = await handleGeniusPayWebhook(getDatabase(), billing, rawBody, request.headers);
+    const result = await handleGeniusPayWebhook(await getRuntimeDatabase(), billing, rawBody, request.headers);
     return Response.json(result.body, { status: result.status, headers: { "cache-control": "no-store" } });
   } catch (error) { return errorResponse(error); }
 }

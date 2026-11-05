@@ -151,7 +151,7 @@ La « Subscription API » de GeniusPay (prélèvement automatique) ne fonctionne
 
 ## 8. Points GeniusPay à confirmer avant la production
 
-La liste complète des questions, le message prêt à envoyer à GeniusPay et le protocole d'essai sandbox sont dans `docs/engineering/geniuspay-questions.md` (relecture de la documentation du 2026-11-04). Un webhook refusé indique dans le journal la variante de signature reconnue, sans jamais l'accepter.
+La liste complète des questions, le message prêt à envoyer à GeniusPay et le protocole d'essai sandbox sont dans `docs/engineering/geniuspay-questions.md` (relecture de la documentation du 2026-11-04). Un webhook refusé indique dans le journal la variante de signature reconnue, sans jamais l'accepter. L'essai depuis l'aperçu local par Cloudflare Quick Tunnel est décrit dans `docs/engineering/geniuspay-sandbox-tunnel.md`.
 
 - **URL de base** : la documentation cite `geniuspay.ci/api/v1/merchant`, le SDK `pay.genius.ci` et la Subscription API `api.geniuspay.ci`. Le défaut retenu est le premier ; il reste surchargeable par `GENIUSPAY_BASE_URL`.
 - **Chaîne signée** : l'exemple PHP ré-encode le JSON au lieu de signer le corps brut. Nous signons et vérifions `timestamp + "." + corps brut`. L'encodage (hexadécimal présumé) est aussi à confirmer.
