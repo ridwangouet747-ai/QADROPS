@@ -218,13 +218,14 @@ describe("console Super Admin (mission 08)", () => {
   });
 
   describe("habilitations Super Admin", () => {
-    it("attribue et retire un droit par la procédure contrôlée, sans retirer le dernier administrateur", async () => {
+    it("un seul propriétaire actif : second droit refusé, dernier droit jamais retiré", async () => {
       await expect(revokePlatformAdmin(db, { email: "aicha@qadr.test", reason: "Test du dernier admin", grantedByUserId: admin })).rejects.toMatchObject({ status: 409 });
       await expect(grantPlatformAdmin(db, { email: "second@qadr.test", reason: "Renfort support", grantedByUserId: owner.a })).rejects.toMatchObject({ status: 403 });
-      await grantPlatformAdmin(db, { email: "second@qadr.test", reason: "Renfort de l’équipe support", grantedByUserId: admin });
+      await expect(grantPlatformAdmin(db, { email: "second@qadr.test", reason: "Renfort de l’équipe support", grantedByUserId: admin })).rejects.toMatchObject({ status: 409 });
+      // Défense en base : même un ajout direct ne peut pas créer un second droit actif.
+      await expect(client.query("insert into platform_admin (user_id) values ('console-second')")).rejects.toThrow(/platform_admin_single_active/);
       const settings = await getPlatformSettings(db, admin);
-      expect(settings.admins.map((row) => row.email)).toEqual(["aicha@qadr.test", "second@qadr.test"]);
-      await revokePlatformAdmin(db, { email: "second@qadr.test", reason: "Fin de mission", grantedByUserId: admin });
+      expect(settings.admins.map((row) => row.email)).toEqual(["aicha@qadr.test"]);
       await expect(getPlatformOverview(db, "console-second")).rejects.toMatchObject({ status: 403 });
     });
   });

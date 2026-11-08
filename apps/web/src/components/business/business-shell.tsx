@@ -9,6 +9,7 @@ import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { InstallInvite } from "@/components/pwa/install-invite";
 import { NetworkStatus } from "@/components/pwa/network-status";
+import { PushDeviceSync } from "@/components/notifications/push-device-sync";
 import { BusinessTimeZoneContext } from "@/components/business/business-time-zone";
 import { track } from "@/lib/analytics/client";
 import { BUSINESS_DEFAULT_TIME_ZONE, safeTimeZone } from "@/lib/i18n/format";
@@ -173,6 +174,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
           </div>
           {preview && <p className="m-0 border-t border-warn-line bg-warn-soft px-4 py-1 text-center text-xs font-semibold text-warn 2xl:hidden">{t("shell.previewBadge")}</p>}
           <NetworkStatus />
+          {preview ? null : <PushDeviceSync />}
         </header>
         <InstallInvite />
 

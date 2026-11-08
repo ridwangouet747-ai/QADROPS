@@ -31,14 +31,14 @@ export async function requirePlatformAdmin(db: PlatformDb, actorUserId: string) 
 export async function writePlatformAudit(db: PlatformDb, input: {
   actorUserId: string | null; eventType: string; entityType: string; entityId: string;
   businessId?: string | null; before?: Record<string, Json> | null; after?: Record<string, Json> | null;
-  reason?: string | null; metadata?: Record<string, Json>;
+  reason?: string | null; metadata?: Record<string, Json>; result?: "success" | "failure";
 }) {
   await db.insert(auditEvent).values({
     id: randomUUID(), businessId: null, actorUserId: input.actorUserId,
     eventType: input.eventType, entityType: input.entityType, entityId: input.entityId,
     metadata: {
       ...input.metadata, businessId: input.businessId ?? null, before: input.before ?? null, after: input.after ?? null,
-      reason: input.reason ?? null, result: "success",
+      reason: input.reason ?? null, result: input.result ?? "success",
     },
   });
 }
@@ -699,6 +699,9 @@ export async function grantPlatformAdmin(db: PlatformDb, raw: unknown) {
     if (input.grantedByUserId) await requirePlatformAdmin(tx as unknown as PlatformDb, input.grantedByUserId);
     const [existing] = await tx.select({ revokedAt: platformAdmin.revokedAt }).from(platformAdmin).where(eq(platformAdmin.userId, target.id)).limit(1);
     if (existing && !existing.revokedAt) throw new CommercialError("Ce compte est déjà administrateur de la plateforme.", 409);
+    // Mission 13 : un seul propriétaire actif (index unique `platform_admin_single_active` en défense).
+    const [active] = await tx.select({ total: count() }).from(platformAdmin).where(isNull(platformAdmin.revokedAt));
+    if (Number(active?.total ?? 0) > 0) throw new CommercialError("Un propriétaire de la plateforme est déjà actif : un seul compte peut accéder à l’administration.", 409);
     if (existing) await tx.update(platformAdmin).set({ revokedAt: null, grantedByUserId: input.grantedByUserId, createdAt: new Date() }).where(eq(platformAdmin.userId, target.id));
     else await tx.insert(platformAdmin).values({ userId: target.id, grantedByUserId: input.grantedByUserId });
     await writePlatformAudit(tx as unknown as PlatformDb, { actorUserId: input.grantedByUserId, eventType: "platform.admin_granted", entityType: "user", entityId: target.id, before: { admin: false }, after: { admin: true }, reason: input.reason });

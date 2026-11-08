@@ -33,6 +33,14 @@ Le logo choisi à la création est réduit à 256 px dans le navigateur, envoyé
 
 En mode aperçu (`npm run preview`), Better Auth tourne réellement sur la base PGlite en mémoire avec un secret de développement. Sans session, l'aperçu garde l'identité de démonstration des missions précédentes ; avec une session, ce sont les vraies règles qui s'appliquent.
 
+### 2 bis. Connexion sociale et nom d'utilisateur (mission 13)
+
+- **Google** et **Apple** (`socialProviders` de `src/lib/env.ts`) : un bouton n'apparaît que si ses identifiants sont configurés (`GET /api/account/capabilities` renvoie `socialProviders`). Apple exige en plus `BETTER_AUTH_URL` en HTTPS ; son secret client est un JWT produit par `scripts/apple-client-secret.mjs` (6 mois au plus).
+- Liaison de comptes : `requireLocalEmailVerified` et adresse vérifiée par le fournisseur, aucune adresse différente, aucun fournisseur « de confiance » d'office. Un compte local non vérifié n'est jamais rattaché automatiquement (message `auth.social.notLinked`).
+- Ordre de la page de connexion : Google, Apple, puis e-mail + mot de passe, puis « mot de passe oublié ».
+- **Rien n'a été essayé avec de vrais identifiants Google ou Apple** (aucun n'est configuré) : connexion sociale non validée de bout en bout.
+- Plugin **Username** : réservé au propriétaire de la plateforme (`docs/platform-owner-access.md`) ; ses routes HTTP sont fermées et un `username` envoyé par un client est refusé.
+
 ## 3. Rôles et permissions
 
 Les rôles existants sont conservés sans ajout : `owner`, `admin`, `member` (lecture seule), `cashier`, `stock_manager`, `accountant`. Les permissions restent centralisées dans `src/lib/auth/permissions.ts` ; la matrice affichée sur la page Équipe en est dérivée (`roleMatrix()`), elle ne la duplique pas.

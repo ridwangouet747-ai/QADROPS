@@ -8,8 +8,8 @@ import { getPlatformContext } from "@/lib/domain/platform-context";
 export async function notificationUser(request: Request) {
   if (new URL(request.url).searchParams.get("scope") === "platform") {
     const context = await getPlatformContext(request.headers);
-    return { db: context.db, userId: context.actorUserId };
+    return { db: context.db, userId: context.actorUserId, sessionId: context.sessionId };
   }
   const context = await getBusinessContext(request.headers);
-  return { db: context.db, userId: context.userId };
+  return { db: context.db, userId: context.userId, sessionId: context.sessionId };
 }

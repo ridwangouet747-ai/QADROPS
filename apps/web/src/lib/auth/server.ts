@@ -2,11 +2,11 @@ import { betterAuth } from "better-auth";
 import { eq } from "drizzle-orm";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
-import { organization } from "better-auth/plugins";
+import { organization, username } from "better-auth/plugins";
 import { after } from "next/server";
 import { getDatabase } from "@/lib/db/client";
 import { authSchema, businessProfile, receiptSettings } from "@/lib/db/schema";
-import { assertProductionAuthUrl, readEnvironment } from "@/lib/env";
+import { assertProductionAuthUrl, readEnvironment, socialProviders as configuredSocialProviders } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { claimPublicCampaignSafely, signupCampaignScope } from "@/lib/domain/public-campaigns";
 import { defaultLocale, localeCookie, resolveLocale, type Locale } from "@/lib/i18n/config";
@@ -80,6 +80,8 @@ type AuthOptions = {
   /** Exécution des envois après la réponse ; sans elle, Better Auth attend l'envoi. */
   backgroundTask?: (task: Promise<unknown>) => void;
   turnstile?: { secret?: string; siteKey?: string; fetcher?: typeof fetch };
+  /** Connexions sociales configurées (`socialProviders()` de lib/env), aucune par défaut. */
+  social?: ReturnType<typeof configuredSocialProviders>;
 };
 
 /**
@@ -96,9 +98,20 @@ export function createQadrAuth(options: AuthOptions) {
     appName: "QADR OPS",
     baseURL: options.baseURL,
     secret: options.secret,
-    trustedOrigins: [options.baseURL],
+    // Apple renvoie la réponse par un POST depuis appleid.apple.com : origine à approuver quand Apple est actif.
+    trustedOrigins: options.social?.apple ? [options.baseURL, "https://appleid.apple.com"] : [options.baseURL],
     database: drizzleAdapter(options.db as Parameters<typeof drizzleAdapter>[0], { provider: "pg", schema: authSchema }),
     session: { expiresIn: authDurations.sessionSeconds, updateAge: authDurations.sessionRefreshSeconds },
+    // Mission 13 : Google et Apple, seulement si leurs identifiants existent (jamais de bouton factice).
+    socialProviders: {
+      ...(options.social?.google ? { google: { ...options.social.google, prompt: "select_account" as const } } : {}),
+      ...(options.social?.apple ? { apple: { clientId: options.social.apple.clientId, clientSecret: options.social.apple.clientSecret,
+        ...(options.social.apple.appBundleIdentifier ? { appBundleIdentifier: options.social.apple.appBundleIdentifier } : {}) } } : {}),
+    },
+    // Association d'un compte social à un compte existant : seulement si le fournisseur a vérifié l'adresse ET
+    // si l'adresse locale est déjà vérifiée (sinon, quelqu'un qui aurait pré-inscrit l'adresse d'autrui
+    // récupérerait sa connexion Google). Aucun fournisseur n'est « de confiance » sans vérification.
+    account: { accountLinking: { enabled: true, trustedProviders: [], requireLocalEmailVerified: true, allowDifferentEmails: false } },
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
@@ -122,7 +135,12 @@ export function createQadrAuth(options: AuthOptions) {
         await deliver(renderVerificationEmail({ locale: requestLocale(request), to: user.email, url, token }));
       },
     } : undefined,
-    plugins: [organization({
+    plugins: [username({
+      // Mission 13 : nom d'utilisateur réservé au propriétaire de la plateforme, attribué par
+      // scripts/platform-owner.ts. Les routes HTTP qui permettraient de le choisir, de le modifier, de tester
+      // son existence ou de se connecter sans passer par /api/platform/auth/sign-in sont fermées plus bas.
+      minUsernameLength: 3, maxUsernameLength: 30, immutableUsername: true,
+    }), organization({
       ac: businessAccess,
       roles: businessRoles,
       creatorRole: "owner",
@@ -189,6 +207,18 @@ export function createQadrAuth(options: AuthOptions) {
         if (context.request && context.path.startsWith("/organization/")) {
           throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
         }
+        // Plugin Username : la connexion par nom d'utilisateur passe uniquement par la route du propriétaire
+        // (limitation des tentatives, audit, session plateforme) ; `/is-username-available` révélerait
+        // l'existence du compte. Aucun nom d'utilisateur ne se choisit ni ne se modifie par HTTP.
+        if (context.request && (context.path === "/sign-in/username" || context.path === "/is-username-available")) {
+          throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
+        }
+        if (context.request && (context.path === "/sign-up/email" || context.path === "/update-user")) {
+          const body = context.body as Record<string, unknown> | undefined;
+          if (body && ("username" in body || "displayUsername" in body)) {
+            throw new APIError("BAD_REQUEST", { message: "USERNAME_NOT_ALLOWED", code: "USERNAME_NOT_ALLOWED" });
+          }
+        }
         // Sans session, Better Auth enverrait la vérification à n'importe quelle adresse non vérifiée :
         // seul le titulaire connecté peut demander la sienne.
         if (context.path === "/send-verification-email" && !(await getSessionFromCtx(context))) {
@@ -227,7 +257,7 @@ export function getAuth(): Promise<QadrAuth> {
         const { getPreviewDatabase } = await import("@/lib/preview/database");
         const baseURL = process.env.BETTER_AUTH_URL ?? `http://localhost:${process.env.PORT ?? "3001"}`;
         return createQadrAuth({ db: await getPreviewDatabase(), secret: "qadr-preview-only-secret-never-in-production-000", baseURL, isProduction: false,
-          emailTransport: resolveEmailTransport(), backgroundTask: runAfterResponse,
+          emailTransport: resolveEmailTransport(), backgroundTask: runAfterResponse, social: configuredSocialProviders(),
           turnstile: { secret: env.TURNSTILE_SECRET_KEY, siteKey: env.NEXT_PUBLIC_TURNSTILE_SITE_KEY } });
       }
       if (!env.DATABASE_URL || !env.BETTER_AUTH_SECRET || env.BETTER_AUTH_SECRET.length < 32) {
@@ -235,7 +265,7 @@ export function getAuth(): Promise<QadrAuth> {
       }
       if (env.NODE_ENV === "production") assertProductionAuthUrl(process.env.BETTER_AUTH_URL);
       return createQadrAuth({ db: getDatabase(env.DATABASE_URL), secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL,
-        isProduction: env.NODE_ENV === "production", emailTransport: resolveEmailTransport(), backgroundTask: runAfterResponse,
+        isProduction: env.NODE_ENV === "production", emailTransport: resolveEmailTransport(), backgroundTask: runAfterResponse, social: configuredSocialProviders(),
         turnstile: { secret: env.TURNSTILE_SECRET_KEY, siteKey: env.NEXT_PUBLIC_TURNSTILE_SITE_KEY } });
     })();
     authInstance.catch(() => { authInstance = undefined; });
@@ -245,5 +275,6 @@ export function getAuth(): Promise<QadrAuth> {
 
 /** Capacités réellement disponibles, affichées honnêtement dans l'interface. */
 export function emailCapabilities() {
-  return { emailConfigured: resolveEmailTransport() !== null };
+  const social = configuredSocialProviders();
+  return { emailConfigured: resolveEmailTransport() !== null, socialProviders: { google: social.google !== null, apple: social.apple !== null } };
 }

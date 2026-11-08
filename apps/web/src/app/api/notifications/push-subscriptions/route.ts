@@ -7,8 +7,8 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const { db, userId } = await notificationUser(request);
-    return Response.json(await registerPushSubscription(db, userId, await parseJsonRequest(request)), { status: 201 });
+    const { db, userId, sessionId } = await notificationUser(request);
+    return Response.json(await registerPushSubscription(db, { userId, sessionId }, await parseJsonRequest(request)), { status: 201 });
   } catch (error) { return errorResponse(error); }
 }
 

@@ -59,6 +59,41 @@ export function PasswordInput({ id, value, onChange, autoComplete, describedBy, 
   );
 }
 
+/** Fournisseurs sociaux réellement configurés côté serveur : aucun bouton n'est affiché sans identifiants. */
+function useSocialProviders() {
+  const [providers, setProviders] = useState<{ google: boolean; apple: boolean }>({ google: false, apple: false });
+  useEffect(() => {
+    fetch("/api/account/capabilities", { cache: "no-store" }).then((response) => response.json() as Promise<{ socialProviders?: { google?: boolean; apple?: boolean } }>)
+      .then((body) => setProviders({ google: Boolean(body.socialProviders?.google), apple: Boolean(body.socialProviders?.apple) })).catch(() => undefined);
+  }, []);
+  return providers;
+}
+
+/**
+ * « Continuer avec Google / Apple » : flux OAuth de Better Auth (aucun secret dans le navigateur). Retour sur
+ * /login?social=1, qui reprend l'orientation habituelle ; un nouveau compte part vers la création du commerce.
+ */
+function SocialButtons({ next, onError }: { next: string | null; onError: (message: string) => void }) {
+  const { t } = useI18n();
+  const providers = useSocialProviders();
+  const [busy, setBusy] = useState<"google" | "apple" | null>(null);
+  if (!providers.google && !providers.apple) return null;
+  const start = async (provider: "google" | "apple") => {
+    setBusy(provider);
+    const back = `/login?social=1${next ? `&next=${encodeURIComponent(next)}` : ""}`;
+    const { error } = await authClient.signIn.social({ provider, callbackURL: back, newUserCallbackURL: "/onboarding", errorCallbackURL: "/login?social_error=1" })
+      .catch(() => ({ error: { message: "network" } }));
+    if (error) { onError(t("auth.social.failed")); setBusy(null); }
+  };
+  return (
+    <div className="grid gap-3">
+      {providers.google && <Button type="button" variant="secondary" size="lg" block loading={busy === "google"} onClick={() => void start("google")}>{t("auth.social.google")}</Button>}
+      {providers.apple && <Button type="button" variant="secondary" size="lg" block loading={busy === "apple"} onClick={() => void start("apple")}>{t("auth.social.apple")}</Button>}
+      <p className="m-0 text-center text-sm text-fg-subtle">{t("auth.social.or")}</p>
+    </div>
+  );
+}
+
 export function LoginForm() {
   const { t } = useI18n();
   const router = useRouter();
@@ -66,9 +101,14 @@ export function LoginForm() {
   const next = safeNext(params.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(params.get("expired") ? t("auth.login.expired") : "");
+  const socialError = params.get("social_error") ? (params.get("error") === "account_not_linked" ? t("auth.social.notLinked") : t("auth.social.failed")) : "";
+  const [error, setError] = useState(params.get("expired") ? t("auth.login.expired") : socialError);
   const [busy, setBusy] = useState(false);
   const security = useSecurityCheck();
+  // Retour d'une connexion Google ou Apple réussie : même orientation qu'après une connexion par mot de passe.
+  useEffect(() => {
+    if (params.get("social") === "1") void routeAfterSignIn(router.push, next);
+  }, [params, router.push, next]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!security.ready) { setError(t("auth.turnstile.required")); return; }
@@ -83,9 +123,12 @@ export function LoginForm() {
   };
   return (
     <AuthShell title={t("auth.login.title")} intro={t("auth.login.intro")}
-      footer={<>{t("auth.login.noAccount")} <Link href={`/register${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-semibold text-brand-strong no-underline">{t("auth.login.register")}</Link></>}>
+      footer={<>{t("auth.login.noAccount")} <Link href={`/register${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-semibold text-brand-strong no-underline">{t("auth.login.register")}</Link>
+        {/* Accès discret à l'espace d'administration : seule la page de connexion dédiée est exposée. */}
+        <span className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1"><Link href="/privacy" className="text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("privacy.footer")}</Link><Link href="/platform/login" className="text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("auth.login.adminAccess")}</Link></span></>}>
       <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
         {error && <Alert tone="danger">{error}</Alert>}
+        <SocialButtons next={next} onError={setError} />
         <Field label={t("auth.email")}>{(props) => <Input {...props} type="email" dir="ltr" required autoComplete="email" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} />}</Field>
         <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -122,6 +165,7 @@ export function RegisterForm() {
       footer={<>{t("auth.register.haveAccount")} <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-semibold text-brand-strong no-underline">{t("auth.register.login")}</Link></>}>
       <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
         {error && <Alert tone="danger">{error}</Alert>}
+        <SocialButtons next={next} onError={setError} />
         <Field label={t("auth.name")}>{(props) => <Input {...props} dir="auto" required maxLength={100} autoComplete="name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />}</Field>
         <Field label={t("auth.email")}>{(props) => <Input {...props} type="email" dir="ltr" required autoComplete="email" inputMode="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />}</Field>
         <Field label={t("auth.password")} hint={t("auth.passwordHint")}>

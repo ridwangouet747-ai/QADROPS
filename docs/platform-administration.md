@@ -25,7 +25,8 @@ Le module Paiements n'apparaît pas : aucun prestataire de paiement d'abonnement
 ### Sécurité
 
 - Accès : `getPlatformContext` (session Better Auth + `platform_admin` non révoqué) sur chaque page et route, et `requirePlatformAdmin` dans chaque service. Un rôle de commerce ne donne jamais accès.
-- Attribution : **uniquement** `scripts/platform-admin.ts` (`grant` / `revoke`), avec `QADR_DB_TARGET`, confirmation saisie « CONFIRMER », motif obligatoire, trace `platform.admin_granted|revoked`. Impossible de retirer le dernier administrateur. Aucune route HTTP, aucune inscription publique.
+- **Mission 13** : un seul propriétaire actif, connexion dédiée `/platform/login` (nom d'utilisateur + mot de passe), session plateforme de 8 h exigée par `getPlatformContext` ; création par `scripts/platform-owner.ts`. Voir `docs/platform-owner-access.md`.
+- Attribution : **uniquement** `scripts/platform-admin.ts` (`grant` / `revoke`), refusée (409) si un propriétaire est déjà actif depuis la mission 13, avec `QADR_DB_TARGET`, confirmation saisie « CONFIRMER », motif obligatoire, trace `platform.admin_granted|revoked`. Impossible de retirer le dernier administrateur. Aucune route HTTP, aucune inscription publique.
 - Aucun accès aux données commerciales (ventes, clients, stocks) depuis la console.
 
 ### Machine à états des abonnements (`src/lib/domain/subscription-lifecycle.ts`)

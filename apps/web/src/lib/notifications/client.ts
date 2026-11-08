@@ -48,13 +48,33 @@ export async function enablePushOnThisDevice(deviceLabel: string, scope: "busine
   try {
     const existing = await registration.pushManager.getSubscription();
     let response = await save(existing ?? await subscribe());
-    // 409 : l'adresse de ce navigateur appartient encore à un autre compte. On en demande une neuve, une fois.
+    // 409 : l'adresse de ce navigateur appartient encore à un autre compte. On la révoque (désabonnement)
+    // et on en demande une neuve, une fois.
     if (response.status === 409 && existing) {
       await existing.unsubscribe().catch(() => false);
       response = await save(await subscribe());
     }
     return response.ok ? { ok: true } : { ok: false, reason: "server" };
   } catch { return { ok: false, reason: "network" }; }
+}
+
+/**
+ * Au chargement de l'espace connecté (mission 13) : le navigateur présente l'adresse push qu'il détient.
+ * Si elle appartient à un autre compte (appareil partagé, déconnexion qui n'a pas abouti) ou n'est plus
+ * connue, ce navigateur se désabonne : l'adresse est révoquée auprès du service push. Rien n'est activé
+ * sans geste de la personne.
+ */
+export async function syncPushDevice() {
+  try {
+    if (pushSupport() !== "supported") return;
+    const subscription = await (await navigator.serviceWorker.getRegistration("/"))?.pushManager.getSubscription();
+    if (!subscription) return;
+    const response = await fetch("/api/notifications/push-subscriptions/claim", { method: "POST", cache: "no-store",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: subscription.endpoint }) });
+    if (!response.ok) return;
+    const { status } = await response.json() as { status: "bound" | "foreign" | "unknown" };
+    if (status !== "bound") await subscription.unsubscribe().catch(() => false);
+  } catch { /* réseau absent : nouvel essai au prochain chargement ; le serveur n'envoie rien sans session vivante */ }
 }
 
 /** À la déconnexion : désabonne ce navigateur et prévient le serveur. Ne bloque jamais la déconnexion. */

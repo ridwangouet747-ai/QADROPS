@@ -127,7 +127,7 @@ describe("mission 11, phase 7 : console plateforme et routes techniques", () => 
 
   it("routes publiques : capacités honnêtes, clé push absente, test Sentry fermé hors développement", async () => {
     const capabilities = await h.call(accountCapabilitiesRoute.GET, { path: "/api/account/capabilities" });
-    expect(capabilities.body).toEqual({ emailConfigured: false });
+    expect(capabilities.body).toEqual({ emailConfigured: false, socialProviders: { google: false, apple: false } });
     const push = await h.call(pushConfigRoute.GET, { path: "/api/notifications/push-config" });
     expect(push.body).toEqual({ publicKey: null });
     expect((await h.call(sentryTestRoute.POST, { path: "/api/observability/sentry-test", body: {} })).status).toBe(404);

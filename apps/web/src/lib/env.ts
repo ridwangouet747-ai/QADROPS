@@ -25,6 +25,13 @@ const environmentSchema = z.object({
   VAPID_PRIVATE_KEY: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional().or(z.literal("")),
   VAPID_SUBJECT: z.string().regex(/^(mailto:|https:\/\/)/).optional().or(z.literal("")),
   NOTIFICATIONS_CRON_SECRET: z.string().min(32).optional().or(z.literal("")),
+  // Connexions sociales (mission 13) : actives seulement si les deux valeurs du fournisseur sont présentes.
+  GOOGLE_CLIENT_ID: optionalNonEmpty,
+  GOOGLE_CLIENT_SECRET: optionalNonEmpty,
+  APPLE_CLIENT_ID: optionalNonEmpty,
+  // Secret client Apple = jeton JWT ES256 signé avec la clé .p8 (6 mois au plus), voir scripts/apple-client-secret.mjs.
+  APPLE_CLIENT_SECRET: optionalNonEmpty,
+  APPLE_APP_BUNDLE_IDENTIFIER: optionalNonEmpty,
 });
 
 export type AppEnvironment = z.infer<typeof environmentSchema>;
@@ -37,6 +44,12 @@ export function readEnvironment(source: NodeJS.ProcessEnv = process.env): AppEnv
   const values = result.data;
   if (Boolean(values.TURNSTILE_SECRET_KEY) !== Boolean(values.NEXT_PUBLIC_TURNSTILE_SITE_KEY)) {
     throw new Error("Turnstile nécessite une clé publique et une clé secrète configurées ensemble.");
+  }
+  if (Boolean(values.GOOGLE_CLIENT_ID) !== Boolean(values.GOOGLE_CLIENT_SECRET)) {
+    throw new Error("Google nécessite GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET configurées ensemble.");
+  }
+  if (Boolean(values.APPLE_CLIENT_ID) !== Boolean(values.APPLE_CLIENT_SECRET)) {
+    throw new Error("Apple nécessite APPLE_CLIENT_ID et APPLE_CLIENT_SECRET configurées ensemble.");
   }
   if (Boolean(values.RESEND_API_KEY) !== Boolean(values.RESEND_FROM_EMAIL)) {
     throw new Error("Resend nécessite RESEND_API_KEY et RESEND_FROM_EMAIL configurées ensemble.");
@@ -76,4 +89,18 @@ export function requireMigrationDatabaseUrl(source: NodeJS.ProcessEnv = process.
   const value = migrationDatabaseUrl(source);
   if (!value) throw new Error("Ni DATABASE_URL_UNPOOLED ni DATABASE_URL ne sont configurées.");
   return value;
+}
+
+/**
+ * Fournisseurs de connexion sociale réellement configurés. Apple exige en plus une adresse HTTPS publique
+ * (pas de localhost) : sans elle, le bouton n'est pas proposé.
+ */
+export function socialProviders(source: NodeJS.ProcessEnv = process.env) {
+  const env = readEnvironment(source);
+  const https = env.BETTER_AUTH_URL.startsWith("https://");
+  return {
+    google: env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET } : null,
+    apple: env.APPLE_CLIENT_ID && env.APPLE_CLIENT_SECRET && https
+      ? { clientId: env.APPLE_CLIENT_ID, clientSecret: env.APPLE_CLIENT_SECRET, appBundleIdentifier: env.APPLE_APP_BUNDLE_IDENTIFIER } : null,
+  };
 }

@@ -10,6 +10,9 @@ export const user = pgTable("user", {
   emailVerified: boolean("email_verified").notNull().default(false), image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  // Plugin Username de Better Auth (mission 13) : attribué uniquement côté serveur (propriétaire de la
+  // plateforme, scripts/platform-owner.ts). Aucune route HTTP ne permet de le choisir ni de le modifier.
+  username: text("username").unique(), displayUsername: text("display_username"),
 });
 export const organization = pgTable("organization", {
   id: text("id").primaryKey(), name: text("name").notNull(), slug: text("slug").notNull().unique(),
@@ -71,6 +74,19 @@ export const platformAdmin = pgTable("platform_admin", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "restrict" }),
   grantedByUserId: text("granted_by_user_id").references(() => user.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, () => [
+  // Mission 13 : un seul propriétaire de la plateforme actif à la fois (transfert = retrait + attribution).
+  uniqueIndex("platform_admin_single_active").using("btree", sql`(true)`).where(sql`revoked_at is null`),
+]);
+/**
+ * Session ouverte par la connexion dédiée du propriétaire (`POST /api/platform/auth/sign-in`). Une session
+ * Better Auth ordinaire (connexion par e-mail d'un commerce) n'ouvre jamais la console : `getPlatformContext`
+ * exige cette ligne, récente (`PLATFORM_SESSION_MAX_AGE_MS`). La déconnexion supprime la session, donc la ligne.
+ */
+export const platformSession = pgTable("platform_session", {
+  sessionId: text("session_id").primaryKey().references(() => session.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export const receiptSettings = pgTable("receipt_settings", {
   businessId: text("business_id").primaryKey().references(() => businessProfile.businessId, { onDelete: "restrict" }),
@@ -468,6 +484,8 @@ export const pushSubscription = pgTable("push_subscription", {
   endpoint: text("endpoint").notNull().unique(), p256dh: text("p256dh").notNull(), auth: text("auth").notNull(), deviceLabel: text("device_label"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
   failureCount: integer("failure_count").notNull().default(0), disabledAt: timestamp("disabled_at", { withTimezone: true }), disabledReason: text("disabled_reason"),
+  /** Mission 13 : session qui a enregistré l'appareil. Sans session vivante du même compte, aucun push ne part. */
+  sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
 }, (t) => [index("push_subscription_user_idx").on(t.userId), check("push_subscription_endpoint_https", sql`${t.endpoint} like 'https://%'`)]);
 /** Préférences d'un utilisateur : langue des notifications, push, catégories, plage de tranquillité (minutes, fuseau du commerce). */
 export const notificationPreference = pgTable("notification_preference", {
@@ -617,7 +635,7 @@ export const productAlias = pgTable("product_alias", {
 
 export const authSchema = { user, session, account, verification, organization, member, invitation };
 export const databaseSchema = {
-  ...authSchema, businessProfile, businessMemberAccess, platformAdmin, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
+  ...authSchema, businessProfile, businessMemberAccess, platformAdmin, platformSession, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
   promotionCode, promotionEligibleBusiness, promotionEligiblePlan, businessSubscription, subscriptionInvoice, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,

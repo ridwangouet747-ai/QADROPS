@@ -8,7 +8,7 @@ import type { PushResult, PushSender, PushTarget } from "../notifications/web-pu
 import { createProduct, createSale } from "./commercial";
 import { closeCashSession, openCashSession } from "./cash-session";
 import {
-  createAnnouncementCampaign, enqueueExpiringSubscriptions, forgetPushEndpoint, getNotificationActivity, listNotifications, listNotificationTemplates, markNotificationsRead,
+  claimPushEndpoint, createAnnouncementCampaign, enqueueExpiringSubscriptions, forgetPushEndpoint, getNotificationActivity, listNotifications, listNotificationTemplates, markNotificationsRead,
   processNotificationOutbox, registerPushSubscription, removePushSubscription, saveNotificationTemplate, sendTestNotification, setCampaignStatus,
   unreadNotificationCount, updateNotificationPreferences,
 } from "./notifications";
@@ -25,6 +25,8 @@ function fakePush() {
   };
   return { sent, sender };
 }
+/** Appareil enregistré depuis la session ouverte du compte (voir `beforeAll`). */
+const device = (userId: string) => ({ userId, sessionId: `s-${userId}` });
 const keys = { p256dh: `B${"A".repeat(86)}`, auth: "AAAAAAAAAAAAAAAAAAAAAA" };
 
 describe("notifications : boîte d'envoi, destinataires, préférences, push", () => {
@@ -40,6 +42,8 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
     await migrate(db, { migrationsFolder: resolve(process.cwd(), "drizzle") });
     for (const [id, name] of [[owner, "Awa"], [cashier, "Bakary"], [stock, "Cécile"], [outsider, "Ehouman"], [admin, "Qadr Admin"]]) {
       await client.query(`insert into "user"(id,name,email) values ($1,$2,$3)`, [id, name, `${id}@n.test`]);
+      // Session vivante du compte : sans elle, aucun push ne part (mission 13).
+      await client.query("insert into session(id,token,user_id,expires_at) values ($1,$1,$2,now() + interval '7 days')", [`s-${id}`, id]);
     }
     for (const [id, activity] of [[biz, "hardware"], [other, "phones"]]) {
       await client.query("insert into organization(id,name,slug) values ($1,$2,$1)", [id, id === biz ? "Quincaillerie Awa" : "Phone Shop"]);
@@ -67,7 +71,7 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
 
   it("une panne du service push n'empêche pas la vente ni la notification interne", async () => {
     const failing: PushSender = async () => { throw new Error("réseau coupé"); };
-    await registerPushSubscription(db, owner, { endpoint: "https://fcm.googleapis.com/fcm/send/owner-down", keys, deviceLabel: "Téléphone" });
+    await registerPushSubscription(db, device(owner), { endpoint: "https://fcm.googleapis.com/fcm/send/owner-down", keys, deviceLabel: "Téléphone" });
     const summary = await processNotificationOutbox(db, { sender: failing });
     expect(summary).toMatchObject({ processed: 2, failed: 0 });
     const outbox = await client.query<{ status: string }>("select status from notification_outbox where business_id=$1", [biz]);
@@ -122,7 +126,7 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
     expect((await client.query("select 1 from notification_delivery where status='retry'")).rows).toHaveLength(0);
     expect((await client.query<{ attempts: number }>("select attempts from notification_delivery where status='failed'")).rows.map((row) => row.attempts)).toEqual([3, 3]);
     expect((await client.query<{ failure_count: number }>("select failure_count from push_subscription where endpoint like '%owner-down'")).rows[0]!.failure_count).toBe(2);
-    const gone = await registerPushSubscription(db, stock, { endpoint: "https://updates.push.services.mozilla.com/wpush/v2/stock-gone", keys });
+    const gone = await registerPushSubscription(db, device(stock), { endpoint: "https://updates.push.services.mozilla.com/wpush/v2/stock-gone", keys });
     await updateNotificationPreferences(db, stock, { locale: "en", pushEnabled: true, categories: { commercial: { inApp: true, push: true }, security: { inApp: true, push: true },
       subscription: { inApp: true, push: true }, system: { inApp: true, push: false }, announcement: { inApp: true, push: false } }, quietStartMinute: null, quietEndMinute: null });
     await createSale(db, { businessId: biz, actorUserId: cashier, idempotencyKey: key("sale"), lines: [{ variantId: variant, quantity: "1" }], payments: [{ method: "cash", amountXof: "5000" }] });
@@ -133,7 +137,7 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
     const english = await client.query<{ title: string }>("select title from notification where user_id=$1 order by created_at desc limit 1", [stock]);
     expect(english.rows[0]!.title).toBe("New sale");
     await expect(removePushSubscription(db, outsider, gone.id)).rejects.toMatchObject({ status: 404 });
-    await expect(registerPushSubscription(db, owner, { endpoint: "https://169.254.169.254/latest/meta-data", keys })).rejects.toMatchObject({ code: "push_endpoint" });
+    await expect(registerPushSubscription(db, device(owner), { endpoint: "https://169.254.169.254/latest/meta-data", keys })).rejects.toMatchObject({ code: "push_endpoint" });
   });
 
   it("préférences : catégorie coupée, plage de tranquillité (sauf sécurité), stock épuisé", async () => {
@@ -142,7 +146,7 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
       subscription: { inApp: true, push: true }, system: { inApp: true, push: false }, announcement: { inApp: false, push: false } }, quietStartMinute: 0, quietEndMinute: 1439 });
     await updateNotificationPreferences(db, cashier, { locale: "ar", pushEnabled: false, categories: { commercial: { inApp: false, push: false }, security: { inApp: true, push: true },
       subscription: { inApp: true, push: true }, system: { inApp: true, push: false }, announcement: { inApp: true, push: false } }, quietStartMinute: null, quietEndMinute: null });
-    await registerPushSubscription(db, owner, { endpoint: "https://fcm.googleapis.com/fcm/send/owner-ok", keys });
+    await registerPushSubscription(db, device(owner), { endpoint: "https://fcm.googleapis.com/fcm/send/owner-ok", keys });
     await createSale(db, { businessId: biz, actorUserId: owner, idempotencyKey: key("sale"), lines: [{ variantId: variant, quantity: "1" }], payments: [{ method: "cash", amountXof: "5000" }] });
     await processNotificationOutbox(db, { sender: push.sender, now: new Date() });
     const out = await client.query<{ user_id: string }>("select user_id from notification where template_key='stock.out'");
@@ -190,7 +194,7 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
     expect((await client.query("select status from notification_outbox where event_type='sale.created' order by created_at desc limit 1")).rows[0]).toMatchObject({ status: "skipped" });
 
     const push = fakePush();
-    await registerPushSubscription(db, admin, { endpoint: "https://web.push.apple.com/admin-device", keys });
+    await registerPushSubscription(db, device(admin), { endpoint: "https://web.push.apple.com/admin-device", keys });
     await sendTestNotification(db, admin, "sale.created");
     await processNotificationOutbox(db, { sender: push.sender });
     expect(push.sent.map((message) => message.payload.title)).toEqual(["Vente enregistrée"]);
@@ -217,17 +221,22 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
 
   it("mission 11 : un appareil ne passe pas d'un compte à l'autre, ni à l'enregistrement ni par une relance ; liens « // » refusés", async () => {
     const endpoint = "https://web.push.apple.com/admin-down";
-    await registerPushSubscription(db, admin, { endpoint, keys });
+    await registerPushSubscription(db, device(admin), { endpoint, keys });
     await sendTestNotification(db, admin, "sale.created");
     await processNotificationOutbox(db, { sender: fakePush().sender });
     const [pending] = (await client.query<{ id: string }>("select d.id from notification_delivery d join push_subscription s on s.id=d.subscription_id where s.endpoint=$1 and d.status='retry'", [endpoint])).rows;
     expect(pending).toBeDefined();
     // Adresse encore active pour l'administrateur : un autre compte ne peut ni la reprendre ni l'oublier.
-    await expect(registerPushSubscription(db, outsider, { endpoint, keys })).rejects.toMatchObject({ status: 409, code: "push_endpoint_taken" });
+    await expect(registerPushSubscription(db, device(outsider), { endpoint, keys })).rejects.toMatchObject({ status: 409, code: "push_endpoint_taken" });
     expect(await forgetPushEndpoint(db, outsider, { endpoint })).toEqual({ removed: false });
+    // Mission 13 : au chargement, le navigateur d'un autre compte apprend que l'adresse n'est pas à lui
+    // (il se désabonne), sans que rien ne change chez l'administrateur.
+    expect(await claimPushEndpoint(db, device(outsider), { endpoint })).toEqual({ status: "foreign" });
+    expect((await client.query<{ user_id: string; disabled_at: Date | null }>("select user_id, disabled_at from push_subscription where endpoint=$1", [endpoint])).rows[0]!)
+      .toEqual({ user_id: admin, disabled_at: null });
     // Déconnexion de l'administrateur, puis un autre compte s'abonne sur le même navigateur.
     expect(await forgetPushEndpoint(db, admin, { endpoint })).toEqual({ removed: true });
-    await registerPushSubscription(db, outsider, { endpoint, keys });
+    await registerPushSubscription(db, device(outsider), { endpoint, keys });
     // La relance due de l'administrateur ne part pas vers le compte qui a repris l'appareil.
     await client.query("update notification_delivery set next_attempt_at=now() - interval '1 minute' where id=$1", [pending!.id]);
     const after = fakePush();
@@ -237,5 +246,47 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
     await expect(saveNotificationTemplate(db, admin, { key: "annonce-externe", kind: "announcement", category: "announcement", icon: "info", linkPath: "//2130706433", active: true,
       titleFr: "x", titleEn: "x", titleAr: "x", bodyFr: "x", bodyEn: "x", bodyAr: "x" })).rejects.toMatchObject({ name: "ZodError" });
     await expect(client.query("update notification_template set link_path='//2130706433' where key='annonce-nouveautes'")).rejects.toThrow(/notification_template_link_check/);
+  });
+
+  it("mission 13 : un appareil ne reçoit rien sans session vivante du destinataire (expiration, révocation, aperçu) ; message push sans contenu sensible", async () => {
+    const endpoint = "https://web.push.apple.com/admin-session";
+    const sendAndCollect = async () => {
+      await sendTestNotification(db, admin, "sale.created");
+      const push = fakePush();
+      await processNotificationOutbox(db, { sender: push.sender });
+      return push.sent.filter((message) => message.endpoint === endpoint);
+    };
+    await registerPushSubscription(db, device(admin), { endpoint, keys });
+    const first = await sendAndCollect();
+    expect(first).toHaveLength(1);
+    // Message push : titre, texte générique, lien interne, étiquette. Ni corps, ni montant, ni nom de client.
+    expect(Object.keys(first[0]!.payload).sort()).toEqual(["body", "tag", "title", "url"]);
+    expect(JSON.stringify(first[0]!.payload)).not.toMatch(/\d{4,}\s?(F|XOF|CFA)/);
+
+    // Session expirée sans déconnexion : plus rien.
+    await client.query("update session set expires_at = now() - interval '1 minute' where id=$1", [`s-${admin}`]);
+    expect(await sendAndCollect()).toHaveLength(0);
+
+    // Nouvelle connexion sur le même navigateur : l'adresse est rattachée à la nouvelle session.
+    await client.query("insert into session(id,token,user_id,expires_at) values ('s2-admin','s2-admin',$1,now() + interval '7 days')", [admin]);
+    expect(await claimPushEndpoint(db, { userId: admin, sessionId: "s2-admin" }, { endpoint })).toEqual({ status: "bound" });
+    expect(await sendAndCollect()).toHaveLength(1);
+
+    // Révocation (déconnexion ailleurs, nouveau mot de passe) : la session disparaît, les envois cessent.
+    await client.query("delete from session where id='s2-admin'");
+    expect((await client.query<{ session_id: string | null }>("select session_id from push_subscription where endpoint=$1", [endpoint])).rows[0]!.session_id).toBeNull();
+    expect(await sendAndCollect()).toHaveLength(0);
+
+    // Session d'un autre compte : jamais acceptée comme session de l'appareil de l'administrateur.
+    await client.query("update push_subscription set session_id=$1 where endpoint=$2", [`s-${outsider}`, endpoint]);
+    expect(await sendAndCollect()).toHaveLength(0);
+
+    // Aperçu de démonstration (aucune session) : l'appareil est enregistré mais ne reçoit rien.
+    await client.query("insert into session(id,token,user_id,expires_at) values ('s3-admin','s3-admin',$1,now() + interval '7 days')", [admin]);
+    await registerPushSubscription(db, { userId: admin, sessionId: null }, { endpoint, keys });
+    expect(await sendAndCollect()).toHaveLength(0);
+
+    // Adresse inconnue : le navigateur doit se désabonner.
+    expect(await claimPushEndpoint(db, device(admin), { endpoint: "https://web.push.apple.com/inconnue" })).toEqual({ status: "unknown" });
   });
 });

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "../auth/permissions";
 import {
   auditEvent, businessMemberAccess, businessProfile, businessSubscription, member, notification, notificationCampaign, notificationDelivery,
-  notificationOutbox, notificationPreference, notificationTemplate, organization, platformAdmin, pushSubscription, user,
+  notificationOutbox, notificationPreference, notificationTemplate, organization, platformAdmin, pushSubscription, session, user,
 } from "../db/schema";
 import {
   categories, defaultTemplates, effectivePreference, eventDefinitions, icons, inQuietHours, localMinute, localizedTemplate, locales, pushGenericBody,
@@ -194,7 +194,8 @@ async function handleEvent(db: CommercialDatabase, event: typeof notificationOut
 }
 
 async function pushToUser(db: CommercialDatabase, input: { notificationId: string; userId: string; title: string; locale: NotificationLocale; link: string | null; category: Category; pushEnabled: boolean; quiet: boolean }, now: Date, sender: PushSender | null) {
-  const devices = await db.select().from(pushSubscription).where(and(eq(pushSubscription.userId, input.userId), isNull(pushSubscription.disabledAt)));
+  const devices = (await db.select({ device: pushSubscription }).from(pushSubscription).innerJoin(session, liveDeviceSession(now))
+    .where(and(eq(pushSubscription.userId, input.userId), isNull(pushSubscription.disabledAt)))).map((row) => row.device);
   if (!devices.length) return { sent: 0, failed: 0 };
   const record = (subscriptionId: string | null, status: typeof notificationDelivery.$inferInsert["status"], extra: Partial<typeof notificationDelivery.$inferInsert> = {}) =>
     db.insert(notificationDelivery).values({ id: randomUUID(), notificationId: input.notificationId, subscriptionId, status, attemptedAt: now, ...extra });
@@ -215,6 +216,14 @@ async function pushToUser(db: CommercialDatabase, input: { notificationId: strin
   }
   return { sent, failed };
 }
+
+/**
+ * Mission 13 : un appareil ne reçoit les notifications d'un compte que tant que la session qui l'a
+ * enregistré existe, appartient à ce compte et n'a pas expiré. Déconnexion, expiration, révocation
+ * (nouveau mot de passe, « fermer les autres sessions ») coupent donc les envois, même si le navigateur
+ * n'a pas pu prévenir le serveur.
+ */
+const liveDeviceSession = (now: Date) => and(eq(session.id, pushSubscription.sessionId), eq(session.userId, pushSubscription.userId), gt(session.expiresAt, now));
 
 /** Message push : titre sûr, texte générique, lien interne. Jamais le corps de la notification ni un montant. */
 function pushPayload(input: { notificationId: string; title: string; locale: NotificationLocale; link: string | null }) {
@@ -250,6 +259,7 @@ async function retryPushDeliveries(db: CommercialDatabase, now: Date, sender: Pu
   const due = await db.select({ delivery: notificationDelivery, item: notification, device: pushSubscription, locale: notificationPreference.locale })
     .from(notificationDelivery).innerJoin(notification, eq(notification.id, notificationDelivery.notificationId))
     .innerJoin(pushSubscription, eq(pushSubscription.id, notificationDelivery.subscriptionId))
+    .innerJoin(session, liveDeviceSession(now))
     .leftJoin(notificationPreference, eq(notificationPreference.userId, notification.userId))
     // L'appareil doit encore appartenir au destinataire : sinon une relance partirait vers le compte qui l'a repris.
     .where(and(eq(notificationDelivery.status, "retry"), lte(notificationDelivery.nextAttemptAt, now), isNull(pushSubscription.disabledAt),
@@ -344,22 +354,50 @@ const subscriptionInput = z.object({
   deviceLabel: z.string().trim().max(80).optional(),
 });
 
+/** Compte et session qui présentent l'appareil (toujours issus de la session côté serveur). */
+export type PushDeviceOwner = { userId: string; sessionId: string | null };
+
 /**
- * Enregistre l'appareil courant. Une adresse push déjà active pour un autre compte n'est jamais reprise
- * (409) : le navigateur se réabonne alors pour obtenir une adresse neuve. Une adresse désactivée peut
- * être rattachée à l'utilisateur connecté.
+ * Enregistre l'appareil courant pour le compte connecté et la session courante (mission 13 : sans
+ * session vivante de ce compte, l'appareil ne reçoit rien ; en aperçu sans session, jamais).
+ *
+ * Une adresse push encore active pour un autre compte n'est jamais reprise ni modifiée (409) : connaître
+ * l'adresse d'un appareil d'autrui ne doit rien changer chez lui. Le navigateur se désabonne alors et
+ * s'abonne de nouveau pour obtenir une adresse neuve ; l'ancienne, révoquée par le service push, expire
+ * côté serveur au premier envoi (410). Une adresse désactivée peut être rattachée au compte connecté.
  */
-export async function registerPushSubscription(db: CommercialDatabase, userId: string, raw: unknown, now = new Date()) {
+export async function registerPushSubscription(db: CommercialDatabase, owner: PushDeviceOwner, raw: unknown, now = new Date()) {
   const input = subscriptionInput.parse(raw);
   if (!isAllowedPushEndpoint(input.endpoint)) throw new CommercialError("Service push non reconnu.", 400, "push_endpoint");
-  const id = randomUUID();
-  const [row] = await db.insert(pushSubscription).values({ id, userId, endpoint: input.endpoint, p256dh: input.keys.p256dh, auth: input.keys.auth, deviceLabel: input.deviceLabel || null })
-    .onConflictDoUpdate({ target: pushSubscription.endpoint, set: { userId, p256dh: input.keys.p256dh, auth: input.keys.auth, deviceLabel: input.deviceLabel || null,
-      disabledAt: null, disabledReason: null, failureCount: 0, createdAt: now },
-      setWhere: or(eq(pushSubscription.userId, userId), isNotNull(pushSubscription.disabledAt)) }).returning({ id: pushSubscription.id });
+  const values = { userId: owner.userId, sessionId: owner.sessionId, p256dh: input.keys.p256dh, auth: input.keys.auth, deviceLabel: input.deviceLabel || null };
+  const [row] = await db.insert(pushSubscription).values({ id: randomUUID(), endpoint: input.endpoint, ...values })
+    .onConflictDoUpdate({ target: pushSubscription.endpoint, set: { ...values, disabledAt: null, disabledReason: null, failureCount: 0, createdAt: now },
+      setWhere: or(eq(pushSubscription.userId, owner.userId), isNotNull(pushSubscription.disabledAt)) })
+    .returning({ id: pushSubscription.id });
   if (!row) throw new CommercialError("Cet appareil est déjà relié à un autre compte.", 409, "push_endpoint_taken");
-  await db.insert(notificationPreference).values({ userId, pushEnabled: true }).onConflictDoUpdate({ target: notificationPreference.userId, set: { pushEnabled: true, updatedAt: now } });
+  await db.insert(notificationPreference).values({ userId: owner.userId, pushEnabled: true }).onConflictDoUpdate({ target: notificationPreference.userId, set: { pushEnabled: true, updatedAt: now } });
   return { id: row!.id };
+}
+
+/**
+ * Au chargement de l'application, le navigateur présente l'adresse push qu'il détient encore.
+ * - `bound` : elle est à ce compte ; elle est rattachée à la session courante (reconnexion).
+ * - `foreign` : elle appartient à un autre compte (appareil partagé, déconnexion qui n'a pas abouti).
+ *   Rien n'est modifié chez l'autre compte ; c'est le navigateur qui se désabonne, ce qui révoque
+ *   l'adresse auprès du service push : les envois de l'autre compte échouent (410) et l'appareil expire.
+ *   De toute façon, sans session vivante de l'autre compte, le serveur n'y envoyait déjà plus rien.
+ * - `unknown` : adresse inconnue ou désactivée : le navigateur doit se désabonner.
+ */
+export async function claimPushEndpoint(db: CommercialDatabase, owner: PushDeviceOwner, raw: unknown) {
+  const { endpoint } = z.object({ endpoint: z.string().url().max(1000) }).parse(raw);
+  const [row] = await db.select({ id: pushSubscription.id, userId: pushSubscription.userId }).from(pushSubscription)
+    .where(and(eq(pushSubscription.endpoint, endpoint), isNull(pushSubscription.disabledAt))).limit(1);
+  if (!row) return { status: "unknown" as const };
+  if (row.userId === owner.userId) {
+    await db.update(pushSubscription).set({ sessionId: owner.sessionId }).where(eq(pushSubscription.id, row.id));
+    return { status: "bound" as const };
+  }
+  return { status: "foreign" as const };
 }
 
 /** « Supprimer un appareil » : désactivé et clés effacées ; la ligne reste pour l'historique des envois. */

@@ -34,7 +34,8 @@ function prepareEnvironment() {
   for (const name of ["QADR_PREVIEW_MODE", "RESEND_API_KEY", "RESEND_FROM_EMAIL", "TURNSTILE_SECRET_KEY", "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
     "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "SENTRY_DSN", "NEXT_PUBLIC_SENTRY_DSN", "NEXT_PUBLIC_POSTHOG_KEY",
     "R2_ACCOUNT_ID", "R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_JURISDICTION", "QADR_FILE_STORAGE",
-    "QADR_STORAGE_IMPORT_MAX_BYTES", "QADR_STORAGE_IMPORT_RETENTION_DAYS", "QADR_STORAGE_EXPORT_MAX_BYTES", "QADR_STORAGE_EXPORT_RETENTION_DAYS"]) delete env[name];
+    "QADR_STORAGE_IMPORT_MAX_BYTES", "QADR_STORAGE_IMPORT_RETENTION_DAYS", "QADR_STORAGE_EXPORT_MAX_BYTES", "QADR_STORAGE_EXPORT_RETENTION_DAYS",
+    "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APPLE_CLIENT_ID", "APPLE_CLIENT_SECRET", "APPLE_APP_BUNDLE_IDENTIFIER"]) delete env[name];
   // Stockage de fichiers : celui de l'application en mode mémoire (aucun service distant). Un test peut le
   // retirer (`delete process.env.QADR_FILE_STORAGE`) pour vérifier le fonctionnement sans stockage.
   env.QADR_FILE_STORAGE = "memory";
@@ -141,6 +142,16 @@ export class HttpHarness {
   /** Accorde le droit Super Admin comme `scripts/platform-admin.ts` (ligne dans `platform_admin`). */
   async grantPlatformAdmin(actor: Actor) {
     await this.client.query("insert into platform_admin (user_id) values ($1)", [actor.userId]);
+    await this.openPlatformSession(actor);
+  }
+
+  /**
+   * Session plateforme pour la session courante du compte, comme après `POST /api/platform/auth/sign-in`
+   * (mission 13). Le parcours de connexion lui-même est testé dans `platform-owner-login.http.test.ts`.
+   */
+  async openPlatformSession(actor: Actor, createdAt = new Date()) {
+    const token = decodeURIComponent(/better-auth\.session_token=([^;]+)/.exec(actor.cookie)?.[1] ?? "").split(".")[0];
+    await this.client.query("insert into platform_session (session_id, user_id, created_at) select id, user_id, $2 from session where token = $1", [token, createdAt]);
   }
 
   async count(sql: string, params: unknown[] = []) {

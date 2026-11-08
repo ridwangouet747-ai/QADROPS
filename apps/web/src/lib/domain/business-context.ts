@@ -24,7 +24,7 @@ export async function assertActiveMembership(db: CommercialDatabase, businessId:
   return row.role;
 }
 
-export async function getBusinessContext(headers: Headers): Promise<{ db: CommercialDatabase; businessId: string; userId: string; actorUserId: string }> {
+export async function getBusinessContext(headers: Headers): Promise<{ db: CommercialDatabase; businessId: string; userId: string; actorUserId: string; sessionId: string | null }> {
   const preview = process.env.QADR_PREVIEW_MODE === "true";
   if (preview && process.env.NODE_ENV !== "development") {
     throw new BusinessContextError("La prévisualisation locale est désactivée hors développement.", 403);
@@ -34,14 +34,14 @@ export async function getBusinessContext(headers: Headers): Promise<{ db: Commer
     // Prévisualisation sans connexion : commerce de démonstration. Avec une vraie session, on suit la session.
     const { getPreviewDatabase, previewIdentity } = await import("@/lib/preview/database");
     const db = await getPreviewDatabase();
-    return { db: db as unknown as CommercialDatabase, ...previewIdentity, actorUserId: previewIdentity.userId };
+    return { db: db as unknown as CommercialDatabase, ...previewIdentity, actorUserId: previewIdentity.userId, sessionId: null };
   }
   if (!authSession) throw new BusinessContextError("Authentification requise.", 401);
   const businessId = authSession.session.activeOrganizationId;
   if (!businessId) throw new BusinessContextError("Sélectionnez d’abord un commerce.", 403);
   const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : getDatabase();
   await assertActiveMembership(db, businessId, authSession.user.id);
-  return { db, businessId, userId: authSession.user.id, actorUserId: authSession.user.id };
+  return { db, businessId, userId: authSession.user.id, actorUserId: authSession.user.id, sessionId: authSession.session.id };
 }
 
 export function jsonSafe(value: unknown): string {

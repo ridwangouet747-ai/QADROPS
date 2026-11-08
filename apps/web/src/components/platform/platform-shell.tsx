@@ -7,6 +7,7 @@ import { useI18n } from "@/components/i18n/i18n-provider";
 import { cn } from "@/components/ui/cn";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { NetworkStatus } from "@/components/pwa/network-status";
+import { PushDeviceSync } from "@/components/notifications/push-device-sync";
 import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { localeCookie, locales, isLocale } from "@/lib/i18n/config";
 import { PfAvatar, PfDialog, PfIconButton, pfFocus, pfRequest } from "./pf-ui";
@@ -78,7 +79,9 @@ export function PlatformShell({ active, preview, children }: { active: PlatformS
   useEffect(() => {
     pfRequest<{ self: Self }>("/api/platform/settings").then((settings) => setSelf(settings.self)).catch(() => undefined);
   }, []);
-  const logout = () => void signOutAndResetAnalytics().finally(() => router.push("/login"));
+  // Déconnexion tracée par la console (journal d'audit), puis nettoyage habituel (appareil, analytique).
+  const logout = () => void fetch("/api/platform/auth/sign-out", { method: "POST", credentials: "same-origin" })
+    .catch(() => undefined).then(() => signOutAndResetAnalytics()).finally(() => router.push("/platform/login"));
 
   return (
     <div className="min-h-dvh bg-pf-backdrop font-sans text-pf-fg lg:p-5">
@@ -102,6 +105,7 @@ export function PlatformShell({ active, preview, children }: { active: PlatformS
 
         <div className="flex min-w-0 flex-1 flex-col">
           <NetworkStatus />
+          {preview ? null : <PushDeviceSync />}
           <header className="flex items-center justify-between gap-3 px-4 pt-4 lg:px-2 lg:pt-1">
             <Link href="/platform" dir="ltr" className={cn("flex items-center gap-2 text-pf-ink no-underline lg:hidden", pfFocus)}>
               <span className="grid size-10 place-items-center rounded-full bg-pf-ink text-lg font-bold text-white">Q</span>
