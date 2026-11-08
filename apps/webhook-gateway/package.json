@@ -1,0 +1,13 @@
+{
+  "name": "@qadr-ops/webhook-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Passerelle locale des webhooks GeniusPay pour l'essai sandbox par tunnel (sans dépendance).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "test": "node --test \"test/**/*.test.mjs\""
+  }
+}
