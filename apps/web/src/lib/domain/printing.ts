@@ -16,6 +16,9 @@ import { getSaleReceipt } from "./receipt";
  * le ticket d'une vente déjà validée et suit les tâches. Le service local (apps/print-agent) transmet les
  * octets, et le navigateur rapporte le résultat. Une panne d'impression ne modifie jamais la vente.
  *
+ * Réglages et imprimantes (O-1, mission 15) : comme les réglages du commerce, ils passent par
+ * assertBusinessOperational ; un commerce suspendu ou expiré les consulte mais ne les modifie plus.
+ *
  * « printed » (statut historique en base) veut dire « transmis à l'imprimante sans erreur signalée » : ni
  * le serveur ni le service local ne voient le papier sortir. L'interface l'affiche donc « Transmis » (I-7).
  */
@@ -51,6 +54,7 @@ export async function updatePrinterSettings(db: CommercialDatabase, context: Con
   const input = z.object({ enabled: z.boolean(), autoPrint: z.boolean() }).parse(raw);
   const values = { enabled: input.enabled, autoPrint: input.enabled && input.autoPrint, updatedByUserId: context.actorUserId, updatedAt: now };
   await db.transaction(async (tx) => {
+    await assertBusinessOperational(tx, context.businessId);
     await tx.insert(printerSettings).values({ businessId: context.businessId, ...values }).onConflictDoUpdate({ target: printerSettings.businessId, set: values });
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: context.businessId, actorUserId: context.actorUserId, eventType: "printer.settings_updated",
       entityType: "printer_settings", entityId: context.businessId, metadata: { enabled: values.enabled, autoPrint: values.autoPrint } });
@@ -75,6 +79,7 @@ export async function addPrintDevice(db: CommercialDatabase, context: Context, r
   const input = deviceInput.parse(raw);
   const id = randomUUID();
   await db.transaction(async (tx) => {
+    await assertBusinessOperational(tx, context.businessId);
     await tx.insert(printDevice).values({ id, businessId: context.businessId, createdByUserId: context.actorUserId, ...input });
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: context.businessId, actorUserId: context.actorUserId, eventType: "printer.device_added",
       entityType: "print_device", entityId: id, metadata: { transport: input.transport, paperWidthMm: input.paperWidthMm, codePage: input.codePage, renderMode: input.renderMode } });
@@ -87,6 +92,7 @@ export async function updatePrintDevice(db: CommercialDatabase, context: Context
   await requirePrinter(db, context, "configure");
   const input = z.object(profileFields).parse(raw);
   await db.transaction(async (tx) => {
+    await assertBusinessOperational(tx, context.businessId);
     const updated = await tx.update(printDevice).set(input).where(and(eq(printDevice.businessId, context.businessId), eq(printDevice.id, deviceId), isNull(printDevice.archivedAt))).returning({ id: printDevice.id });
     if (!updated.length) throw new CommercialError("Imprimante introuvable.", 404, "not_found");
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: context.businessId, actorUserId: context.actorUserId, eventType: "printer.device_updated",
@@ -97,7 +103,10 @@ export async function updatePrintDevice(db: CommercialDatabase, context: Context
 
 export async function archivePrintDevice(db: CommercialDatabase, context: Context, deviceId: string, now = new Date()) {
   await requirePrinter(db, context, "configure");
-  const archived = await db.update(printDevice).set({ archivedAt: now }).where(and(eq(printDevice.businessId, context.businessId), eq(printDevice.id, deviceId), isNull(printDevice.archivedAt))).returning({ id: printDevice.id });
+  const archived = await db.transaction(async (tx) => {
+    await assertBusinessOperational(tx, context.businessId);
+    return tx.update(printDevice).set({ archivedAt: now }).where(and(eq(printDevice.businessId, context.businessId), eq(printDevice.id, deviceId), isNull(printDevice.archivedAt))).returning({ id: printDevice.id });
+  });
   if (!archived.length) throw new CommercialError("Imprimante introuvable.", 404, "not_found");
   return { archived: true };
 }

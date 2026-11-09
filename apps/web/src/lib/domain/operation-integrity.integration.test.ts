@@ -13,7 +13,7 @@ import { startInventory } from "./inventory";
 import { createOpeningBalance, postStockOpening } from "./opening";
 import { openCashSession } from "./cash-session";
 import { createCatalogImport } from "./imports";
-import { addPrintDevice, createPrintJob, reportPrintResult, updatePrinterSettings } from "./printing";
+import { addPrintDevice, archivePrintDevice, createPrintJob, reportPrintResult, updatePrintDevice, updatePrinterSettings } from "./printing";
 
 describe("operation integrity: idempotent writes and blocked businesses (PGlite)", () => {
   const client = new PGlite();
@@ -152,6 +152,10 @@ describe("operation integrity: idempotent writes and blocked businesses (PGlite)
       ["createCatalogImport", () => createCatalogImport(db, { businessId: businessA, actorUserId: ownerA, fileName: "bloque.csv", bytes: Buffer.from("Nom;Prix\nBloqué;100\n") })],
       ["createPrintJob (test)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "test" })],
       ["createPrintJob (ticket de vente)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "receipt", saleId: printSaleA })],
+      ["updatePrinterSettings", () => updatePrinterSettings(db, { businessId: businessA, actorUserId: ownerA }, { enabled: false, autoPrint: false })],
+      ["addPrintDevice", () => addPrintDevice(db, { businessId: businessA, actorUserId: ownerA }, { name: "Bloquée", transport: "simulated", paperWidthMm: 58, agentId: "integrity-blocked" })],
+      ["updatePrintDevice", () => updatePrintDevice(db, { businessId: businessA, actorUserId: ownerA }, printDeviceA, { paperWidthMm: 80 })],
+      ["archivePrintDevice", () => archivePrintDevice(db, { businessId: businessA, actorUserId: ownerA }, printDeviceA)],
       ["createPrintJob (réimpression)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "receipt", saleId: printSaleA, reprintOfJobId: printedJobA, idempotencyKey: "blocked-reprint-1" })],
     ];
 
