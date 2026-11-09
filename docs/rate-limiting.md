@@ -50,13 +50,26 @@ Même politique que Better Auth (`src/lib/auth/client-ip-headers.ts`) : `x-forwa
 l'hébergeur) hors Cloudflare Workers, `cf-connecting-ip` seulement sur Workers. Sans en-tête, le sujet est
 « inconnu » : toutes ces requêtes partagent un compteur (plus strict, jamais plus permissif).
 
+### Chaîne de confiance (audit mission 14.1, documentation Vercel relue le 2026-11-09)
+
+| Montage | `x-forwarded-for` reçu par l'application | Falsifiable par le client ? | Effet sur la limitation |
+| --- | --- | --- | --- |
+| Visiteur → Vercel (Cloudflare en **DNS seul**, nuage gris) | adresse publique du visiteur, **réécrite par Vercel** (« we currently overwrite the X-Forwarded-For header ») | non | correct : une adresse par visiteur (ou par CGNAT) |
+| Visiteur → Cloudflare **proxy** (nuage orange) → Vercel | adresse **du nœud Cloudflare** : Vercel ne relaie pas l'adresse d'origine sans *Verified Proxy* (offre Enterprise) | non | **dégradé** : des visiteurs sans lien partagent un compteur ; les limites par adresse peuvent bloquer des innocents (la limite par compte reste juste) |
+| Lire `cf-connecting-ip` sur Vercel | — | **oui** : l'adresse `*.vercel.app` reste joignable sans Cloudflare, et n'importe qui peut y poser cet en-tête | refusé : ce n'est jamais fait hors Workers |
+
+Conclusion : le code est sûr (il ne lit qu'un en-tête que l'hébergeur écrase), mais il n'est **juste qu'en mode
+DNS seul**, celui que recommande `docs/production-setup-guide.md` § 8.2 (décision D-04 encore à prendre). La
+vérification réelle demande un déploiement Preview : afficher, sur une route de diagnostic temporaire et protégée,
+le premier élément de `x-forwarded-for` et le comparer à l'adresse publique du poste, en mode nuage gris puis orange.
+
 ## Limites connues
 
 - Une ligne écrite par tentative sur ces routes : coût négligeable au volume visé, mais à surveiller.
 - Un attaquant peut volontairement épuiser le quota d'un compte (blocage temporaire de 15 min à 1 h) : c'est le
   prix d'une protection par compte ; la victime peut toujours réinitialiser son mot de passe.
-- Derrière Cloudflare en proxy devant Vercel, `x-forwarded-for` doit être vérifié sur l'hébergement réel
-  (adresse du visiteur ou du nœud Cloudflare) : **non vérifié**.
+- Adresse réellement reçue sur Vercel : **non vérifiée** sans déploiement Preview (voir la chaîne de confiance
+  ci-dessus) ; en proxy Cloudflare, les limites par adresse deviennent partagées.
 - Tests : `src/test/rate-limit.http.test.ts` (atomicité, fenêtres, horloges décalées, remboursement, purge,
   limite par compte à travers plusieurs adresses et deux instances Better Auth), exécutables sur PGlite et sur
   la branche Neon de staging (`QADR_TEST_POSTGRES_URL`, voir `docs/validation.md`).
