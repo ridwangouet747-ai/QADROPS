@@ -5,7 +5,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/a
 import { organization, twoFactor, username } from "better-auth/plugins";
 import { after } from "next/server";
 import { getDatabase } from "@/lib/db/client";
-import { authSchema, businessProfile, receiptSettings } from "@/lib/db/schema";
+import { authSchema, businessProfile, receiptSettings, user } from "@/lib/db/schema";
 import { assertProductionAuthUrl, readEnvironment, socialProviders as configuredSocialProviders } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { claimPublicCampaignSafely, signupCampaignScope } from "@/lib/domain/public-campaigns";
@@ -62,10 +62,8 @@ export function authRateChecks(path: string, body: unknown, ip: string | null | 
   }
 }
 
-function clientIp(headers: Headers | undefined) {
-  const forwarded = headers?.get("cf-connecting-ip") ?? headers?.get("x-real-ip") ?? headers?.get("x-forwarded-for")?.split(",")[0];
-  return forwarded?.trim() || undefined;
-}
+/** Règles qui protègent un compte précis : comptées seulement après le défi Turnstile. */
+const accountRateRules = new Set<RateRule>([rateRules.signInAccount, rateRules.passwordResetRequestAccount]);
 
 /**
  * Accepter (ou refuser) une invitation exige une adresse vérifiée dès que les e-mails fonctionnent, et
@@ -231,6 +229,14 @@ export function createQadrAuth(options: AuthOptions) {
     },
     hooks: {
       before: createAuthMiddleware(async (context) => {
+        const enforceRateLimits = async (checks: Array<{ rule: RateRule; subject: string }>) => {
+          if (!checks.length) return;
+          const decision = await consumeRateLimits(db, checks, options.secret);
+          if (!decision.allowed) {
+            throw new APIError("TOO_MANY_REQUESTS", { message: "TOO_MANY_ATTEMPTS", code: "TOO_MANY_ATTEMPTS" },
+              { "retry-after": String(decision.retryAfterSeconds) });
+          }
+        };
         // Les routes HTTP du plugin Organization ignorent business_member_access, les quotas et l'audit :
         // un membre désactivé pouvait retirer un propriétaire. Seuls les services de l'application
         // (account.ts, appels serveur sans `request`) y accèdent, après leurs propres contrôles.
@@ -249,17 +255,13 @@ export function createQadrAuth(options: AuthOptions) {
         if (context.request && context.path.startsWith("/two-factor/")) {
           throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
         }
-        if (context.request) {
+        // Limites par adresse avant Turnstile ; limites par compte seulement APRÈS un défi Turnstile réussi
+        // (mission 15) : sinon dix requêtes sans défi suffiraient à bloquer le compte d'un commerçant.
+        const allChecks = context.request
           // Mêmes en-têtes de confiance que la limitation de Better Auth : cf-connecting-ip serait falsifiable hors Workers.
-          const checks = authRateChecks(context.path, context.body, clientIpFrom(context.headers ?? context.request.headers));
-          if (checks.length) {
-            const decision = await consumeRateLimits(db, checks, options.secret);
-            if (!decision.allowed) {
-              throw new APIError("TOO_MANY_REQUESTS", { message: "TOO_MANY_ATTEMPTS", code: "TOO_MANY_ATTEMPTS" },
-                { "retry-after": String(decision.retryAfterSeconds) });
-            }
-          }
-        }
+          ? authRateChecks(context.path, context.body, clientIpFrom(context.headers ?? context.request.headers)) : [];
+        const accountChecks = allChecks.filter((check) => accountRateRules.has(check.rule));
+        await enforceRateLimits(allChecks.filter((check) => !accountRateRules.has(check.rule)));
         if (context.request && (context.path === "/sign-up/email" || context.path === "/update-user")) {
           const body = context.body as Record<string, unknown> | undefined;
           if (body && ("username" in body || "displayUsername" in body)) {
@@ -272,16 +274,29 @@ export function createQadrAuth(options: AuthOptions) {
           throw new APIError("UNAUTHORIZED", { message: "SESSION_REQUIRED", code: "SESSION_REQUIRED" });
         }
         const action = turnstileProtectedPaths[context.path];
-        if (!action) return;
-        const headers = context.headers ?? context.request?.headers;
-        const result = await verifyTurnstile(headers?.get(turnstileHeader), {
-          secret: options.turnstile?.secret, siteKey: options.turnstile?.siteKey, isProduction: options.isProduction,
-          expectedHostname, expectedAction: action, remoteIp: clientIp(headers), fetcher: options.turnstile?.fetcher,
-        });
-        if (!result.ok) {
-          // Raison seulement : ni jeton, ni e-mail, ni adresse IP dans les journaux.
-          console.warn(JSON.stringify({ event: "turnstile.rejected", action, reason: result.reason }));
-          throw new APIError("BAD_REQUEST", { message: "TURNSTILE_FAILED", code: "TURNSTILE_FAILED" });
+        if (action) {
+          const headers = context.headers ?? context.request?.headers;
+          const result = await verifyTurnstile(headers?.get(turnstileHeader), {
+            secret: options.turnstile?.secret, siteKey: options.turnstile?.siteKey, isProduction: options.isProduction,
+            expectedHostname, expectedAction: action, remoteIp: (headers ? clientIpFrom(headers) : null) ?? undefined, fetcher: options.turnstile?.fetcher,
+          });
+          if (!result.ok) {
+            // Raison seulement : ni jeton, ni e-mail, ni adresse IP dans les journaux.
+            console.warn(JSON.stringify({ event: "turnstile.rejected", action, reason: result.reason }));
+            throw new APIError("BAD_REQUEST", { message: "TURNSTILE_FAILED", code: "TURNSTILE_FAILED" });
+          }
+        }
+        await enforceRateLimits(accountChecks);
+        // Un compte à second facteur (le propriétaire de la plateforme) ne se connecte que par /platform/login
+        // (limites de la console, audit, session plateforme). Par /sign-in/email, il reçoit le même refus
+        // qu'un mauvais mot de passe, sans cookie de défi ni indice sur la justesse du mot de passe (mission 15).
+        if (context.request && context.path === "/sign-in/email") {
+          const email = (context.body as { email?: unknown } | undefined)?.email;
+          if (typeof email === "string" && email.trim()) {
+            const [account] = await db.select({ twoFactorEnabled: user.twoFactorEnabled }).from(user)
+              .where(eq(user.email, email.trim().toLowerCase())).limit(1);
+            if (account?.twoFactorEnabled) throw new APIError("UNAUTHORIZED", { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" });
+          }
         }
       }),
     },

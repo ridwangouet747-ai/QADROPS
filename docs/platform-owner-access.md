@@ -20,9 +20,12 @@
 - **Session plateforme** : la console exige une ligne `platform_session` pour la session courante,
   valable **8 heures**, cookie de session (non persistant). Une session ordinaire du même compte reçoit
   401 `platform_reauth_required`.
-- **Connexion par e-mail du propriétaire** (`/api/auth/sign-in/email`) : une fois le facteur actif, le plugin
-  supprime la session et ne renvoie que `twoFactorRedirect` ; comme les routes `/two-factor/*` sont fermées,
-  ce chemin ne mène à rien. **Effet voulu** : le compte propriétaire ne sert qu'à la console.
+- **Connexion par e-mail du propriétaire** (`/api/auth/sign-in/email`) : refusée (mission 15) pour tout compte à
+  second facteur, avec la même réponse 401 qu'un mauvais mot de passe, sans session ni cookie de défi. Auparavant,
+  ce chemin posait un cookie de défi utilisable par `/api/platform/auth/verify` : il contournait les limites et
+  l'audit de l'étape 1 de la console, et sa réponse 200 révélait la justesse du mot de passe. **Effet voulu** :
+  le compte propriétaire ne sert qu'à la console. La page `/platform/login` est exclue de la redirection du proxy
+  (`src/proxy.ts`), qui la rendait injoignable sans session.
 - **Comptes des commerces** : inchangés (aucun second facteur, connexion habituelle) ; 404 sur la console.
 - **Pas de création automatique, pas de mot de passe par défaut** : le compte est créé par un opérateur.
 

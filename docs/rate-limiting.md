@@ -37,6 +37,11 @@ prestataire (pas de Redis, aucune dépense).
 | `POST /api/auth/send-verification-email` | adresse IP | 10 par heure |
 | `POST /api/auth/sign-in/social` | adresse IP | 60 par 15 min |
 
+**Ordre (mission 15)** : les limites par adresse sont comptées avant le défi Turnstile, les limites par compte
+seulement après un défi réussi. Sinon, dix requêtes sans défi suffisaient à bloquer pendant 15 min le compte d'un
+commerçant (test `rate-limit.http.test.ts`, « mission 15 »). Le `remoteip` transmis à Turnstile suit la même
+politique d'en-têtes (`clientIpFrom`), et non plus `cf-connecting-ip`.
+
 Les limites par adresse restent larges : en Côte d'Ivoire, beaucoup de clients mobiles partagent une adresse
 publique (CGNAT). Le compte visé est protégé plus strictement, quelle que soit l'adresse utilisée. La limitation
 intégrée de Better Auth reste active en plus (par instance).

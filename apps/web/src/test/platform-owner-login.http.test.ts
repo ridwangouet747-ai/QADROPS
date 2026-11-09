@@ -145,11 +145,14 @@ describe("connexion du propriétaire de la plateforme (mot de passe + second fac
     for (const path of ["/two-factor/verify-totp", "/two-factor/verify-backup-code", "/two-factor/enable", "/two-factor/disable", "/two-factor/get-totp-uri", "/two-factor/generate-backup-codes", "/two-factor/send-otp"]) {
       expect((await post(path, { code: totpCode(secret), password: OWNER.password }, merchant.cookie)).status, path).toBe(404);
     }
-    // Connexion ordinaire par e-mail du propriétaire : le plugin exige le facteur, aucune session n'est créée.
+    // Connexion ordinaire par e-mail du propriétaire (mission 15) : même refus qu'un mauvais mot de passe,
+    // ni session, ni cookie de défi, donc ni contournement des limites de la console ni indice sur le mot de passe.
     const byEmail = await post("/sign-in/email", { email: OWNER.email, password: OWNER.password });
-    expect(byEmail.status).toBe(200);
-    expect(((await byEmail.json()) as { twoFactorRedirect?: boolean }).twoFactorRedirect).toBe(true);
-    expect(byEmail.headers.getSetCookie().some((value) => /session_token=[^;]/.test(value))).toBe(false);
+    const byEmailWrong = await post("/sign-in/email", { email: OWNER.email, password: "pas-le-bon-mot-de-passe" });
+    expect(byEmail.status).toBe(401);
+    expect(byEmailWrong.status).toBe(401);
+    expect(await byEmail.json()).toEqual(await byEmailWrong.json());
+    expect(byEmail.headers.getSetCookie().some((value) => /session_token=[^;]|two_factor=[^;]/.test(value))).toBe(false);
   });
 
   it("refus identiques pour un nom inconnu, un mauvais mot de passe ou un compte de commerce", async () => {

@@ -115,6 +115,26 @@ describe("limitation distribuée des tentatives (PostgreSQL)", () => {
       expect(bystander.status).toBe(200);
     });
 
+    it("mission 15 : des requêtes sans défi Turnstile réussi ne consomment pas la limite du compte visé", async () => {
+      const owner = await h.signUp("Koffi Téléphones", "koffi@telephones.test");
+      const hostname = new URL(HARNESS_ORIGIN).hostname;
+      const siteverify = vi.fn<typeof fetch>(async (_url, init) => {
+        const { response: token } = JSON.parse(String(init!.body)) as { response: string };
+        return new Response(JSON.stringify(token.startsWith("ok-") ? { success: true, hostname, action: "login" } : { success: false, "error-codes": ["invalid-input-response"] }));
+      });
+      const protectedAuth = createQadrAuth({ db: h.db, secret: process.env.BETTER_AUTH_SECRET!, baseURL: HARNESS_ORIGIN, isProduction: false,
+        turnstile: { secret: "0x4AAAAAAA-secret-essai", siteKey: "0x4AAAAAAA-cle-essai", fetcher: siteverify } });
+      const attempt = (password: string, ip: string, token?: string) => protectedAuth.handler(new Request(`${HARNESS_ORIGIN}/api/auth/sign-in/email`, {
+        method: "POST", headers: { "content-type": "application/json", origin: HARNESS_ORIGIN, "x-forwarded-for": ip, ...(token ? { "x-turnstile-token": token } : {}) },
+        body: JSON.stringify({ email: owner.email, password }),
+      }));
+      const statuses: number[] = [];
+      for (let index = 0; index < rateRules.signInAccount.limit + 2; index += 1) statuses.push((await attempt("faux", `192.0.2.${index + 1}`)).status);
+      expect(statuses.every((status) => status === 400), JSON.stringify(statuses)).toBe(true);
+      const real = await attempt("mot-de-passe-de-test-harnais", "192.0.2.100", "ok-login-1");
+      expect(real.status).toBe(200);
+    });
+
     it("demande de réinitialisation : trois par heure et par compte, quelle que soit l'adresse", async () => {
       const statuses: number[] = [];
       for (let attempt = 0; attempt < 5; attempt += 1) {
