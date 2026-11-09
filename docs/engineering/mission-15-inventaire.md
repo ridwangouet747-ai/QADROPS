@@ -10,7 +10,7 @@ Statuts demandés par la mission :
 7. Bloqué.
 
 Une fonctionnalité peut cumuler plusieurs statuts. Chaque statut renvoie à une preuve datée du 2026-11-09 :
-- **1** : Vitest dans `apps/web`, 81 fichiers et 640 tests réussis. S'y ajoutent les tests de la passerelle (9), du service d'impression (14) et du MVP (8).
+- **1** : Vitest dans `apps/web`, 81 fichiers et 641 tests réussis (régression finale, après le dernier changement de code ; typecheck, lint et build également réussis). S'y ajoutent les tests de la passerelle (9), du service d'impression (14) et du MVP (8).
 - **2** : branche Neon `mission-14-staging` (base `qadr_staging`), 13 fichiers et 135 tests HTTP réussis, lancés un fichier à la fois. Les sessions Better Auth sont réelles et aucun simulacre métier n'intervient.
 - **3** : le seul fournisseur appelé est GeniusPay sandbox. Voir `geniuspay-sandbox-tunnel.md`, section 0 bis.
 - **4** : aperçu local (PGlite) dans le navigateur intégré, sur ordinateur et en émulation 375×812.
