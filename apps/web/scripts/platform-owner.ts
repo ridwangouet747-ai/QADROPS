@@ -23,7 +23,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { createQadrAuth } from "../src/lib/auth/server";
-import { getDatabase } from "../src/lib/db/client";
+import { closeDatabases, getDatabase } from "../src/lib/db/client";
 import type { CommercialDatabase } from "../src/lib/domain/commercial";
 import { readEnvironment, requireDatabaseUrl } from "../src/lib/env";
 import { beginOwnerTwoFactorEnrollment, bootstrapPlatformOwner, resetOwnerTwoFactor, resetPlatformOwnerPassword } from "../src/lib/domain/platform-owner";
@@ -31,7 +31,7 @@ import { beginOwnerTwoFactorEnrollment, bootstrapPlatformOwner, resetOwnerTwoFac
 const actions = ["bootstrap", "reset-password", "enroll-2fa", "reset-2fa"] as const;
 type Action = (typeof actions)[number];
 const labels: Record<Action, string> = {
-  "bootstrap": "Créer", "reset-password": "Renouveler le mot de passe de", "enroll-2fa": "Activer le second facteur de", "reset-2fa": "Retirer le second facteur de",
+  "bootstrap": "Créer le propriétaire", "reset-password": "Renouveler le mot de passe du propriétaire", "enroll-2fa": "Activer le second facteur du propriétaire", "reset-2fa": "Retirer le second facteur du propriétaire",
 };
 
 async function enroll(auth: Parameters<typeof beginOwnerTwoFactorEnrollment>[0], db: CommercialDatabase, username: string, password: string) {
@@ -65,7 +65,7 @@ async function main() {
   console.log(`Cible : ${target.hostname}${target.pathname} (${process.env.QADR_DB_TARGET})`);
   const username = process.env.QADR_OWNER_USERNAME ?? "";
   const prompt = createInterface({ input: stdin, output: stdout });
-  const confirmation = await prompt.question(`${labels[action as Action]} le propriétaire « ${username} » : saisissez exactement CONFIRMER : `);
+  const confirmation = await prompt.question(`${labels[action as Action]} « ${username} » : saisissez exactement CONFIRMER : `);
   prompt.close();
   if (confirmation !== "CONFIRMER") throw new Error("Confirmation incorrecte ; rien n’a été modifié.");
 
@@ -91,4 +91,7 @@ async function main() {
 main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : "Erreur inconnue");
   process.exitCode = 1;
+}).finally(async () => {
+  // Ferme le pool Neon : le script se termine dès la fin de l’action, sans attendre les connexions inactives.
+  await closeDatabases().catch(() => undefined);
 });

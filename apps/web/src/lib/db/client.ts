@@ -38,3 +38,14 @@ export function getDatabase(url?: string) {
   }
   return database;
 }
+
+/**
+ * Ferme tous les pools ouverts par ce processus. Réservé aux scripts (`scripts/platform-owner.ts`) :
+ * sans cela, le processus attend l'expiration des connexions inactives avant de se terminer.
+ * Jamais appelé par une route : le pool est partagé par les requêtes de l'instance.
+ */
+export async function closeDatabases() {
+  const open = [...databases.values()];
+  databases.clear();
+  await Promise.all(open.map((database) => database.$client.end()));
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDatabase } from "./client";
+import { closeDatabases, getDatabase } from "./client";
 
 // Aucune connexion n'est ouverte : le pool ne se connecte qu'à la première requête SQL.
 describe("getDatabase", () => {
@@ -10,5 +10,15 @@ describe("getDatabase", () => {
 
   it("ouvre une base distincte pour une autre URL", () => {
     expect(getDatabase("postgresql://a:b@exemple.invalid/une")).not.toBe(getDatabase("postgresql://a:b@exemple.invalid/deux"));
+  });
+
+  it("closeDatabases ferme chaque pool (un script se termine aussitôt) et oublie les bases fermées", async () => {
+    const url = "postgresql://a:b@exemple.invalid/script";
+    const before = getDatabase(url);
+    const pool = before.$client;
+    await closeDatabases();
+    expect(pool.ended).toBe(true);
+    expect(getDatabase(url)).not.toBe(before);
+    await closeDatabases();
   });
 });
