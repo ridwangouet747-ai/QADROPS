@@ -18,6 +18,18 @@ Il complète `docs/production-setup-guide.md`, dont plusieurs passages sont pér
 - Les recherches ont porté sur `src/`, `scripts/`, `sentry.*.config.ts`, `next.config.ts`, `drizzle.config.ts`, `cloudflare/` et les bibliothèques `better-auth` / `@better-auth/*`.
 - Aucun fichier `.env*` autre que `.env.example` n'a été lu.
 - **Rien n'a été exécuté contre Vercel ou un service externe par l'auteur de ce document.** Constat du 2026-11-09 (mission 15) : l'équipe Vercel `qadragency` existe, et le projet Neon `qadr-data-base` (`aws-us-east-1`, PostgreSQL 18) y a été créé par l'intégration Vercel Marketplace ; sa branche `main` (production) est vide, la branche `mission-14-staging` porte la base `qadr_staging` migrée (25 migrations). L'accès MCP à l'équipe Vercel demandait une nouvelle autorisation : la liste des projets n'a pas pu être relue.
+- **Relecture Vercel du 2026-11-09 au soir** (mission 15, accès MCP accordé par le propriétaire, lecture seule, aucune valeur lue) :
+
+  | Projet | Constat | Conséquence |
+  | --- | --- | --- |
+  | `web` (`prj_tN0I…`) | Lié au dépôt GitHub `ridwangouet747-ai/QADROPS`. Un déploiement **de production** existe depuis le 2026-11-01 (`web-qadragency.vercel.app`, commit `2cb9c97` de `main`, antérieur aux missions 11 à 15). **Aucune variable d'environnement.** Node `26.x` (le dépôt exige `24.x`). Protégé par *Vercel Authentication* (302 sur `/`, `/login`, les API et les crons). | Code obsolète en production, sans base ni secret : il ne peut pas fonctionner. Non public grâce à la protection. À supprimer ou à mettre en pause par le propriétaire. |
+  | `qadrops` (`prj_CNib…`) | Aucun déploiement, aucun domaine, Node `24.x`. 36 variables, toutes issues de l'intégration Neon : `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `PG*`, `POSTGRES_*`, `NEON_*`, `VITE_NEON_AUTH_URL` (Preview + Production) et leur double préfixé `QADROPSDATABASE_*` (Development + Preview + Production). **Aucune variable applicative** (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `CRON_SECRET`, Turnstile, GeniusPay, Resend, VAPID, Sentry, R2). | **`DATABASE_URL` est partagée entre Preview et Production** et vise la branche Neon `main` (la seule branche créée par l'intégration, marquée « vercel production branch » ; aucune branche par Preview n'existe). Une Preview déployée en l'état écrirait dans la base de production. |
+
+  Aucun déploiement Preview n'a été fait. Il exigerait, dans l'ordre :
+  1. le push d'une branche vers GitHub, avec l'accord du propriétaire ;
+  2. le choix d'un seul projet, avec `apps/web` comme *Root Directory* et Node `24.x` ;
+  3. un `DATABASE_URL` et un `DATABASE_URL_UNPOOLED` **propres à Preview**, pointés sur la branche `mission-14-staging`, et le retrait de la portée Preview des variables Neon actuelles ;
+  4. de vrais secrets Preview : `BETTER_AUTH_SECRET`, `CRON_SECRET`, un widget Turnstile staging et un domaine staging fixe (R5).
 - Les limites des offres Vercel citées (durées, crons, taille des corps) viennent de la documentation déjà recopiée dans le dépôt (`docs/qadr-capture-models.md` § 133, `docs/rate-limiting.md`). Elles **n'ont pas été revérifiées en ligne** pour ce document. Relisez la page officielle au moment de configurer et notez la date.
 
 ## 2. Réglages du projet Vercel
