@@ -22,7 +22,7 @@ Ce parcours ne concerne que l'abonnement. Il ne touche ni aux ventes ni aux paie
 5. **Confirmation**, par trois voies qui appliquent toutes la même fonction `applyProviderPayment` :
    - le webhook `POST /api/webhooks/geniuspay` (section 3) ;
    - la relecture déclenchée par la page de retour ;
-   - le rapprochement du cron quotidien `/api/cron/subscriptions` : au plus 50 tentatives `pending` de plus de 10 minutes, puis le passage d'expiration existant.
+   - le rapprochement du cron quotidien `/api/cron/subscriptions` : au plus 50 tentatives `pending` de plus de 10 minutes, dans un budget de 120 s (le reste, compté dans `deferred`, attend le passage suivant ; route `maxDuration = 300`), puis le passage d'expiration existant.
 6. **Activation** (section 5), dans une seule transaction, avec un audit `subscription.payment_activated`. Les autres événements d'audit sont `subscription.invoice_created`, `subscription.payment_initiated`, `subscription.payment_failed` et `subscription.payment_anomaly`.
 
 Dans `/business/subscription`, la carte « Payer en ligne » (`PayCard`) est placée au-dessus de la saisie de code. Elle n'est proposée qu'au propriétaire et seulement si GeniusPay est configuré ; sinon, l'écran l'annonce indisponible. Les textes sont traduits en fr, en et ar, avec RTL (propriétés logiques).
@@ -42,7 +42,7 @@ Variables lues côté serveur uniquement (voir `apps/web/.env.example`) :
 
 Règles (`readGeniusPayConfig`, `getBillingProvider`) :
 - Les trois secrets vont ensemble. S'il en manque un, le paiement est déclaré indisponible et le webhook répond 503.
-- Une clé sandbox est refusée en production, sauf si `VERCEL_ENV=preview`. Une clé live est refusée hors production.
+- Une clé sandbox est refusée en production, sauf si `VERCEL_ENV=preview`. Une clé live est refusée hors production, et aussi sur tout déploiement Vercel dont `VERCEL_ENV` n'est pas `production` (mission 15 : Vercel fixe `NODE_ENV=production` en Preview).
 - L'environnement de chaque paiement est enregistré. Un webhook ou une relecture dans un autre environnement est rejeté (`environment_mismatch`).
 
 Le fournisseur est injecté (`fetchImpl`) : appels `fetch` directs, délai de 15 s, `redirect: "error"`, aucune dépendance npm ajoutée.

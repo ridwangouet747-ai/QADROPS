@@ -45,7 +45,8 @@ export type GeniusPayConfigResult =
  * Lit la configuration serveur. Rien n'est jamais lu côté navigateur.
  * - Les trois secrets sont requis ensemble ; aucun = paiement en ligne indisponible (jamais de faux succès).
  * - L'environnement se lit sur le préfixe des clés (`pk_sandbox_`/`sk_sandbox_` ou `pk_live_`/`sk_live_`), qui doivent concorder.
- * - Clé sandbox refusée en production (sauf préproduction Vercel, `VERCEL_ENV=preview`) ; clé live refusée hors production.
+ * - Clé sandbox refusée en production (sauf préproduction Vercel, `VERCEL_ENV=preview`) ; clé live refusée hors production,
+ *   y compris sur un déploiement Vercel Preview ou Development (`VERCEL_ENV` ≠ `production`).
  */
 export function readGeniusPayConfig(source: NodeJS.ProcessEnv = process.env): GeniusPayConfigResult {
   const apiKey = source.GENIUSPAY_API_KEY?.trim() ?? "";
@@ -62,6 +63,8 @@ export function readGeniusPayConfig(source: NodeJS.ProcessEnv = process.env): Ge
   const preproduction = production && source.VERCEL_ENV === "preview";
   if (keyEnvironment === "sandbox" && production && !preproduction) return { status: "invalid", reason: "Clé GeniusPay sandbox refusée en production." };
   if (keyEnvironment === "live" && !production) return { status: "invalid", reason: "Clé GeniusPay live refusée hors production (aucun paiement réel en développement ou en test)." };
+  // Sur Vercel, NODE_ENV vaut « production » aussi en Preview : seul VERCEL_ENV distingue la vraie production.
+  if (keyEnvironment === "live" && source.VERCEL_ENV && source.VERCEL_ENV !== "production") return { status: "invalid", reason: "Clé GeniusPay live refusée sur un déploiement Vercel autre que la production." };
   const rawBase = source.GENIUSPAY_BASE_URL?.trim() || GENIUSPAY_DEFAULT_BASE_URL;
   if (!URL.canParse(rawBase) || new URL(rawBase).protocol !== "https:") return { status: "invalid", reason: "GENIUSPAY_BASE_URL doit être une URL HTTPS." };
   return { status: "ready", config: { apiKey, apiSecret, webhookSecret, baseUrl: rawBase.replace(/\/+$/, ""), environment: keyEnvironment } };

@@ -103,6 +103,10 @@ describe("configuration GeniusPay", () => {
     const live = { GENIUSPAY_API_KEY: "pk_live_test_unitaire", GENIUSPAY_API_SECRET: "sk_live_test_unitaire", GENIUSPAY_WEBHOOK_SECRET: SECRET };
     expect(readGeniusPayConfig(env({ NODE_ENV: "development", ...live })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "production", ...live }))).toMatchObject({ status: "ready", config: { environment: "live" } });
+    // Vercel Preview fixe NODE_ENV=production : une clé live n'y est jamais acceptée (mission 15).
+    expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "preview", ...live })).status).toBe("invalid");
+    expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "development", ...live })).status).toBe("invalid");
+    expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "production", ...live })).status).toBe("ready");
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_API_SECRET: "sk_live_test_unitaire" })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_API_KEY: "cle_inconnue" })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_WEBHOOK_SECRET: "secret-sans-prefixe" })).status).toBe("invalid");

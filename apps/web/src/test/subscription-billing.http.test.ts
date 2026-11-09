@@ -372,6 +372,15 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
       expect((await attempt(second.attemptId)).status).toBe("pending");
       expect(await subscriptions(other.businessId)).toEqual([]);
     } finally { fake.getUnavailable = false; }
+    // Budget de temps épuisé (mission 15) : aucune relecture, la tentative attend le passage suivant.
+    let tick = 0;
+    const exhausted = await reconcilePendingSubscriptionPayments(h.db, getBillingProvider(), { now: later, budgetMs: 1, clock: () => (tick += 5) });
+    expect(exhausted).toMatchObject({ checked: 0, applied: 0 });
+    expect(exhausted.deferred).toBeGreaterThanOrEqual(1);
+    expect((await attempt(second.attemptId)).status).toBe("pending");
+    const resumed = await reconcilePendingSubscriptionPayments(h.db, getBillingProvider(), { now: later });
+    expect(resumed.deferred).toBe(0);
+    expect((await attempt(second.attemptId)).status).toBe("confirmed");
   });
 
   it("la tâche planifiée des abonnements fait aussi le rapprochement", async () => {

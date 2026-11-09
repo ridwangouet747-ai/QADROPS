@@ -556,16 +556,25 @@ export async function handleGeniusPayWebhook(db: CommercialDatabase, billing: Bi
  * Revérifie les tentatives GeniusPay restées `pending` (webhook perdu, page de retour fermée). Appelé par le cron
  * quotidien des abonnements. Une tentative sans référence depuis plus de 24 h (création interrompue) est close
  * en échec : aucun lien de paiement n'a été remis au commerçant.
+ *
+ * Budget de temps (mission 15) : chaque relecture peut attendre GeniusPay jusqu'à 15 s ; au-delà de `budgetMs`
+ * (120 s par défaut), les tentatives restantes sont laissées au passage suivant (`deferred`), pour que l'expiration
+ * des abonnements, qui suit dans le même cron, tienne dans la durée maximale de la fonction Vercel.
  */
-export async function reconcilePendingSubscriptionPayments(db: CommercialDatabase, billing: BillingAvailability, options: { now?: Date; olderThanMs?: number; limit?: number } = {}) {
+export async function reconcilePendingSubscriptionPayments(db: CommercialDatabase, billing: BillingAvailability,
+  options: { now?: Date; olderThanMs?: number; limit?: number; budgetMs?: number; clock?: () => number } = {}) {
   const now = options.now ?? new Date();
-  if (!billing.available) return { available: false as const, checked: 0, applied: 0, anomalies: 0, errors: 0, abandoned: 0 };
+  if (!billing.available) return { available: false as const, checked: 0, applied: 0, anomalies: 0, errors: 0, abandoned: 0, deferred: 0 };
+  const clock = options.clock ?? Date.now;
+  const started = clock();
+  const budgetMs = options.budgetMs ?? 120_000;
   const cutoff = new Date(now.getTime() - (options.olderThanMs ?? 10 * 60_000));
   const rows = await db.select().from(subscriptionPayment)
     .where(and(eq(subscriptionPayment.provider, "geniuspay"), eq(subscriptionPayment.status, "pending"), lt(subscriptionPayment.occurredAt, cutoff)))
     .orderBy(asc(subscriptionPayment.occurredAt)).limit(options.limit ?? 50);
-  const totals = { available: true as const, checked: 0, applied: 0, anomalies: 0, errors: 0, abandoned: 0 };
-  for (const row of rows) {
+  const totals = { available: true as const, checked: 0, applied: 0, anomalies: 0, errors: 0, abandoned: 0, deferred: 0 };
+  for (const [index, row] of rows.entries()) {
+    if (clock() - started >= budgetMs) { totals.deferred = rows.length - index; break; }
     if (!row.providerReference) {
       if (now.getTime() - row.occurredAt.getTime() < CHECKOUT_LIFETIME_MS) continue;
       await db.transaction(async (tx) => {

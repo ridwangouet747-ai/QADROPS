@@ -10,6 +10,8 @@ import { purgeRateLimitBuckets } from "@/lib/security/rate-limit";
 import { getFileStorage } from "@/lib/storage/config";
 
 export const runtime = "nodejs";
+// Durée maximale explicite (secondes) : le rapprochement GeniusPay est borné à 120 s, le reste est court.
+export const maxDuration = 300;
 
 /**
  * Passage planifié quotidien des abonnements (Vercel Cron ou équivalent), protégé par CRON_SECRET :
