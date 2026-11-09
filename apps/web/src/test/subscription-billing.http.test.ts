@@ -333,7 +333,10 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
 
   it("commerce expiré : il peut payer et reprend ; commerce suspendu : paiement refusé", async () => {
     const expired = await merchant();
-    await h.client.query("insert into business_subscription (id,business_id,plan_id,status,starts_at,ends_at,origin) values ($1,$2,'plan-mensuel','expired',now()-interval '40 days',now()-interval '10 days','promotion')", [`old-${expired.businessId}`, expired.businessId]);
+    // Dates (création comprise) tirées de l'horloge du serveur, comme celles qu'écrit le paiement : l'ordre reste juste même si la base diverge.
+    const day = 86_400_000;
+    await h.client.query("insert into business_subscription (id,business_id,plan_id,status,starts_at,ends_at,origin,created_at) values ($1,$2,'plan-mensuel','expired',$3,$4,'promotion',$3)",
+      [`old-${expired.businessId}`, expired.businessId, new Date(Date.now() - 40 * day), new Date(Date.now() - 10 * day)]);
     await h.client.query("update business_profile set status='expired' where business_id=$1", [expired.businessId]);
     await pay(expired.owner);
     expect((await subscriptions(expired.businessId)).map((row) => row.status)).toEqual(["expired", "active"]);

@@ -30,8 +30,10 @@ type Db = CommercialDatabase | CommercialTransaction;
 
 /** À appeler dans la transaction de l'opération métier. Un événement déjà connu (`dedupKey`) n'est pas dupliqué. */
 export async function enqueueNotification(tx: Db, input: { businessId: string | null; eventType: EventKey | "announcement"; payload: Record<string, string>; dedupKey: string; campaignId?: string }) {
+  // Échéance écrite par le serveur, comme la comparaison de `processNotificationOutbox` : avec le défaut
+  // `now()` de la base, un serveur en retard sur la base laisserait l'événement attendre la tâche planifiée.
   await tx.insert(notificationOutbox).values({ id: randomUUID(), businessId: input.businessId, eventType: input.eventType, payload: input.payload,
-    dedupKey: input.dedupKey.slice(0, 200), campaignId: input.campaignId ?? null }).onConflictDoNothing({ target: notificationOutbox.dedupKey });
+    dedupKey: input.dedupKey.slice(0, 200), campaignId: input.campaignId ?? null, nextAttemptAt: new Date() }).onConflictDoNothing({ target: notificationOutbox.dedupKey });
 }
 
 /* ------------------------------------------------------------------ 2. Traitement */

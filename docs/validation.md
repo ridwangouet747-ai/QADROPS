@@ -51,10 +51,15 @@ Il ne remplace pas une vérification sur une préproduction réelle, qui n'exist
   jetable `qadr_t_<hex>` sur ce serveur, y applique les 25 migrations, puis la supprime (`drop … with (force)`).
   Les bases `neondb` et `postgres` sont refusées. Usage prévu : la branche Neon de staging seulement, jamais
   la branche principale. Sans ces variables, PGlite en mémoire (comportement par défaut).
-  **Prérequis : horloge du poste synchronisée.** Le code mêle des dates calculées par Node (`new Date()`) et
-  `now()` de PostgreSQL ; avec PGlite les deux horloges sont la même, avec Neon non. Le 2026-11-09, le poste de
-  développement retardait d’environ 1 h (source Windows « Local CMOS Clock ») : les tests dépendant de l’heure
-  échouaient sur Neon seulement. En production (Vercel et Neon synchronisés par NTP), l’écart est négligeable.
+  **Horloges (mission 14.1).** Les décisions temporelles du code (échéances, sessions, expiration) utilisent
+  l’horloge du serveur (`new Date()`) ; les colonnes `defaultNow()` utilisent celle de PostgreSQL. Avec PGlite
+  c’est la même, avec Neon non : le 2026-11-09, le poste avait **3 624,2 s** de retard sur Neon (mesure par epoch
+  UTC, dispersion 13 ms ; source Windows « Local CMOS Clock », jamais synchronisée). Règles qui en découlent :
+  - toute échéance comparée par le code est **écrite par le code** (ex. `notification_outbox.next_attempt_at`
+    dans `enqueueNotification`, sinon un serveur en retard laissait l’événement attendre la tâche planifiée) ;
+  - un test qui fabrique une date à comparer par le code la calcule en JavaScript (`new Date(Date.now() - …)`),
+    jamais avec `now()` SQL ; les marges d’un jour ou plus restent tolérées.
+  La signature des webhooks GeniusPay (tolérance 300 s) exige en revanche une horloge du poste synchronisée.
 
 ### Écrire un test de route
 

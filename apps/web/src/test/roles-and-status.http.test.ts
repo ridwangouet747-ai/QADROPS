@@ -244,8 +244,10 @@ describe("mission 11, phase 7 : rôles et états du commerce sur les routes HTTP
     it("période d'essai terminée sans renouvellement : écritures refusées dès l'échéance", async () => {
       const seeded = await seedBusiness("Zeta", "owner@zeta.test");
       await h.client.query("insert into subscription_plan (id,code,name,price_xof,duration_days) values ('plan-phase7','PHASE7','Forfait test',5000,30) on conflict do nothing");
-      await h.client.query("insert into business_subscription (id,business_id,plan_id,status,starts_at,ends_at,trial_ends_at,origin) values ($1,$2,'plan-phase7','trialing',now() - interval '15 days',now() - interval '1 minute',now() - interval '1 minute','promotion')",
-        [newKey("abonnement"), seeded.id]);
+      // Dates tirées de l'horloge du serveur, celle qui décide de l'échéance : test juste même si la base diverge.
+      const minuteAgo = new Date(Date.now() - 60_000);
+      await h.client.query("insert into business_subscription (id,business_id,plan_id,status,starts_at,ends_at,trial_ends_at,origin) values ($1,$2,'plan-phase7','trialing',$3,$4,$4,'promotion')",
+        [newKey("abonnement"), seeded.id, new Date(Date.now() - 15 * 86_400_000), minuteAgo]);
       await expectBlocked(seeded.actor, seeded.id, seeded, /abonnement de ce commerce a expiré/);
     });
   });

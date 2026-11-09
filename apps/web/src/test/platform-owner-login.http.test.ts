@@ -219,7 +219,8 @@ describe("connexion du propriétaire de la plateforme (mot de passe + second fac
 
   it("session plateforme expirée : reconnexion exigée", async () => {
     const cookie = await login("10.0.2.1");
-    await h.client.query("update platform_session set created_at = now() - interval '9 hours' where user_id = $1", [ownerUserId]);
+    // Horloge du serveur (celle qui écrit et contrôle la session), pas celle de la base : test juste même si elles divergent.
+    await h.client.query("update platform_session set created_at = $2 where user_id = $1", [ownerUserId, new Date(Date.now() - 9 * 3_600_000)]);
     const expired = await overview(cookie);
     expect(expired.status).toBe(401);
     expect(expired.body.code).toBe("platform_reauth_required");

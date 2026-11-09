@@ -289,4 +289,21 @@ describe("notifications : boîte d'envoi, destinataires, préférences, push", (
     // Adresse inconnue : le navigateur doit se désabonner.
     expect(await claimPushEndpoint(db, device(admin), { endpoint: "https://web.push.apple.com/inconnue" })).toEqual({ status: "unknown" });
   });
+
+  it("mission 14.1 : un événement est traité tout de suite même si l'horloge de la base avance sur celle du serveur", async () => {
+    // L'échéance d'un événement et sa comparaison doivent venir de la même horloge (celle du serveur) :
+    // ici la base « avance » d'une heure (défaut de colonne décalé) ; sans échéance écrite par le serveur,
+    // l'événement attendrait la tâche planifiée au lieu de partir juste après la réponse.
+    await client.query("alter table notification_outbox alter column next_attempt_at set default now() + interval '1 hour'");
+    try {
+      const sale = await createSale(db, { businessId: biz, actorUserId: cashier, idempotencyKey: key("sale"), lines: [{ variantId: variant, quantity: "1" }],
+        customerId: undefined, payments: [{ method: "cash", amountXof: "5000" }] });
+      await processNotificationOutbox(db, { sender: fakePush().sender, limit: 50 });
+      const rows = await client.query<{ status: string }>("select status from notification_outbox where dedup_key=$1", [`sale.created:${sale.id}`]);
+      expect(rows.rows).toHaveLength(1);
+      expect(rows.rows[0]!.status).not.toBe("pending");
+    } finally {
+      await client.query("alter table notification_outbox alter column next_attempt_at set default now()");
+    }
+  });
 });
