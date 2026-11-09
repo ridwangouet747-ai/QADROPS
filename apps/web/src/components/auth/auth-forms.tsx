@@ -116,7 +116,8 @@ export function LoginForm() {
     const { error: failure } = await authClient.signIn.email({ email: email.trim(), password, fetchOptions: securityHeaders(security.token) });
     if (failure) {
       track("login_failed", { reason: turnstileRejected(failure) ? "turnstile" : failure.status === 403 ? "verification" : failure.status === 401 ? "credentials" : "other" });
-      setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : t("auth.login.failed")); setBusy(false); security.renew(); return;
+      // 429 : limite du compte ou de l'adresse atteinte ; « mot de passe incorrect » ferait réessayer en vain.
+      setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : failure.status === 429 ? t("auth.login.throttled") : t("auth.login.failed")); setBusy(false); security.renew(); return;
     }
     track("login_succeeded");
     await routeAfterSignIn(router.push, next);

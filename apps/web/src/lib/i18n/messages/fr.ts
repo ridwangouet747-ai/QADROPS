@@ -538,6 +538,7 @@ export const fr = {
       submit: "Se connecter",
       submitting: "Connexion…",
       failed: "E-mail ou mot de passe incorrect.",
+      throttled: "Trop d’essais pour ce compte. Patientez quelques minutes, ou réinitialisez votre mot de passe.",
       forgot: "Mot de passe oublié ?",
       noAccount: "Pas encore de compte ?",
       adminAccess: "Espace Qadr Agency",

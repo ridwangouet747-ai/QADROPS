@@ -540,6 +540,7 @@ export const ar: Messages = {
       submit: "دخول",
       submitting: "جارٍ الدخول…",
       failed: "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
+      throttled: "محاولات كثيرة جدًا لهذا الحساب. انتظر بضع دقائق، أو أعد تعيين كلمة المرور.",
       forgot: "نسيت كلمة المرور؟",
       noAccount: "ليس لديك حساب بعد؟",
       adminAccess: "مساحة Qadr Agency",

@@ -539,6 +539,7 @@ export const en: Messages = {
       submit: "Sign in",
       submitting: "Signing in…",
       failed: "Incorrect email or password.",
+      throttled: "Too many attempts for this account. Wait a few minutes, or reset your password.",
       forgot: "Forgot your password?",
       noAccount: "No account yet?",
       adminAccess: "Qadr Agency area",
