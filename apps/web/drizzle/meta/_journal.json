@@ -169,6 +169,13 @@
       "when": 1794167840427,
       "tag": "0023_push_session_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794177883275,
+      "tag": "0024_owner_two_factor_rate_limit",
+      "breakpoints": true
     }
   ]
 }

@@ -151,7 +151,7 @@ Mise en service de Turnstile (aucun compte connecté par l'agent, aucune clé à
 | Resend | code prêt et testé avec un faux client ; **domaine, clé et envoi réel non vérifiés** (§ 5.5) |
 | Turnstile | widget et validation serveur en place, testés avec les clés de test et un faux Siteverify ; **clés de production non créées ni vérifiées** |
 | Vérification d'adresse pour les invitations | exigée en production (§ 5.4) |
-| Limitation de débit | Better Auth en production : 3 requêtes / 10 s sur connexion et inscription, 3 / 60 s sur `request-password-reset` et `send-verification-email`, par adresse IP, **en mémoire de chaque instance** : insuffisant avec plusieurs instances serverless. Proposition : `rateLimit.storage: "database"` (nouvelle table, migration locale à valider) ou stockage secondaire. |
+| Limitation de débit | **Mission 14 : compteurs partagés dans PostgreSQL** (`docs/rate-limiting.md`, migration 0024) sur connexion (par IP et par compte visé), inscription, demande et application de réinitialisation, renvoi de vérification et connexion sociale, en plus de la limitation en mémoire de Better Auth. Reste à vérifier sur l'hébergement réel : l'adresse lue derrière Cloudflare et Vercel. |
 | Dépendances | voir § 10 : plus aucune vulnérabilité critique ni haute ; 20 modérées documentées (outils de développement et de build) |
 
 **L'authentification n'est pas déclarée prête pour la production** tant que le domaine Resend et les clés Turnstile réelles n'ont pas été vérifiés de bout en bout.

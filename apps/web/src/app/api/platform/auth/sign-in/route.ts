@@ -1,43 +1,28 @@
 import { getAuth } from "@/lib/auth/server";
-import { clientIpFrom } from "@/lib/auth/client-ip-headers";
+import { isSameOriginRequest, platformAuthMessages as messages, platformRequestClient, responseWithCookies } from "@/lib/auth/platform-request";
 import { getRuntimeDatabase } from "@/lib/db/runtime";
 import { errorResponse } from "@/lib/domain/business-context";
-import { platformClientKey, signInPlatformOwner } from "@/lib/domain/platform-auth";
-import { readEnvironment } from "@/lib/env";
+import { signInPlatformOwner } from "@/lib/domain/platform-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Même message pour un nom inconnu, un mauvais mot de passe ou un compte sans droit. */
-const refused = { error: "Nom d’utilisateur ou mot de passe incorrect.", code: "invalid_credentials" };
-const throttled = { error: "Trop de tentatives. Patientez quelques minutes avant de réessayer.", code: "too_many_attempts" };
-
-/** Requête venue d'une page de l'application elle-même (connexion forcée depuis un autre site refusée). */
-function sameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  const allowed = new Set([new URL(request.url).origin, new URL(readEnvironment().BETTER_AUTH_URL).origin]);
-  if (process.env.BETTER_AUTH_URL) allowed.add(new URL(process.env.BETTER_AUTH_URL).origin);
-  return allowed.has(origin);
-}
-
-/** Connexion du propriétaire de la plateforme (nom d'utilisateur et mot de passe). Voir `platform-auth.ts`. */
+/**
+ * Étape 1 de la connexion du propriétaire : nom d'utilisateur et mot de passe. En cas de succès, seule
+ * une épreuve de second facteur est ouverte (cookie de défi), jamais une session. Voir `platform-auth.ts`.
+ */
 export async function POST(request: Request) {
   try {
-    if (!sameOrigin(request)) return Response.json({ error: "Origine refusée.", code: "invalid_origin" }, { status: 403 });
+    if (!isSameOriginRequest(request)) return Response.json(messages.origin, { status: 403 });
     const body = await request.json().catch(() => null);
-    const secret = process.env.BETTER_AUTH_SECRET || "qadr-preview-only-secret-never-in-production-000";
-    const result = await signInPlatformOwner(await getAuth(), await getRuntimeDatabase(), {
-      body, headers: request.headers, clientKey: platformClientKey(clientIpFrom(request.headers), secret),
-    });
-    if (!result.ok) {
-      return Response.json(result.status === 429 ? throttled : refused, {
-        status: result.status, headers: result.status === 429 ? { "retry-after": "900" } : undefined,
-      });
+    const { secret, clientKey } = platformRequestClient(request);
+    const result = await signInPlatformOwner(await getAuth(), await getRuntimeDatabase(), { body, headers: request.headers, clientKey, secret });
+    if (result.ok) return responseWithCookies({ ok: true, step: "two_factor" }, 200, result.headers);
+    if (result.status === 429) {
+      return Response.json(messages.throttled, { status: 429, headers: { "retry-after": String(result.retryAfterSeconds ?? 900) } });
     }
-    const headers = new Headers({ "cache-control": "no-store" });
-    for (const cookie of result.headers.getSetCookie()) headers.append("set-cookie", cookie);
-    return Response.json({ ok: true }, { status: 200, headers });
+    if (result.status === 403) return Response.json(messages.setupRequired, { status: 403 });
+    return Response.json(messages.refused, { status: 401 });
   } catch (error) {
     return errorResponse(error);
   }

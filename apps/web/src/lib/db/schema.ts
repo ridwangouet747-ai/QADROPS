@@ -13,6 +13,8 @@ export const user = pgTable("user", {
   // Plugin Username de Better Auth (mission 13) : attribué uniquement côté serveur (propriétaire de la
   // plateforme, scripts/platform-owner.ts). Aucune route HTTP ne permet de le choisir ni de le modifier.
   username: text("username").unique(), displayUsername: text("display_username"),
+  // Plugin twoFactor (mission 14) : exigé pour le propriétaire de la plateforme, jamais imposé aux commerces.
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
 });
 export const organization = pgTable("organization", {
   id: text("id").primaryKey(), name: text("name").notNull(), slug: text("slug").notNull().unique(),
@@ -88,6 +90,28 @@ export const platformSession = pgTable("platform_session", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+/**
+ * Second facteur TOTP (plugin twoFactor de Better Auth, mission 14). Le secret et les codes de secours sont
+ * chiffrés par Better Auth avec BETTER_AUTH_SECRET ; ils ne sont ni journalisés ni exportés. Un seul
+ * enregistrement par compte. Le verrouillage (10 échecs consécutifs, 15 min) est tenu par Better Auth.
+ */
+export const twoFactor = pgTable("two_factor", {
+  id: text("id").primaryKey(), secret: text("secret").notNull(), backupCodes: text("backup_codes").notNull(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  verified: boolean("verified").notNull().default(true),
+  failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+}, (t) => [uniqueIndex("two_factor_user_unique").on(t.userId)]);
+/**
+ * Limitation des tentatives partagée entre toutes les instances (mission 14, `lib/security/rate-limit.ts`) :
+ * un compteur par clé et par fenêtre fixe, incrémenté atomiquement (INSERT … ON CONFLICT … RETURNING).
+ * La clé est une empreinte HMAC (jamais d'adresse IP ni d'e-mail en clair). Purge par le cron.
+ */
+export const rateLimitBucket = pgTable("rate_limit_bucket", {
+  key: text("key").primaryKey(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  hits: integer("hits").notNull(),
+}, (t) => [index("rate_limit_bucket_window_idx").on(t.windowStart), check("rate_limit_bucket_hits_check", sql`${t.hits} >= 0`)]);
 export const receiptSettings = pgTable("receipt_settings", {
   businessId: text("business_id").primaryKey().references(() => businessProfile.businessId, { onDelete: "restrict" }),
   paperWidthMm: integer("paper_width_mm").notNull().default(58), showLogo: boolean("show_logo").notNull().default(true), displayName: text("display_name"),
@@ -633,9 +657,9 @@ export const productAlias = pgTable("product_alias", {
   uniqueIndex("product_alias_normalized_unique").on(t.businessId, t.normalized),
   check("product_alias_length_check", sql`char_length(${t.alias}) between 1 and 160 and char_length(${t.normalized}) between 1 and 160`)]);
 
-export const authSchema = { user, session, account, verification, organization, member, invitation };
+export const authSchema = { user, session, account, verification, organization, member, invitation, twoFactor };
 export const databaseSchema = {
-  ...authSchema, businessProfile, businessMemberAccess, platformAdmin, platformSession, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
+  ...authSchema, rateLimitBucket, businessProfile, businessMemberAccess, platformAdmin, platformSession, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
   promotionCode, promotionEligibleBusiness, promotionEligiblePlan, businessSubscription, subscriptionInvoice, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,

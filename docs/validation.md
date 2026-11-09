@@ -46,6 +46,15 @@ Il ne remplace pas une vérification sur une préproduction réelle, qui n'exist
   - `RESEND_*`, `TURNSTILE_*`, `VAPID_*`, `SENTRY_DSN` et PostHog sont retirés ;
   - aucun e-mail ni aucune notification push ne part ;
   - aucun secret réel n'est lu ni inventé.
+- **PostgreSQL réel (mission 14, `src/test/postgres-harness.ts`)** : avec `QADR_TEST_POSTGRES_URL` (connexion
+  directe, jamais `-pooler`) et `QADR_TEST_POSTGRES_TARGET=staging`, chaque fichier de test crée une base
+  jetable `qadr_t_<hex>` sur ce serveur, y applique les 25 migrations, puis la supprime (`drop … with (force)`).
+  Les bases `neondb` et `postgres` sont refusées. Usage prévu : la branche Neon de staging seulement, jamais
+  la branche principale. Sans ces variables, PGlite en mémoire (comportement par défaut).
+  **Prérequis : horloge du poste synchronisée.** Le code mêle des dates calculées par Node (`new Date()`) et
+  `now()` de PostgreSQL ; avec PGlite les deux horloges sont la même, avec Neon non. Le 2026-11-09, le poste de
+  développement retardait d’environ 1 h (source Windows « Local CMOS Clock ») : les tests dépendant de l’heure
+  échouaient sur Neon seulement. En production (Vercel et Neon synchronisés par NTP), l’écart est négligeable.
 
 ### Écrire un test de route
 

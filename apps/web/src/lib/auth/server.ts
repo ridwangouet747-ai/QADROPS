@@ -2,15 +2,16 @@ import { betterAuth } from "better-auth";
 import { eq } from "drizzle-orm";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
-import { organization, username } from "better-auth/plugins";
+import { organization, twoFactor, username } from "better-auth/plugins";
 import { after } from "next/server";
 import { getDatabase } from "@/lib/db/client";
 import { authSchema, businessProfile, receiptSettings } from "@/lib/db/schema";
 import { assertProductionAuthUrl, readEnvironment, socialProviders as configuredSocialProviders } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { claimPublicCampaignSafely, signupCampaignScope } from "@/lib/domain/public-campaigns";
+import { consumeRateLimits, rateRules, type RateRule } from "@/lib/security/rate-limit";
 import { defaultLocale, localeCookie, resolveLocale, type Locale } from "@/lib/i18n/config";
-import { clientIpHeaders } from "./client-ip-headers";
+import { clientIpFrom, clientIpHeaders } from "./client-ip-headers";
 import { deliverEmail, emailRequestScope, resolveEmailTransport, type EmailLogger, type EmailMessage, type EmailTransport } from "./email";
 import { renderInvitationEmail, renderPasswordResetEmail, renderVerificationEmail } from "./email-templates";
 import { businessAccess, businessRoles } from "./permissions";
@@ -40,6 +41,25 @@ export const authDurations = {
 function requestLocale(request?: Request): Locale {
   const match = request?.headers.get("cookie")?.match(new RegExp(`(?:^|;\\s*)${localeCookie}=([^;]+)`));
   return resolveLocale(match?.[1]);
+}
+
+/**
+ * Limites partagées (PostgreSQL) des routes HTTP sensibles de Better Auth (mission 14). Elles s'ajoutent à la
+ * limitation en mémoire de Better Auth, qui ne vaut que pour une instance. Adresse IP inconnue : sujet commun
+ * « inconnu » (plus strict, jamais une exemption).
+ */
+export function authRateChecks(path: string, body: unknown, ip: string | null | undefined): Array<{ rule: RateRule; subject: string }> {
+  const address = ip?.trim() && ip.trim() !== "unknown" ? ip.trim() : "inconnu";
+  const email = typeof (body as { email?: unknown } | undefined)?.email === "string" ? (body as { email: string }).email.trim().toLowerCase() : "";
+  switch (path) {
+    case "/sign-in/email": return [{ rule: rateRules.signInIp, subject: address }, ...(email ? [{ rule: rateRules.signInAccount, subject: email }] : [])];
+    case "/sign-up/email": return [{ rule: rateRules.signUpIp, subject: address }];
+    case "/request-password-reset": return [{ rule: rateRules.passwordResetRequestIp, subject: address }, ...(email ? [{ rule: rateRules.passwordResetRequestAccount, subject: email }] : [])];
+    case "/reset-password": return [{ rule: rateRules.passwordResetIp, subject: address }];
+    case "/send-verification-email": return [{ rule: rateRules.verificationEmailIp, subject: address }];
+    case "/sign-in/social": return [{ rule: rateRules.socialSignInIp, subject: address }];
+    default: return [];
+  }
 }
 
 function clientIp(headers: Headers | undefined) {
@@ -140,6 +160,16 @@ export function createQadrAuth(options: AuthOptions) {
       // scripts/platform-owner.ts. Les routes HTTP qui permettraient de le choisir, de le modifier, de tester
       // son existence ou de se connecter sans passer par /api/platform/auth/sign-in sont fermées plus bas.
       minUsernameLength: 3, maxUsernameLength: 30, immutableUsername: true,
+    }), twoFactor({
+      // Mission 14 : second facteur du propriétaire de la plateforme (TOTP + codes de secours chiffrés).
+      // Ses routes HTTP sont fermées plus bas : l'inscription passe par scripts/platform-owner.ts et la
+      // vérification par /api/platform/auth/verify, qui seule ouvre la session plateforme. Jamais
+      // d'« appareil de confiance » : chaque connexion à la console redemande le code.
+      issuer: "Qadr Ops (plateforme)",
+      totpOptions: { digits: 6, period: 30 },
+      backupCodeOptions: { amount: 10, length: 12, storeBackupCodes: "encrypted" },
+      twoFactorCookieMaxAge: 300,
+      trustDeviceMaxAge: 1,
     }), organization({
       ac: businessAccess,
       roles: businessRoles,
@@ -212,6 +242,23 @@ export function createQadrAuth(options: AuthOptions) {
         // l'existence du compte. Aucun nom d'utilisateur ne se choisit ni ne se modifie par HTTP.
         if (context.request && (context.path === "/sign-in/username" || context.path === "/is-username-available")) {
           throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
+        }
+        // Plugin twoFactor : aucune route HTTP directe (activation, désactivation, vérification, codes) ; sinon
+        // une vérification réussie ouvrirait une session sans session plateforme ni audit, et un compte de
+        // commerce pourrait activer un facteur que l'interface ne sait pas lui redemander.
+        if (context.request && context.path.startsWith("/two-factor/")) {
+          throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
+        }
+        if (context.request) {
+          // Mêmes en-têtes de confiance que la limitation de Better Auth : cf-connecting-ip serait falsifiable hors Workers.
+          const checks = authRateChecks(context.path, context.body, clientIpFrom(context.headers ?? context.request.headers));
+          if (checks.length) {
+            const decision = await consumeRateLimits(db, checks, options.secret);
+            if (!decision.allowed) {
+              throw new APIError("TOO_MANY_REQUESTS", { message: "TOO_MANY_ATTEMPTS", code: "TOO_MANY_ATTEMPTS" },
+                { "retry-after": String(decision.retryAfterSeconds) });
+            }
+          }
         }
         if (context.request && (context.path === "/sign-up/email" || context.path === "/update-user")) {
           const body = context.body as Record<string, unknown> | undefined;

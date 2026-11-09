@@ -9,7 +9,9 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     fileParallelism: false,
-    hookTimeout: 30_000,
+    // Les beforeAll appliquent les 24 migrations à une base PGlite neuve : sous charge (mission 14, deux suites
+    // en parallèle), cela dépasse 30 s. Les tests eux-mêmes gardent 30 s.
+    hookTimeout: 120_000,
     testTimeout: 30_000,
   },
 });

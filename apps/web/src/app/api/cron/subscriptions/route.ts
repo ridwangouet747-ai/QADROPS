@@ -6,13 +6,15 @@ import { errorResponse } from "@/lib/domain/business-context";
 import { purgeStoredFiles } from "@/lib/domain/stored-files";
 import { reconcilePendingSubscriptionPayments } from "@/lib/domain/subscription-billing";
 import { expireDueSubscriptions } from "@/lib/domain/subscription-lifecycle";
+import { purgeRateLimitBuckets } from "@/lib/security/rate-limit";
 import { getFileStorage } from "@/lib/storage/config";
 
 export const runtime = "nodejs";
 
 /**
  * Passage planifié quotidien des abonnements (Vercel Cron ou équivalent), protégé par CRON_SECRET :
- * rapprochement des paiements GeniusPay restés en attente, expiration, puis purge du stockage privé.
+ * rapprochement des paiements GeniusPay restés en attente, expiration, purge du stockage privé et des
+ * compteurs de limitation échus.
  * Sans secret configuré, la route n'existe pas. L'accès est de toute façon refusé dès l'échéance
  * par assertBusinessOperational, et la console normalise les statuts à chaque lecture.
  */
@@ -38,6 +40,11 @@ export async function GET(request: Request) {
       Sentry.captureException(error);
       return { error: "storage_purge_failed" as const };
     });
-    return Response.json({ ...subscriptions, billing, storage });
+    // Compteurs de limitation (mission 14) : fenêtres échues depuis plus d’un jour.
+    const rateLimit = await purgeRateLimitBuckets(db as never, new Date()).catch((error: unknown) => {
+      Sentry.captureException(error);
+      return { error: "rate_limit_purge_failed" as const };
+    });
+    return Response.json({ ...subscriptions, billing, storage, rateLimit });
   } catch (error) { return errorResponse(error); }
 }

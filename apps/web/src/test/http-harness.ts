@@ -10,6 +10,7 @@ import * as teamInvitationsRoute from "@/app/api/business/team/invitations/route
 import { databaseSchema } from "@/lib/db/schema";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { installHarnessDatabase } from "./harness-database";
+import { openPostgresHarness, postgresHarnessTarget, type HarnessClient } from "./postgres-harness";
 
 /*
  * Harnais de test des routes HTTP (mission 11, phase 7).
@@ -76,7 +77,7 @@ function cookiesFrom(response: Response) {
 }
 
 export class HttpHarness {
-  constructor(readonly client: PGlite, readonly db: CommercialDatabase) {}
+  constructor(readonly client: HarnessClient, readonly db: CommercialDatabase) {}
 
   /** Appelle directement le gestionnaire exporté d'une route avec une requête construite. */
   async call<P extends Params = Params>(handler: RouteHandler<P>, options: CallOptions<P>): Promise<HttpResult> {
@@ -161,9 +162,18 @@ export class HttpHarness {
   async close() { await this.client.close(); }
 }
 
-/** Démarre PGlite, applique toutes les migrations et branche la base sur l'application. */
+/**
+ * Démarre PGlite (ou, si `QADR_TEST_POSTGRES_URL` vise une base de staging, une base Neon jetable : voir
+ * `postgres-harness.ts`), applique toutes les migrations et branche la base sur l'application.
+ */
 export async function startHttpHarness() {
   prepareEnvironment();
+  const target = postgresHarnessTarget();
+  if (target) {
+    const { client, db } = await openPostgresHarness(target);
+    installHarnessDatabase(db);
+    return new HttpHarness(client, db as unknown as CommercialDatabase);
+  }
   const client = new PGlite();
   const db = drizzle(client, { schema: databaseSchema });
   await migrate(db, { migrationsFolder: resolve(process.cwd(), "drizzle") });

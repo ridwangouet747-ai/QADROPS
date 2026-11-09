@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies every committed migration (0000-0023) and creates the expected tables", async () => {
+  it("applies every committed migration (0000-0024) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,8 +24,8 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("24");
-    expect(tables.rows[0]?.count).toBe("61");
+    expect(applied.rows[0]?.count).toBe("25");
+    expect(tables.rows[0]?.count).toBe("63");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
     );
@@ -35,8 +35,8 @@ describe("versioned migrations on isolated PGlite", () => {
       "notification_preference", "notification_template", "opening_balance", "opening_balance_payment", "organization", "payment",
       "payment_provider_event", "payment_refund", "platform_admin", "platform_session", "print_device", "print_job", "printer_settings", "product", "product_alias", "product_category",
       "product_variant", "promotion_code", "promotion_eligible_business", "promotion_eligible_plan", "promotion_redemption", "purchase", "purchase_line",
-      "purchase_payment", "push_subscription", "receipt_settings", "receivable_payment", "sale", "sale_line", "session",
-      "stock_movement", "stock_opening", "stock_opening_line", "stored_file", "subscription_invoice", "subscription_payment", "subscription_plan", "supplier", "user", "verification",
+      "purchase_payment", "push_subscription", "rate_limit_bucket", "receipt_settings", "receivable_payment", "sale", "sale_line", "session",
+      "stock_movement", "stock_opening", "stock_opening_line", "stored_file", "subscription_invoice", "subscription_payment", "subscription_plan", "supplier", "two_factor", "user", "verification",
     ]);
   });
 
@@ -96,6 +96,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("24");
+    expect(applied.rows[0]?.count).toBe("25");
   });
 });
