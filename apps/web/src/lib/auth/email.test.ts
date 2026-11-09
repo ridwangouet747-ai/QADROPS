@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createResendTransport, deliverEmail, idempotencyKeyFrom, resolveEmailTransport, type EmailLogEntry, type EmailMessage, type ResendClient, type SendResult } from "./email";
+import { createResendTransport, deliverEmail, EmailDeliveryFailedError, idempotencyKeyFrom, resolveEmailTransport, type EmailLogEntry, type EmailMessage, type ResendClient, type SendResult } from "./email";
+
+const sentry = vi.hoisted(() => ({ captureException: vi.fn(() => "evenement") }));
+vi.mock("@sentry/nextjs", () => sentry);
 
 const apiKey = "re_test_cle_secrete_ne_doit_jamais_sortir";
 const message: EmailMessage = {
@@ -58,6 +61,27 @@ describe("envoi des e-mails : réessais, idempotence et journal", () => {
   });
 });
 
+describe("signal d'échec d'envoi (mission 15)", () => {
+  it("remonte à Sentry un type d'erreur sans donnée personnelle quand l'envoi échoue, rien quand il réussit", async () => {
+    const captured = sentry.captureException;
+    captured.mockClear();
+    const silence = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      await deliverEmail({ send: async () => ({ ok: true }) }, message, { sleep: noSleep });
+      expect(captured).not.toHaveBeenCalled();
+      await deliverEmail({ send: async () => ({ ok: false, code: "validation_error", retryable: false }) }, message, { sleep: noSleep });
+      expect(captured).toHaveBeenCalledTimes(1);
+      const error = (captured.mock.calls[0] as unknown[])[0] as Error;
+      expect(error).toBeInstanceOf(EmailDeliveryFailedError);
+      for (const secret of ["awa@qadr.test", "jeton-secret-123", message.idempotencyKey]) expect(`${error.name} ${error.message}`).not.toContain(secret);
+      expect(silence).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});
+
 describe("transport Resend", () => {
   it("envoie côté serveur avec expéditeur, réponse, catégorie et clé d’idempotence", async () => {
     const { client, send } = fakeClient([]);
@@ -83,7 +107,8 @@ describe("transport Resend", () => {
     await expect(transport.send(message)).resolves.toEqual({ ok: false, code: "rate_limit_exceeded", retryable: true, retryAfterMs: 2000 });
     await expect(transport.send(message)).resolves.toEqual({ ok: false, code: "internal_server_error", retryable: true });
     await expect(transport.send(message)).resolves.toEqual({ ok: false, code: "validation_error", retryable: false });
-    await expect(transport.send(message)).resolves.toMatchObject({ ok: false, code: "daily_quota_exceeded" });
+    // Quota épuisé : définitif, aucun réessai (mission 15).
+    await expect(transport.send(message)).resolves.toEqual({ ok: false, code: "daily_quota_exceeded", retryable: false });
   });
 
   it("traite une exception ou une absence de réponse comme une erreur réseau temporaire", async () => {

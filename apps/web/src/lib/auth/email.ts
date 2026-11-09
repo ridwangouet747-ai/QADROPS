@@ -6,6 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
+import * as Sentry from "@sentry/nextjs";
 import { Resend } from "resend";
 import { readEnvironment } from "@/lib/env";
 import type { Locale } from "@/lib/i18n/config";
@@ -37,9 +38,18 @@ export type DeliveryOutcome = { status: "sent" | "failed"; attempts: number; cod
 export type EmailLogEntry = { event: "email.delivery"; kind: EmailKind; status: DeliveryOutcome["status"]; attempts: number; code?: string };
 export type EmailLogger = (entry: EmailLogEntry) => void;
 
+/** Type d'erreur remonté à Sentry quand un e-mail n'a pas pu partir : ni message, ni destinataire, ni code. */
+export class EmailDeliveryFailedError extends Error {
+  constructor() { super("email.delivery_failed"); this.name = "EmailDeliveryFailedError"; }
+}
+
 const defaultLogger: EmailLogger = (entry) => {
   const line = JSON.stringify(entry);
-  if (entry.status === "sent") console.info(line); else console.warn(line);
+  if (entry.status === "sent") { console.info(line); return; }
+  console.warn(line);
+  // Clé révoquée, domaine non vérifié, quota épuisé : sans ce signal, seul un journal le dirait alors que
+  // l'utilisateur lit « e-mail envoyé » (mission 15). Le filtre de sentry.server.config.ts retire le message.
+  Sentry.captureException(new EmailDeliveryFailedError());
 };
 
 /** Clé d'idempotence dérivée d'un jeton sans l'exposer (empreinte SHA-256 tronquée). */
@@ -83,6 +93,8 @@ type ResendSendResponse = {
 };
 export type ResendClient = { emails: { send: (payload: Record<string, unknown>, options?: { idempotencyKey?: string }) => Promise<ResendSendResponse> } };
 
+/** Quotas épuisés : renvoyés en 429 par Resend, mais réessayer ne sert à rien avant le lendemain (ou le mois suivant). */
+const permanentResendErrors = new Set(["daily_quota_exceeded", "monthly_quota_exceeded"]);
 const retryableResendErrors = new Set(["rate_limit_exceeded", "internal_server_error", "application_error", "concurrent_idempotent_requests"]);
 
 export function createResendTransport(config: { apiKey: string; from: string; replyTo?: string; client?: ResendClient; timeoutMs?: number }): EmailTransport {
@@ -107,7 +119,7 @@ export function createResendTransport(config: { apiKey: string; from: string; re
         const retryAfter = Number(response.headers?.["retry-after"]);
         return {
           ok: false, code: response.error.name || "provider_error",
-          retryable: retryableResendErrors.has(response.error.name) || status === 429 || status >= 500,
+          retryable: !permanentResendErrors.has(response.error.name) && (retryableResendErrors.has(response.error.name) || status === 429 || status >= 500),
           ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterMs: retryAfter * 1000 } : {}),
         };
       } catch {

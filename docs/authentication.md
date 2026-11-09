@@ -80,9 +80,10 @@ Un membre n'est jamais supprimé : ses ventes et mouvements y font référence. 
 | --- | --- |
 | Travail après réponse | `advanced.backgroundTasks.handler` de Better Auth reçoit `runAfterResponse`, qui confie la promesse à `after()` de Next.js (prolongation de l'invocation, `waitUntil` sur Vercel). La réinitialisation répond donc sans attendre Resend : même délai qu'un compte existe ou non. Hors requête (script), la promesse continue sans garantie de durée. |
 | Invitation | La personne qui invite est authentifiée : le service attend l'issue (`emailRequestScope`, AsyncLocalStorage) et renvoie `emailStatus` = `sent` (accepté par Resend, pas forcément lu), `failed` ou `not_configured`. L'écran ne dit jamais « remis au destinataire ». Le lien à copier reste toujours affiché. |
-| Réessais | 3 essais au plus pour `rate_limit_exceeded`, erreurs 5xx, `concurrent_idempotent_requests`, panne réseau ou délai de 10 s ; attente 0,8 s puis 2,4 s, ou la valeur `retry-after` (5 s au plus). Erreurs définitives (validation, clé invalide, quota) : pas de réessai. |
+| Réessais | 3 essais au plus pour `rate_limit_exceeded`, erreurs 5xx, `concurrent_idempotent_requests`, panne réseau ou délai de 10 s ; attente 0,8 s puis 2,4 s, ou la valeur `retry-after` (5 s au plus). Erreurs définitives (validation, clé invalide, quotas `daily_quota_exceeded`/`monthly_quota_exceeded`, bien que renvoyés en 429) : pas de réessai. |
 | Idempotence | Clé Resend stable pour une même tentative (réessais compris) : `invitation/{id}/{échéance}` ; `password-reset/` ou `email-verification/` + empreinte SHA-256 du jeton (le jeton lui-même n'est jamais transmis comme clé). Un nouvel envoi volontaire (nouvelle demande, invitation renouvelée) produit une nouvelle clé. Resend ne conserve ces clés que 24 h : ce n'est pas un historique. |
 | Journal | Une ligne JSON `email.delivery` : type, issue, nombre d'essais, code d'erreur. Jamais de destinataire, lien, jeton, clé d'idempotence ni clé API (tests à l'appui). |
+| Alerte | Chaque envoi finalement en échec remonte à Sentry comme `EmailDeliveryFailedError` (mission 15), sans message ni donnée : une clé révoquée ou un domaine non vérifié ne passe plus inaperçu. Le code d'erreur reste dans le journal. |
 
 ### 5.3 Langues et mise en page
 
