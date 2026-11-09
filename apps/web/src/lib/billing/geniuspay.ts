@@ -48,6 +48,20 @@ export type GeniusPayConfigResult =
  * - Clé sandbox refusée en production (sauf préproduction Vercel, `VERCEL_ENV=preview`) ; clé live refusée hors production,
  *   y compris sur un déploiement Vercel Preview ou Development (`VERCEL_ENV` ≠ `production`).
  */
+/**
+ * Les clés partent en en-tête vers GENIUSPAY_BASE_URL : seuls les domaines GeniusPay cités par sa documentation sont
+ * admis, sans identifiants dans l'URL. En mission 15, un `.env.local` pointait vers `api.sandbox.geniuspay.com`, domaine
+ * tiers : la seule exigence HTTPS l'acceptait. Le faux GeniusPay des tests est admis : `.invalid` (RFC 6761) n'est
+ * jamais résolu par le DNS, aucune requête ne peut donc en sortir.
+ */
+const GENIUSPAY_HOSTS = ["geniuspay.ci", "genius.ci"];
+function isGeniusPayHost(url: URL) {
+  if (url.username || url.password) return false;
+  const host = url.hostname.toLowerCase();
+  if (host.endsWith(".invalid")) return true;
+  return GENIUSPAY_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+}
+
 export function readGeniusPayConfig(source: NodeJS.ProcessEnv = process.env): GeniusPayConfigResult {
   const apiKey = source.GENIUSPAY_API_KEY?.trim() ?? "";
   const apiSecret = source.GENIUSPAY_API_SECRET?.trim() ?? "";
@@ -67,6 +81,7 @@ export function readGeniusPayConfig(source: NodeJS.ProcessEnv = process.env): Ge
   if (keyEnvironment === "live" && source.VERCEL_ENV && source.VERCEL_ENV !== "production") return { status: "invalid", reason: "Clé GeniusPay live refusée sur un déploiement Vercel autre que la production." };
   const rawBase = source.GENIUSPAY_BASE_URL?.trim() || GENIUSPAY_DEFAULT_BASE_URL;
   if (!URL.canParse(rawBase) || new URL(rawBase).protocol !== "https:") return { status: "invalid", reason: "GENIUSPAY_BASE_URL doit être une URL HTTPS." };
+  if (!isGeniusPayHost(new URL(rawBase))) return { status: "invalid", reason: "GENIUSPAY_BASE_URL doit pointer vers un domaine GeniusPay (geniuspay.ci ou genius.ci) : les clés y sont envoyées." };
   return { status: "ready", config: { apiKey, apiSecret, webhookSecret, baseUrl: rawBase.replace(/\/+$/, ""), environment: keyEnvironment } };
 }
 

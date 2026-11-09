@@ -15,6 +15,37 @@ Procédure du premier essai réel de réception de webhook, sans domaine, depuis
 
 Après arrêt : l'adresse répond 530, aucun processus `cloudflared`, port 8790 libre. **Toujours bloqué** : `GENIUSPAY_WEBHOOK_SECRET` est vide ; GeniusPay ne le délivre qu'après déclaration de l'URL du webhook dans son tableau de bord (action du propriétaire, avec un tunnel ouvert, l'adresse changeant à chaque lancement). Aucun paiement sandbox n'a été initié.
 
+## 0 bis. Premier paiement sandbox réel de bout en bout (2026-11-09, mission 15)
+
+Aperçu `qadr-web-preview-geniuspay-sandbox` (127.0.0.1:3001, base de démonstration PGlite, Neon jamais joint), passerelle 8790, Quick Tunnel. Webhook déclaré par le propriétaire dans le tableau de bord sandbox, secret saisi par lui dans `apps/web/.env.local` (jamais transmis dans la conversation). Clés `pk_sandbox_`/`sk_sandbox_`. Le checkout sandbox de GeniusPay propose quatre scénarios : Success, Failure, Timeout, Pending.
+
+| Cas | Ce qui a été fait | Résultat observé |
+| --- | --- | --- |
+| Exposition du tunnel | `/`, `/platform`, `/platform/login`, `/business/subscription`, `/api/platform/businesses`, `/api/auth/get-session`, variantes du webhook | 404 partout, `GET` du webhook 405, `POST` sans signature 401 `invalid_signature` |
+| Configuration erronée | `.env.local` contenait `GENIUSPAY_BASE_URL = https://api.sandbox.geniuspay.com/…` (domaine tiers, TLS refusé) | 502 `provider_unavailable`, tentative `failed`, rien débité. Les clés ne sont pas parties (échec TLS avant tout envoi HTTP). Ligne mise en commentaire ; **le code refuse désormais tout hôte hors `geniuspay.ci`/`genius.ci`** |
+| Paiement réussi (Essentiel, 5 000 XOF) | checkout → scénario Success | Webhook signé relayé, route 200 ; page de retour « Paiement confirmé » ; fin d'abonnement avancée d'une seule période (3 décembre 2026 → 2 janvier 2027) ; facture `paid` |
+| Relecture chez GeniusPay | `GET /payments/{reference}` | `completed`, `amount` 5 000, `fees` 0, `net_amount` 5 000, `XOF`, `sandbox`, `payment_method` `orange_money`, métadonnées `qadr_invoice` et `qadr_attempt` identiques |
+| Double clic | 2 requêtes simultanées avec la même clé + 1 avec une nouvelle clé | Une seule tentative, un seul lien ; `replayed` puis `reused` |
+| Retour « succès » sans payer | ouverture directe de `…/return?result=success` | « Paiement en cours de vérification », rien activé |
+| Idempotence de l'activation | deux relectures de la page de retour + rejeu de la clé | date de fin inchangée |
+| Paiement en échec | scénario Failure | webhook 200 ; « Paiement non abouti, rien n'a été activé » ; date inchangée |
+| Paiement en attente | scénario Pending | GeniusPay redirige avec `result=success&status=pending` ; Qadr Ops affiche « en cours de vérification », n'active rien ; une autre formule est refusée tant que ce paiement est ouvert (409 `payment_in_progress`) |
+| Coupure réseau (webhook perdu) | passerelle arrêtée, scénario Success (Équipe, 15 000 XOF) | tunnel 502 ; rien activé tant que le navigateur n'est pas revenu ; au retour, la relecture `GET` seule active la formule Équipe une fois |
+
+**Réponses obtenues** (complètent `geniuspay-questions.md`) :
+- Q1 : la sandbox répond sur l'URL par défaut `https://geniuspay.ci/api/v1/merchant` ; l'environnement vient des clés.
+- Q2-Q4 : la signature calculée sur le corps brut, telle que codée, est acceptée (webhooks 200).
+- Q9 : les métadonnées reviennent à l'identique dans `GET`, accompagnées de `success_url`, `error_url`, `external_reference` et `scenario`.
+- Q10 : `environment` vaut `sandbox`.
+- Q11 : la création renvoie `checkout_url` (201, `status` absent) et `expires_at` (24 h).
+- Q12 : en sandbox, la référence est `SANDBOX_` + 16 caractères, dans l'alphabet accepté.
+
+**Non obtenu** :
+- relance d'un webhook perdu (Q6) : aucune nouvelle livraison n'a été observée dans les minutes qui ont suivi le rétablissement de la passerelle ;
+- scénario Timeout ;
+- renvoi manuel d'un événement depuis le tableau de bord (doublon réel) ;
+- montant ou devise discordants : GeniusPay ne permet pas de les provoquer, ces cas restent couverts par `subscription-billing.http.test.ts`.
+
 ## 1. Architecture de l'essai
 
 ```

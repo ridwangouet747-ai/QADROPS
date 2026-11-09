@@ -36,7 +36,7 @@ Variables lues côté serveur uniquement (voir `apps/web/.env.example`) :
 | `GENIUSPAY_API_KEY` | En-tête `X-API-Key`. Le préfixe `pk_sandbox_` ou `pk_live_` fixe l'environnement. |
 | `GENIUSPAY_API_SECRET` | En-tête `X-API-Secret`. |
 | `GENIUSPAY_WEBHOOK_SECRET` | Secret `whsec_…` de vérification HMAC des webhooks. |
-| `GENIUSPAY_BASE_URL` | Facultatif. Défaut : `https://geniuspay.ci/api/v1/merchant`. HTTPS exigé. |
+| `GENIUSPAY_BASE_URL` | Facultatif, à laisser vide. Défaut : `https://geniuspay.ci/api/v1/merchant`. HTTPS exigé, hôte limité à `geniuspay.ci`, `genius.ci` et leurs sous-domaines, sans identifiants dans l’URL (les clés y sont envoyées ; mission 15). |
 | `BETTER_AUTH_URL` | Base des adresses de retour (HTTPS obligatoire en production). |
 | `CRON_SECRET` | Protège `/api/cron/subscriptions`, qui lance aussi le rapprochement. |
 

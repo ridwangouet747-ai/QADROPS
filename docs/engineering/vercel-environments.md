@@ -95,7 +95,7 @@ Légende :
 | `GENIUSPAY_API_KEY` | GeniusPay | `billing/geniuspay.ts:51,56` | `pk_sandbox_…` ou rien | **`pk_sandbox_…` uniquement** | `pk_live_…` | Oui | Paiement en ligne annoncé indisponible ; webhook 503 |
 | `GENIUSPAY_API_SECRET` | GeniusPay | `geniuspay.ts:52,57` | `sk_sandbox_…` | **`sk_sandbox_…` uniquement** | `sk_live_…` | Oui | idem ; préfixes discordants refusés (`geniuspay.ts:58-59`) |
 | `GENIUSPAY_WEBHOOK_SECRET` | GeniusPay | `geniuspay.ts:53,60` | `whsec_…` sandbox | `whsec_…` sandbox | `whsec_…` live | Oui | idem |
-| `GENIUSPAY_BASE_URL` | GeniusPay | `geniuspay.ts:65-66` | Facultative | Facultative | Facultative (défaut `https://geniuspay.ci/api/v1/merchant`) | Non | Défaut. Non HTTPS : refus. |
+| `GENIUSPAY_BASE_URL` | GeniusPay | `geniuspay.ts:65-66` | Facultative | Facultative | Facultative (défaut `https://geniuspay.ci/api/v1/merchant`) | Non | Défaut. Non HTTPS ou hôte hors `geniuspay.ci`/`genius.ci` : refus (mission 15). |
 | `QADR_PREVIEW_MODE` | Aperçu local | `next.config.ts:7`, `preview/mode.ts:6`, `preview/database.ts:23`, `auth/server.ts:83,303`, `proxy.ts:11`, `storage/config.ts:84`, 15 pages | `false` (le lanceur la met lui-même) | **Ne pas définir** | **Ne pas définir** | Non | Sans effet hors `NODE_ENV=development` |
 | `PORT` | Aperçu local | `auth/server.ts:305`, `scripts/preview.mjs:12` | Facultative | Ne pas définir | Ne pas définir | Non | 3001 en aperçu |
 

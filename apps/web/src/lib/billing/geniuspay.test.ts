@@ -113,6 +113,17 @@ describe("configuration GeniusPay", () => {
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_BASE_URL: "http://geniuspay.ci/api/v1/merchant" })).status).toBe("invalid");
   });
 
+  it("n'envoie jamais les clés hors d'un domaine GeniusPay (mission 15 : hôte erroné trouvé dans un .env.local)", () => {
+    const withBase = (url: string) => readGeniusPayConfig(env({ NODE_ENV: "development", ...base, GENIUSPAY_BASE_URL: url }));
+    for (const url of ["https://geniuspay.ci/api/v1/merchant", "https://api.geniuspay.ci/v1", "https://pay.genius.ci/api/v1/merchant"]) expect(withBase(url).status).toBe("ready");
+    for (const url of [
+      "https://api.sandbox.geniuspay.com/api/v1/merchant", "https://geniuspay.ci.attaquant.example/api", "https://faux-geniuspay.ci/api",
+      "https://geniuspay.ci@attaquant.example/api", "https://user:mdp@geniuspay.ci/api", "https://geniuspay.invalid.example/api",
+    ]) expect(withBase(url)).toMatchObject({ status: "invalid", reason: expect.stringContaining("GENIUSPAY_BASE_URL") });
+    // Le faux GeniusPay des tests (`.invalid`, jamais résolu par le DNS : aucune clé ne peut sortir) reste admis.
+    expect(withBase("https://geniuspay.test.invalid/api/v1/merchant").status).toBe("ready");
+  });
+
   it("refuse une adresse de retour non HTTPS en production", () => {
     const live = { GENIUSPAY_API_KEY: "pk_live_test_unitaire", GENIUSPAY_API_SECRET: "sk_live_test_unitaire", GENIUSPAY_WEBHOOK_SECRET: SECRET };
     expect(getBillingProvider(env({ NODE_ENV: "production", BETTER_AUTH_URL: "http://qadr.example.ci", ...live }))).toEqual({ available: false, reason: "invalid" });

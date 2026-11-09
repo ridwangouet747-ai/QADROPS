@@ -4,6 +4,7 @@ Mission 12, bloc 2, point 2 du plan (`mission-12-plan.md` § 7). Document de tra
 
 - **Documentation relue le 2026-11-04** : `geniuspay.ci/docs/api`, `/docs/sdk` et `/docs/subscription-api`. Le guide complet des webhooks est réservé aux comptes connectés : il n'a pas été lu.
 - **Aucun échange n'a encore eu lieu avec GeniusPay.** Rien ci-dessous n'est confirmé par eux.
+- **Premier essai sandbox réel le 2026-11-09 (mission 15)** : Q1, Q2-Q4, Q9 à Q12 et Q15 ont reçu une réponse observée, consignée dans `geniuspay-sandbox-tunnel.md` § 0 bis. Q6 (relances) reste ouverte : aucun renvoi observé après une coupure.
 - Le code suit l'hypothèse la plus prudente pour chaque point. La colonne « Si la réponse diffère » indique où intervenir.
 
 ## 1. Questions bloquantes (à confirmer avant tout essai en production)
