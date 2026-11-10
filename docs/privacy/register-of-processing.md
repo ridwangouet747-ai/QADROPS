@@ -3,7 +3,7 @@
 > **Projet à valider par un juriste.** Les bases légales, durées et formalités sont des propositions
 > fondées sur le fonctionnement réel du code ; elles ne valent pas avis juridique. Voir aussi
 > `data-map.md` (prestataires, localisation) et `data-export.md` (droits des personnes).
-> Dernière mise à jour : 2026-11-08.
+> Dernière mise à jour : 2026-11-10 (localisation de la base, mission 16).
 
 Responsable proposé : **Qadr Agency** (éditrice de Qadr Ops). Coordonnées et référent à compléter.
 
@@ -33,7 +33,10 @@ Responsable proposé : **Qadr Agency** (éditrice de Qadr Ops). Coordonnées et 
 ## Points ouverts
 
 1. Durées de conservation à arrêter (boîte de notifications, audit, journaux, données après résiliation).
-2. Formalités auprès de l'Autorité de protection, dont les transferts hors CEDEAO.
+2. Formalités auprès de l'Autorité de protection, dont les transferts hors CEDEAO. Au 2026-11-10, la base
+   Neon est aux **États-Unis** (AWS us-east-1, Virginie du Nord) ; la région de production n'est pas encore
+   arrêtée (`docs/engineering/neon-production-plan.md` § 4). Toute option proposée par Neon reste hors
+   CEDEAO.
 3. Procédure de suppression d'un commerce à la demande : aujourd'hui l'historique est archivé, jamais
    supprimé (règle métier) ; une suppression conforme doit être conçue (anonymisation des clients,
    conservation comptable) et validée.

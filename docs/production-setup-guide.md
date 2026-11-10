@@ -340,7 +340,7 @@ Si une seule des deux variables est renseignée, `readEnvironment()` lève une e
 3. **Turnstile marche sans proxy.**
 
 Si vous voulez quand même le WAF de Cloudflare, il faudra :
-- configurer `advanced.ipAddress.ipAddressHeaders: ["cf-connecting-ip"]` dans `server.ts` (point B conditionnel) ;
+- **ne pas** se contenter de lire `cf-connecting-ip` : sur Vercel, un client qui joint directement l'adresse `*.vercel.app` peut envoyer cet en-tête avec la valeur de son choix et échapper à la limitation par adresse IP (correction de la mission 16). Il faut **ensemble** : un en-tête secret ajouté par une règle Cloudflare et vérifié par l'application, le refus du trafic direct sur l'adresse Vercel de production, puis une modification de `client-ip-headers.ts` qui ne lit `cf-connecting-ip` qu'avec ce secret (détail : `docs/engineering/mission-16-cloudflare-r2-push.md` § 2.3) ;
 - créer des règles de contournement du cache pour `/api/*`, `/business/*` et `/platform/*`.
 
 À trancher par vous.

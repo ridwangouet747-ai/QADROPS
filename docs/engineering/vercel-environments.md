@@ -2,7 +2,7 @@
 
 ## 1. Objet
 
-Date : **2026-11-09**. Branche inspectée : `feat/mission-13-reprise`. Application : `apps/web` (Next.js 16.4.2, webpack, Node 24.x, Neon, Better Auth 1.7.7).
+Date : **2026-11-09**, relu le **2026-11-10** (mission 16 : voir `mission-16-deploiement.md` pour l'audit des projets, la procédure Neon et le plan de publication). Branche inspectée : `feat/mission-13-reprise`. Application : `apps/web` (Next.js 16.4.2, webpack, Node 24.x, Neon, Better Auth 1.7.7).
 
 Ce document fait l'inventaire, par lecture du code, de ce qu'il faut régler sur Vercel pour chaque environnement (*Development*, *Preview*, *Production*) :
 - les variables d'environnement réellement lues ;
@@ -30,6 +30,12 @@ Il complète `docs/production-setup-guide.md`, dont plusieurs passages sont pér
   2. le choix d'un seul projet, avec `apps/web` comme *Root Directory* et Node `24.x` ;
   3. un `DATABASE_URL` et un `DATABASE_URL_UNPOOLED` **propres à Preview**, pointés sur la branche `mission-14-staging`, et le retrait de la portée Preview des variables Neon actuelles ;
   4. de vrais secrets Preview : `BETTER_AUTH_SECRET`, `CRON_SECRET`, un widget Turnstile staging et un domaine staging fixe (R5).
+- **Relecture du 2026-11-10 (mission 16)**, faite par la CLI Vercel (lecture seule, valeurs jamais lues) et le MCP Neon. Le détail est dans `mission-16-deploiement.md`. Elle corrige trois points du tableau ci-dessus :
+  - **La `DATABASE_URL` sans préfixe de `qadrops` ne vient pas de `qadr-data-base`.** Elle vient de la ressource Neon `neon-charcoal-chair` (`eu-west-2`, branche `main` archivée), connectée en Preview + Production. Les variables de `qadr-data-base` portent le préfixe `QADROPSDATABASE_`, que le code ne lit pas, et visent aussi Development (R16).
+  - Projet `web` : Build Command `next build` (Turbopack, R14), Node `26.x`, aucune variable, domaine du projet `web-phi-beryl-45.vercel.app`, crons activés sans définition.
+  - **Le dépôt GitHub est public** (R17).
+
+  Recommandation : héberger `apps/web` dans `web`, et déconnecter de `qadrops` les deux ressources Neon, sans jamais les supprimer.
 - Les limites des offres Vercel citées (durées, crons, taille des corps) viennent de la documentation déjà recopiée dans le dépôt (`docs/qadr-capture-models.md` § 133, `docs/rate-limiting.md`). Elles **n'ont pas été revérifiées en ligne** pour ce document. Relisez la page officielle au moment de configurer et notez la date.
 
 ## 2. Réglages du projet Vercel
@@ -68,7 +74,7 @@ Légende :
 | `NEXT_RUNTIME` | Next.js | `src/instrumentation.ts:6,9` | Ne pas définir | Ne pas définir | Ne pas définir | Non | Fournie par Next.js |
 | `VERCEL_ENV` | Vercel | `billing/geniuspay.ts:62` | Fournie (`development`) | Fournie (`preview`) | Fournie (`production`) | Non | Sans elle (hors Vercel), une clé GeniusPay sandbox est refusée en production |
 | `DATABASE_URL` | Neon | `env.ts:7,73-77` → `db/client.ts:33`, `auth/server.ts:310-314`, `scripts/check-database.ts`, `platform-admin.ts`, `platform-owner.ts` | Branche Neon de développement, ou rien (`npm run preview` la retire, `scripts/preview.mjs:10`) | Chaîne **pooled** (`-pooler`) de la branche **staging** | Chaîne **pooled** de la branche **main** | Oui | Better Auth refuse de démarrer (`auth/server.ts:310-311`) ; toute route métier échoue (`requireDatabaseUrl`) |
-| `DATABASE_URL_UNPOOLED` | Neon | `env.ts:9,83-92`, `drizzle.config.ts:6` | Facultative (terminal) | **Ne pas définir** : l'application ne la lit pas | **Ne pas définir** | Oui | Les migrations utilisent `DATABASE_URL` |
+| `DATABASE_URL_UNPOOLED` | Neon | `env.ts:9,83-92`, `drizzle.config.ts:6` | Facultative (terminal) | **Ne pas définir** : l'application ne la lit pas | **Ne pas définir** | Oui | Lue seulement au terminal : `drizzle.config.ts`, `scripts/migrate.ts` et `migrationDatabaseUrl()` la préfèrent à `DATABASE_URL` |
 | `BETTER_AUTH_SECRET` | Better Auth | `env.ts:10`, `auth/server.ts:310-314`, `auth/platform-request.ts:20` (clés HMAC de limitation), `scripts/platform-owner.ts:62` | Valeur locale ≥ 32 car. | Valeur **propre** ≥ 32 car. | Valeur **propre** ≥ 32 car. | Oui | Refus de démarrer (`server.ts:310`). Valeur de repli `qadr-preview-only-…` dans `platform-request.ts:20`, voir R4. |
 | `BETTER_AUTH_URL` | Better Auth, GeniusPay, Turnstile | `env.ts:11`, `auth/server.ts:116,122,305,313`, `auth/platform-request.ts:13-14`, `billing/index.ts:14`, `api/public/campaigns/check/route.ts:31` | `http://localhost:3000` | **Domaine fixe HTTPS** (par exemple `https://staging.<domaine>`) | `https://app.<domaine>` (adresse canonique, sans barre finale) | Non | En production (Preview compris) : refus de démarrer si absente ou non HTTPS (`env.ts:65-71`, `server.ts:313`) ; GeniusPay désactivé (`billing/index.ts:17,31-33`) |
 | `NEXT_PUBLIC_AUTH_URL` | Better Auth (client) | `auth/client.ts:7`, `env.ts:12` | Laisser vide | **Laisser vide** (origine courante) | **Laisser vide**, ou = `BETTER_AUTH_URL` | Public | Origine courante. **Ne jamais la déclarer avec une valeur vide** : `z.string().url()` refuse `""` et casse l'authentification (R4). |
@@ -91,7 +97,7 @@ Légende :
 | `NEXT_PUBLIC_POSTHOG_HOST` | PostHog | `analytics/client.ts:20,43`, `env.ts:23` | — | `https://eu.i.posthog.com` | `https://eu.i.posthog.com` | Public | Analytique éteinte : le défaut du schéma serveur ne s'applique pas dans le navigateur. Valeur vide : `readEnvironment` échoue. |
 | `VAPID_PUBLIC_KEY` | Web Push | `lib/notifications/server.ts:8`, `env.ts:24` (87 caractères base64url) | Paire de développement | **Paire propre** | **Paire propre**, jamais changée ensuite | Non (servie au navigateur par `/api/notifications/push-config`) | Push désactivé, notifications internes actives. Mauvais format : `readEnvironment` échoue (R4). |
 | `VAPID_PRIVATE_KEY` | Web Push | `notifications/server.ts:9`, `env.ts:25` (43 caractères) | idem | idem | idem | Oui | idem |
-| `VAPID_SUBJECT` | Web Push | `notifications/server.ts:10`, `env.ts:26` | `mailto:…` | `mailto:…` | `mailto:` d'une boîte lue | Non | Push désactivé |
+| `VAPID_SUBJECT` | Web Push | `notifications/server.ts:10`, `env.ts:26` | `mailto:…` | `mailto:…` | `mailto:` d'une boîte lue | Non | Push désactivé. Un sujet d'exemple (`example.com`, `localhost`…) désactive aussi le push en production (mission 16, `vapid-config.ts`). |
 | `CRON_SECRET` | Vercel Cron | `api/cron/subscriptions/route.ts:22-26`, `api/internal/notifications/process/route.ts:15` (via `cron-auth.ts`) | Facultative | Valeur **propre** ≥ 32 car. (appels manuels seulement) | Valeur ≥ 32 car. ; Vercel l'envoie en `Authorization: Bearer` | Oui | `/api/cron/subscriptions` répond 404, les notifications 401 : ni expiration, ni rapprochement GeniusPay, ni purge |
 | `NOTIFICATIONS_CRON_SECRET` | Planificateur externe | `api/internal/notifications/process/route.ts:15`, `env.ts:27` (≥ 32 car.) | — | Ne pas définir | Seulement si un planificateur externe appelle en `POST` | Oui | Seul `CRON_SECRET` est accepté. **Moins de 32 caractères : `readEnvironment` échoue, et l'authentification avec** (R4). |
 | `R2_ACCOUNT_ID` | Cloudflare R2 | `storage/config.ts:57,63,78` (32 hex) | Facultative | Compte Cloudflare | Compte Cloudflare | Non | Sans les quatre variables : aucun stockage (l'import fonctionne sans garder l'original) |
@@ -111,7 +117,7 @@ Légende :
 | `QADR_PREVIEW_MODE` | Aperçu local | `next.config.ts:7`, `preview/mode.ts:6`, `preview/database.ts:23`, `auth/server.ts:83,303`, `proxy.ts:11`, `storage/config.ts:84`, 15 pages | `false` (le lanceur la met lui-même) | **Ne pas définir** | **Ne pas définir** | Non | Sans effet hors `NODE_ENV=development` |
 | `PORT` | Aperçu local | `auth/server.ts:305`, `scripts/preview.mjs:12` | Facultative | Ne pas définir | Ne pas définir | Non | 3001 en aperçu |
 
-### 3.2 Variables des scripts et des tests (12) : jamais dans Vercel
+### 3.2 Variables des scripts et des tests (17) : jamais dans Vercel
 
 | Variable | Lue dans | Rôle | Secret ? |
 | --- | --- | --- | --- |
@@ -122,6 +128,7 @@ Légende :
 | `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_PATH` | `scripts/apple-client-secret.mjs:39-42` (avec `APPLE_CLIENT_ID`) | Fabrication du JWT Apple ; la clé `.p8` reste sur le poste | Chemin seulement |
 | `BENCH_RUNS` | `scripts/bench-pglite.ts:31` | Mesures locales | Non |
 | `QADR_TEST_POSTGRES_URL`, `QADR_TEST_POSTGRES_TARGET` | `src/test/postgres-harness.ts:26-29` | Tests sur la branche Neon de staging (`TARGET=staging` exigé) | URL : oui |
+| `QADR_TEST_R2_ACCOUNT_ID`, `QADR_TEST_R2_BUCKET_NAME`, `QADR_TEST_R2_ACCESS_KEY_ID`, `QADR_TEST_R2_SECRET_ACCESS_KEY`, `QADR_TEST_R2_JURISDICTION` | `src/lib/storage/r2-test-target.ts` (mission 16, non commité au 2026-11-10) | Test R2 réel, seulement sur un bucket portant un marqueur `test`, `staging`, `dev` ou `preview` | Clé secrète : oui |
 
 Les scripts k6 (`apps/web/load-tests/`) lisent `__ENV.QADR_LOAD_*` (7 noms). Ce sont des variables de k6, pas de `process.env`, et jamais de Vercel.
 
@@ -134,7 +141,7 @@ Les scripts k6 (`apps/web/load-tests/`) lisent `__ENV.QADR_LOAD_*` (7 noms). Ce 
 | `VERCEL_URL`, `NEXTAUTH_URL` | `better-auth/dist/client/config.mjs:13-19` | Base du client d'authentification **côté serveur** quand `NEXT_PUBLIC_AUTH_URL` est vide. `VERCEL_URL` est fournie par Vercel ; ne pas définir `NEXTAUTH_URL`. |
 | `BETTER_AUTH_TELEMETRY` (+ `_DEBUG`, `_ENDPOINT`, `_ID`) | `@better-auth/telemetry/dist/node.mjs:449` | Désactivée par défaut. Ne pas l'activer : elle enverrait des données à un tiers non répertorié dans `docs/privacy/`. |
 
-**Total : 46 variables lues par l'application, dont 3 fournies par la plateforme (`NODE_ENV`, `NEXT_RUNTIME`, `VERCEL_ENV`), et 12 réservées aux scripts et tests, soit 58 noms. S'y ajoutent les 9 noms lus par la bibliothèque ci-dessus : `VERCEL_URL`, fournie par Vercel, et 8 autres à ne pas créer.** Les variables du MVP (`QADR_SESSION_SECRET`, `QADR_DATA_FILE`, `QADR_BOOTSTRAP_ADMIN_*`) et `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` ne sont pas lues par `apps/web`.
+**Total : 46 variables lues par l'application, dont 3 fournies par la plateforme (`NODE_ENV`, `NEXT_RUNTIME`, `VERCEL_ENV`), et 17 réservées aux scripts et tests (dont les 5 `QADR_TEST_R2_*` de la mission 16), soit 63 noms. S'y ajoutent les 9 noms lus par la bibliothèque ci-dessus : `VERCEL_URL`, fournie par Vercel, et 8 autres à ne pas créer.** Les variables du MVP (`QADR_SESSION_SECRET`, `QADR_DATA_FILE`, `QADR_BOOTSTRAP_ADMIN_*`) et `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` ne sont pas lues par `apps/web`.
 
 ### 3.4 Garde-fous du code contre une mauvaise combinaison
 
@@ -147,7 +154,9 @@ Les scripts k6 (`apps/web/load-tests/`) lisent `__ENV.QADR_LOAD_*` (7 noms). Ce 
 | Turnstile : domaine et action | `turnstile.ts:66-69`, `server.ts:116` | Jeton émis pour un autre nom d'hôte que celui de `BETTER_AUTH_URL` | Les URL aléatoires `*.vercel.app` échouent. |
 | Origine de confiance | `server.ts:122` | Toute origine autre que `BETTER_AUTH_URL` (+ Apple) | Connexion impossible sur une URL Preview non canonique. |
 | Clé GeniusPay sandbox | `geniuspay.ts:61-63` | Clé `sandbox` si `NODE_ENV=production` et `VERCEL_ENV≠preview` | — |
-| Clé GeniusPay live | `geniuspay.ts` | Clé `live` si `NODE_ENV≠production`, ou si `VERCEL_ENV` est défini et ≠ `production` | Refusée en Preview depuis la mission 15 (R1 corrigé, test `geniuspay.test.ts`). |
+| Clé GeniusPay live | `geniuspay.ts` | Clé `live` si `NODE_ENV≠production`. Depuis la mission 16 (modification non commitée au 2026-11-10), elle est aussi refusée si `VERCEL_ENV` ne vaut pas exactement `production`, y compris quand la variable est absente (`next start` local, hors Vercel). | Refusée en Preview depuis la mission 15 (R1 corrigé, test `geniuspay.test.ts`). |
+| Sujet VAPID d'exemple | `notifications/vapid-config.ts` (mission 16, non commité) | Sujet `example.com`, `.test`, `localhost`… quand `NODE_ENV=production` : push désactivé | Le push est désactivé sans erreur ; les notifications internes restent actives. |
+| Base de Preview | Aucun | — | **Non protégé** : rien ne vérifie que `DATABASE_URL` vise une base de staging en Preview (R16). Même chose pour le bucket R2. |
 | Environnement du paiement | `docs/billing-geniuspay.md` l. 46 | Webhook ou relecture d'un autre environnement (`environment_mismatch`) | — |
 | Retours GeniusPay | `billing/index.ts:13-19,31-33` | `BETTER_AUTH_URL` non HTTPS en production | — |
 | Stockage en mémoire | `storage/config.ts:73-76,84` | `QADR_FILE_STORAGE=memory` et mémoire implicite quand `NODE_ENV=production` | — |
@@ -179,7 +188,7 @@ Sur Vercel, `NODE_ENV=production` dans **Preview comme en Production**. Seule `V
 | Secrets (`BETTER_AUTH_SECRET`, `CRON_SECRET`, VAPID) | Valeurs locales | Valeurs propres à Preview | Valeurs propres à Production |
 | GeniusPay | Sandbox ou rien | **Sandbox uniquement**, webhook sandbox → domaine staging | Live, webhook live → domaine de production |
 | Turnstile | Clés de test | Widget « staging » (nom d'hôte staging) | Widget « production » (nom d'hôte exact) |
-| R2 | ~~Élevée~~ **Corrigé (mission 15)** | Le cron quotidien pouvait dépasser la durée maximale avant d'expirer les abonnements. | `api/cron/subscriptions/route.ts`, `subscription-billing.ts` | `maxDuration = 300` et budget de 120 s pour le rapprochement ; test ajouté. |
+| R2 (stockage) | Rien, ou mémoire (`QADR_FILE_STORAGE=memory`) | Bucket **de test**, jeton limité à ce bucket | Bucket de production |
 | Resend | Rien (l'interface le dit) | Clé de test sur le domaine d'envoi | Clé de production |
 | Sentry / PostHog | Rien | Environnement `preview` | Environnement `production` |
 | Crons | — | **Ne tournent pas** (Vercel Cron : production seulement) | `vercel.json` |
@@ -211,7 +220,7 @@ Classés par gravité. Aucun n'a été corrigé : ce document ne modifie aucun a
 | # | Gravité | Constat | Preuve | Proposition |
 | --- | --- | --- | --- | --- |
 | R1 | ~~Élevée~~ **Corrigé (mission 15)** | Une clé GeniusPay live était acceptée en Preview (`NODE_ENV=production`). | `billing/geniuspay.ts` | Refus si `VERCEL_ENV` est défini et ≠ `production` ; test ajouté. Ne jamais déclarer de clé live hors Production malgré tout. |
-| R2 | **Élevée** | Le cron quotidien peut dépasser la durée maximale avant d'expirer les abonnements : rapprochement séquentiel (50 × 15 s au pire) placé avant `expireDueSubscriptions`, sans `maxDuration`. Une panne lente de GeniusPay pourrait couper la fonction et sauter l'expiration et les purges du jour, alors que le commentaire de la route promet le contraire. | `api/cron/subscriptions/route.ts:31-36`, `subscription-billing.ts:566-583`, `geniuspay.ts:28` | Exporter `maxDuration` sur la route, et borner le rapprochement par un budget de temps, ou faire l'expiration d'abord. À tester. |
+| R2 | ~~Élevée~~ **Corrigé (mission 15)** | Le cron quotidien pouvait dépasser la durée maximale avant d'expirer les abonnements : rapprochement séquentiel (50 × 15 s au pire) placé avant `expireDueSubscriptions`, sans `maxDuration`. | `api/cron/subscriptions/route.ts`, `subscription-billing.ts` | `maxDuration = 300` et budget de 120 s pour le rapprochement ; test ajouté (§ 5). |
 | R3 | ~~Élevée~~ **Confirmé puis corrigé (mission 15)** | `src/proxy.ts` renvoyait `/platform/login` vers `/login` sans session : console du propriétaire injoignable hors aperçu. | `src/proxy.ts` | `/platform/login` exclue de la redirection ; `src/proxy.test.ts` échoue sans le correctif. |
 | R4 | Moyenne | Couplage strict : `readEnvironment` valide **toutes** les variables du schéma à chaque appel de `getAuth()`. Les cas suivants font tomber connexion, inscription et routes métier : une variable facultative mal formée (VAPID, `NOTIFICATIONS_CRON_SECRET` de moins de 32 caractères, `SENTRY_DSN` ou `NEXT_PUBLIC_POSTHOG_HOST` qui ne sont pas des URL, `RESEND_REPLY_TO` qui n'est pas un e-mail), une variable URL déclarée vide (`BETTER_AUTH_URL=""`, `NEXT_PUBLIC_AUTH_URL=""`), une paire incomplète. Le message ne nomme pas la variable fautive. En outre, `platformRequestSecret()` se replie sur une valeur fixe si `BETTER_AUTH_SECRET` manque ; en pratique, Better Auth a déjà refusé de démarrer. | `env.ts:5-58`, `auth/server.ts:301-316`, `platform-request.ts:20` | Ne créer que les variables utiles, jamais vides. Après chaque changement de variable : redéployer, puis tester `/login`. Amélioration possible : citer les **noms** des variables invalides, comme `storage/config.ts:80`. |
 | R5 | Moyenne | Preview avec `NODE_ENV=production` : connexion impossible sur les URL aléatoires `*.vercel.app` (origine de confiance, nom d'hôte Turnstile, cookies `Secure`). Il faut un domaine staging fixe, un widget Turnstile staging et Resend pour les invitations. | `server.ts:116,122,228`, `turnstile.ts:40,66-69`, `server.ts:76-85` | Domaine staging fixe ; `BETTER_AUTH_URL` de Preview = ce domaine. |
@@ -219,12 +228,15 @@ Classés par gravité. Aucun n'a été corrigé : ce document ne modifie aucun a
 | R7 | Moyenne | `NEXT_PUBLIC_AUTH_URL` est figée au build. Une valeur de production copiée en Preview ferait appeler l'authentification de **production** par les pages staging. | `auth/client.ts:7` | Laisser la variable vide dans tous les environnements (origine courante). |
 | R8 | Moyenne | Export XLSX des rapports : 9 feuilles × 5 000 lignes, compressées mais **sans borne en octets**. La limite de réponse Vercel de 4,5 Mo n'est contrôlée que pour l'export complet. Taille réelle jamais mesurée. | `domain/exports.ts:26,34`, `api/business/reports/export/route.ts:50-52` ; comparer `data-export.ts:38` | Mesurer un classeur au plafond, puis ajouter une borne et un refus 422 explicite, comme pour l'export complet. |
 | R9 | Moyenne | Intégration Neon ↔ Vercel : branches Preview automatiques non migrées, et injection de variables qui peuvent écraser des valeurs saisies à la main. | `env.ts:8-9` (le nom `DATABASE_URL_UNPOOLED` vient de cette intégration) | Décision D-07 proposée (§ 8). |
-| R10 | Faible | `vercel.json` ne fixe aucune région. Le projet Neon `qadr-data-base` est en `aws-us-east-1` : la région par défaut des fonctions Vercel (`iad1`, Washington) en est proche. Le projet `neon-charcoal-chair` (`eu-west-2`) n'est pas celui de l'application. | `apps/web/vercel.json`, Neon `list_projects` du 2026-11-09 | Garder `iad1` tant que la base reste en `us-east-1` ; si la base change de région, aligner la région des fonctions. |
+| R10 | Faible | `vercel.json` ne fixe aucune région. Le projet Neon `qadr-data-base` est en `aws-us-east-1` : la région par défaut des fonctions Vercel (`iad1`, Washington) en est proche. Le projet `neon-charcoal-chair` (`eu-west-2`) n'est pas celui de l'application. | `apps/web/vercel.json`, Neon `list_projects` du 2026-11-09 | Garder `iad1` (région actuelle des deux projets Vercel, relue le 2026-11-10) tant que la base reste en `us-east-1` ; si la base change de région, aligner la région des fonctions. Attention : `neon-charcoal-chair` est pourtant la ressource qui fournit la `DATABASE_URL` actuelle de `qadrops` (R16). |
 | R11 | Faible | `BETTER_AUTH_TRUSTED_ORIGINS`, lue par la bibliothèque, élargirait les origines de confiance si quelqu'un la créait. | `better-auth/dist/context/helpers.mjs:83-84` | Ne jamais la créer. La relire dans la liste Vercel avant chaque mise en production. |
 | R12 | Faible | `SENTRY_ENVIRONMENT` et `NEXT_PUBLIC_SENTRY_ENVIRONMENT` valent `development` par défaut : sans elles, les erreurs de production sont mal étiquetées. | `sentry.server.config.ts:8`, `instrumentation-client.ts:8` | Les déclarer en Preview (`preview`) et en Production (`production`). |
 | R13 | Faible | Limiteur en mémoire pour `POST /api/public/campaigns/check` : la limite est multipliée par le nombre d'instances (limite assumée et documentée). | `src/lib/rate-limit.ts:1-10`, `campaigns/check/route.ts:18,25` | Règle de débit Cloudflare sur ce chemin si le proxy est retenu (D-04). |
 | R14 | Faible | Build : si Vercel lance `next build` au lieu du script, Turbopack (défaut de Next 16) remplace webpack. | `package.json` `build` ; doc Next `01-installation.md:157` | Build Command fixée à `npm run build`. |
-| R15 | Faible | `assertProductionAuthUrl` admet `http://localhost` en production. | `env.ts:67-68` | Vérifier la valeur à la main (§ 8). |
+| R15 | Faible | `assertProductionAuthUrl` admet `http://localhost` en production. | `env.ts:67-68` | Vérifier la valeur à la main (§ 8). Garde-fou possible : refuser `localhost` quand `VERCEL_ENV` est défini. |
+| R16 | **Élevée** | Projet `qadrops` : la `DATABASE_URL` sans préfixe (Preview + Production) provient de la ressource Neon `neon-charcoal-chair`, et non de `qadr-data-base`. Les variables `QADROPSDATABASE_*` de `qadr-data-base`, qui couvrent aussi Development, ne sont pas lues par le code. Aucun garde-fou du code ne vérifie que Preview vise une base de staging. | CLI Vercel, `contentHint.storeId` des variables et `/v1/storage/stores`, 2026-11-10 | Déconnecter les deux ressources de `qadrops` (*Disconnect*, jamais *Delete*). Créer une `DATABASE_URL` Preview propre, limitée à la branche (`mission-16-deploiement.md` § 2.3). Garde-fou proposé : exiger un nom de base contenant `staging` quand `VERCEL_ENV=preview`, et le refuser en production. |
+| R17 | Moyenne | Le dépôt GitHub `QADROPS` est **public**. Pousser les 54 commits locaux publierait les documents d'architecture et de sécurité. | API GitHub, 2026-11-10 | Décider de la visibilité avant le premier push (`mission-16-deploiement.md` § 3.4). Aucun secret réel trouvé dans ces commits. |
+| R18 | Faible | `.gitignore` ne couvre ni `*.p8` (clé Apple), ni `.vercel/`, ni les exports téléchargés (`*.zip`, `*.xlsx`, `*.csv`), ni `production-video/` et `.claude/worktrees/`. | `git check-ignore`, 2026-11-10 | Ajouter ces motifs, ou n'ajouter les fichiers à l'index qu'un par un. |
 
 ### 6.1 Documentation périmée (à corriger, hors périmètre de ce fichier)
 

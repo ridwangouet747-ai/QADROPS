@@ -5,6 +5,12 @@
 > Les capacités de Neon citées viennent de sa documentation publique consultée le 2026-11-09 (§ 12) ; elles
 > **dépendent du plan souscrit**, que le propriétaire doit vérifier dans la console Neon.
 >
+> **Mise à jour du 2026-11-10 (mission 16).** Constats Neon relus en lecture seule (§ 1), offres revérifiées
+> (page *Plans* mise à jour le 2026-11-04), politique minimale tant que l'offre Free reste en place (§ 5.1),
+> objectifs RPO/RTO réalistes (§ 5.2), empreintes de contrôle par table (§ 6.4 e) et test de restauration sans
+> nouvelle branche (§ 6.3 bis). **Toujours rien d'exécuté** : ni `pg_dump`, ni instantané, ni branche, ni base
+> créée. Plan de mise en production de la base : `neon-production-plan.md` ; audit : `mission-16-neon.md`.
+>
 > Règle absolue : **une restauration de test se fait uniquement sur une branche dédiée, jamais sur la branche
 > principale.** Une restauration de la branche principale est une opération de production, réservée au
 > plan de reprise (§ 9), avec l'accord écrit du propriétaire.
@@ -33,6 +39,26 @@
   migrée depuis le dépôt. Branche `main` : 0 table. Avant toute donnée réelle, une offre payante (Launch au
   minimum) est nécessaire pour obtenir plus de 6 h de restauration et des instantanés : **dépense à décider par
   le propriétaire**.
+- **Constat Neon du 2026-11-10 (mission 16, lecture seule)** :
+  - offre `free_v3`, projet créé par l'intégration **Vercel Marketplace** (organisation « Vercel: … ») : le
+    plan, la taille de calcul et la mise en veille se changent **dans le tableau de bord Vercel** (*Storage*),
+    pas dans la console Neon, et la facture Neon arrive sur la facture Vercel ;
+  - serveur **PostgreSQL 18.6** ; fenêtre d'historique toujours de 6 h ; **0 instantané**, **aucune
+    planification** ; calcul 0,25 CU fixe, mise en veille par défaut (5 min sur l'offre Free) ; fenêtre de
+    maintenance le mercredi 09:00-10:00 UTC ;
+  - branche `main` (racine, branche de production Vercel, suppression interdite par l'intégration) : la base
+    `neondb` n'a **aucune table dans `public`**, mais contient un schéma `neon_auth` de 9 tables (environ
+    1 ligne) créé par l'option *Managed Better Auth* de l'installation Vercel. Qadr Ops ne s'en sert pas (son
+    Better Auth tourne dans `public`). La correction « 0 table » ci-dessus vaut donc pour `public` seulement ;
+  - branche `mission-14-staging` (enfant de `main`, créée le 2026-11-08 à 23:14 UTC) : base `qadr_staging`
+    identique au dépôt (25 migrations, empreintes du journal égales au SHA-256 des 25 fichiers, empreintes de
+    structure égales à PGlite : détail dans `mission-16-neon.md`), quelques lignes seulement (compte
+    propriétaire de staging, 5 événements d'audit) ;
+  - **3 bases jetables orphelines** `qadr_t_*` sur la branche de staging (environ 36 Mo) : voir
+    `mission-16-neon.md` § 3. Non supprimées.
+- Outils sur le poste de développement (2026-11-10) : **ni `pg_dump`, ni `pg_restore`, ni `psql`, ni `age`**
+  ne sont installés ; `gpg` est disponible (Git Bash) ainsi que Docker. Écart d'horloge mesuré avec Neon :
+  1,08 s (poste en retard), RTT médian 211 ms vers `us-east-1`.
 
 ## 2. Ce qu'il faut protéger
 
@@ -110,7 +136,11 @@ Neon (§ 4).
 ### 4.1 Principe
 
 - Format personnalisé `-Fc`, chaîne **directe**, client `pg_dump` de la **même version majeure** que le
-  serveur Neon (Neon prend en charge PostgreSQL 14 à 17 ; vérifier la version du projet par `select version()`).
+  serveur Neon. Le projet `qadr-data-base` est en **PostgreSQL 18** (18.6 relevé le 2026-11-10) : il faut donc
+  `pg_dump`/`pg_restore` **18**. Rien n'est installé sur le poste de développement ; deux voies sans dépense :
+  l'installeur PostgreSQL 18 (outils clients seuls) ou l'image Docker officielle `postgres:18`, qui contient
+  `pg_dump` (téléchargement de l'image à décider par le propriétaire ; taille non vérifiée). Toujours vérifier par
+  `select version()` avant une sauvegarde.
 - Neon ne prend en charge ni `pg_dumpall` ni `pg_dump -C`. Les rôles ne sont donc pas sauvegardés : ils se
   recréent dans la console. `pg_dump` couvre une base à la fois (la base applicative, et non `postgres`).
 - Le fichier est **chiffré avant de quitter le poste** qui l'a produit, avec une clé publique dont la clé
@@ -138,6 +168,28 @@ Remove-Item Env:PGURL
 restauration qu'elle compte (§ 6.3). La liste exacte des options sera relue contre la documentation Neon et
 PostgreSQL au premier essai.
 
+Variante sans `age` (non installé au 2026-11-10) : GnuPG, présent avec Git pour Windows, en chiffrement à clé
+publique (la clé privée reste hors du poste qui sauvegarde) :
+
+```powershell
+gpg --encrypt --recipient '<identifiant de la clé de sauvegarde>' --output "qadr-$stamp.dump.gpg" "qadr-$stamp.dump"
+Remove-Item "qadr-$stamp.dump"
+```
+
+Variante Docker si les outils PostgreSQL 18 ne sont pas installés (la chaîne passe par une variable
+d'environnement, jamais sur la ligne de commande enregistrée) :
+
+```powershell
+docker run --rm -e PGURL=$env:PGURL -v "${PWD}:/out" postgres:18 `
+  sh -c 'pg_dump -Fc -Z 1 --lock-wait-timeout=20s -v -d "$PGURL" -f /out/qadr.dump'
+```
+
+Juste avant le `pg_dump`, relever sur la **même** base les comptes et empreintes du § 6.4 (c, d, e) et les
+ranger avec l'empreinte du fichier : ce sont les valeurs attendues lors d'une restauration. Comme `pg_dump`
+lit un instantané cohérent mais que l'application continue d'écrire, faire ce relevé dans une fenêtre calme
+(nuit) et accepter un écart sur les tables très actives (`session`, `rate_limit_bucket`, `audit_event`), ou
+mieux, sauvegarder une **branche figée** (variante A du § 6.1) plutôt que la branche principale vivante.
+
 ### 4.3 Stockage
 
 - Destination 1 : un **bucket R2 dédié aux sauvegardes**, distinct du bucket des fichiers applicatifs, avec un
@@ -150,8 +202,11 @@ PostgreSQL au premier essai.
 ### 4.4 Automatisation
 
 Pas de mécanisme existant. Une fonction Vercel ne convient pas (durée limitée, pas de binaire `pg_dump`). Au
-lancement : procédure manuelle hebdomadaire. Ensuite : tâche planifiée hors Vercel (à choisir et à budgéter ;
-Neon publie un guide « Automate pg_dump backups » qui n'a pas été lu pour ce document).
+lancement : procédure manuelle hebdomadaire. Ensuite : tâche planifiée hors Vercel (à choisir et à budgéter).
+Le guide Neon « Automate pg_dump backups » (relevé le 2026-11-10, non appliqué) décrit une action GitHub
+nocturne qui dépose un `pg_dump` SQL compressé dans un bucket S3, avec la chaîne **directe**. Il suppose un
+dépôt GitHub, que le projet n'a pas encore (§ 7.3), et dépose un fichier **non chiffré** : à adapter
+(chiffrement GnuPG avant envoi, bucket R2 compatible S3) avant tout usage.
 
 ## 5. Politique proposée (à confirmer selon le plan)
 
@@ -173,12 +228,49 @@ Coût : dépend du volume réel (inconnu, aucune donnée en production). Postes 
 instantanés (0,09 $/Go-mois), branches au-delà du forfait, stockage R2. Le propriétaire active une alerte de
 consommation Neon (`docs/production-setup-guide.md` § 5).
 
+### 5.1 Politique minimale tant que l'offre Free reste en place
+
+Offres relues le 2026-11-10 (page *Plans* de Neon, mise à jour le 2026-11-04) :
+
+| | Free (actuel) | Launch | Scale |
+| --- | --- | --- | --- |
+| Prix | 0 $ | à l'usage, sans minimum | à l'usage, sans minimum |
+| Fenêtre d'historique | 6 h, plafonnée à 1 Go de changements | 1 jour par défaut, 7 jours max, 0,20 $/Go-mois | 1 jour par défaut, 30 jours max, 0,20 $/Go-mois |
+| Instantanés manuels | **1** | 100 (0,09 $/Go-mois) | 100 (0,09 $/Go-mois) |
+| Sauvegardes planifiées | non | oui | oui |
+| Calcul | 100 CU-h/projet/mois | 0,106 $/CU-h | 0,222 $/CU-h |
+| Stockage | 1 Go/projet | 0,35 $/Go-mois | 0,35 $/Go-mois |
+| Mise en veille | après 5 min, **non désactivable** | après 5 min, désactivable | réglable |
+
+Le projet étant géré par l'intégration Vercel, ces offres se souscrivent depuis Vercel ; **les prix facturés
+par Vercel n'ont pas été vérifiés** et peuvent différer de la page Neon. Aucune souscription n'est faite.
+
+Sur l'offre Free, la seule protection au-delà de 6 h est la copie logique. Tant que des données réelles y
+vivraient (ce qui est **déconseillé**, voir `neon-production-plan.md`), la politique minimale serait :
+- `pg_dump` chiffré **quotidien** (et non hebdomadaire), relevé des empreintes du § 6.4 à chaque copie ;
+- l'unique instantané manuel réservé au point « avant migration » (le remplacer à chaque migration) ;
+- test de restauration mensuel selon le § 6.3 bis ;
+- vérification quotidienne qu'aucune erreur n'a été signalée dans les 6 h (sinon la PITR est perdue).
+
+### 5.2 RPO et RTO réalistes (estimations, non mesurées)
+
+| Situation | RPO (perte maximale) | RTO (remise en service) | Condition |
+| --- | --- | --- | --- |
+| Erreur découverte dans la fenêtre d'historique | quelques secondes | 30 min à 1 h (choix de l'instant, branche de vérification, restauration, contrôles) | Fenêtre de 6 h (Free) ou 7 jours (Launch) |
+| Erreur découverte après la fenêtre, offre payante | jusqu'à 24 h (instantané quotidien) | 1 à 2 h | Sauvegardes planifiées actives |
+| Erreur découverte après la fenêtre, offre Free | jusqu'au dernier `pg_dump` : 24 h si quotidien, 7 jours si hebdomadaire | 2 à 4 h | `pg_dump` récent et déchiffrable |
+| Perte du projet ou du compte Neon | dernier `pg_dump` | une demi-journée à une journée : nouveau projet, restauration, variables Vercel, redéploiement, contrôles | Clé de déchiffrement et secrets du coffre disponibles (§ 7.2) |
+
+Ces durées supposent une base de quelques centaines de Mo au plus et un opérateur qui a déjà répété la
+procédure. Elles ne seront crédibles qu'après le premier test chronométré (§ 6).
+
 ## 6. Test de restauration : uniquement sur une branche dédiée
 
 Interdits pendant un test :
 - lancer *Restore* (PITR) ou une restauration d'instantané **en une étape** sur la branche principale ;
 - **finaliser** une restauration en plusieurs étapes ;
-- utiliser `pg_restore` avec une chaîne de la branche principale ou de staging ;
+- utiliser `pg_restore` avec une chaîne de la branche principale ou de staging (seule exception : la base
+  vide dédiée `qadr_restore_test` du § 6.3 bis, jamais `qadr_staging` ni `neondb`) ;
 - brancher Vercel (Production ou Preview) sur la branche de test.
 
 Nommage : `restore-test-AAAAMMJJ`. Durée de vie : supprimée après le compte rendu (sauf branches `_old_`
@@ -224,6 +316,47 @@ cible n'est pas vide (elle hérite de son parent), il faut une branche créée *
 test vide : ne jamais restaurer par-dessus des données. Puis vérifications du § 6.4, en comparant aux
 résultats relevés sur la source au moment du `pg_dump`.
 
+### 6.3 bis Variante C sans nouvelle branche : base vide dédiée sur la branche de staging
+
+Procédure **prête mais non exécutée** (2026-11-10). Elle crée une ressource Neon (une base) et exige donc
+l'accord du propriétaire. Elle reste dans l'offre Free (aucune branche supplémentaire) et ne touche ni
+`qadr_staging` ni la branche principale. C'est le même mécanisme que le harnais de test
+(`src/test/postgres-harness.ts`), qui crée des bases `qadr_t_*` sur cette branche.
+
+Prérequis : `pg_dump`/`pg_restore` 18 (§ 4.1), la chaîne **directe** de la branche `mission-14-staging`
+(jamais `-pooler`), une copie chiffrée produite selon le § 4.2 **à partir de `qadr_staging`** (ou d'une
+future base de production, si le propriétaire l'autorise), et les valeurs de référence du § 6.4 relevées
+sur la source au moment de la copie.
+
+```powershell
+# 0. Heure lue sur le serveur, pas sur le poste
+#    select now();   -- sur qadr_staging, noter la valeur
+
+# 1. Créer la base cible VIDE (depuis la base `postgres` ou `qadr_staging` de la branche de staging)
+#    create database qadr_restore_test;
+#    (console Neon : Branches → mission-14-staging → Databases → New database, même propriétaire que qadr_staging)
+
+# 2. Restaurer dans cette base seulement
+$env:PGURL_TEST = '<chaîne directe de mission-14-staging, base qadr_restore_test>'
+gpg --decrypt --output restore.dump 'qadr-<date>.dump.gpg'      # ou age -d (§ 6.3)
+$debut = Get-Date
+pg_restore -v --no-owner --no-privileges --single-transaction --exit-on-error -d $env:PGURL_TEST restore.dump
+"Durée pg_restore : $((Get-Date) - $debut)"
+Remove-Item restore.dump
+
+# 3. Vérifications du § 6.4 (a à e) sur qadr_restore_test, comparées aux valeurs de la source
+
+# 4. Nettoyage, après le compte rendu et avec l'accord du propriétaire
+#    drop database qadr_restore_test with (force);
+Remove-Item Env:PGURL_TEST
+```
+
+Garde-fous : avant l'étape 2, vérifier que la chaîne se termine par `/qadr_restore_test` et que cette base est
+vide (`select count(*) from information_schema.tables where table_schema = 'public'` doit renvoyer 0). Si
+`pg_restore` échoue, `--single-transaction` laisse la base vide : la supprimer et recommencer, sans
+« réparer » à la main. Le schéma `drizzle` (journal des migrations) fait partie de la copie : il ne faut
+**jamais** lancer `db:migrate` sur la base restaurée.
+
 ### 6.4 Vérifications après restauration
 
 Toutes en **lecture seule**, sur la branche de test. Les mêmes requêtes sont lancées sur la source au même
@@ -253,7 +386,8 @@ select count(*) from pg_constraint where contype = 'f'
 ```
 
 Les déclencheurs comptent : journal d'audit en ajout seul (migration 0010), session de caisse clôturée
-figée (migration 0011).
+figée et mouvements de caisse en ajout seul (migration 0011). Au 2026-11-10 : `audit_event_no_update_delete`,
+`cash_session_immutable_after_close`, `cash_movement_append_only`.
 
 **c. Nombre de lignes par table** (comptes exacts, identiques à la source)
 
@@ -299,7 +433,39 @@ Un écart entre `en_main` et `mouvements` n'est pas forcément une anomalie (rè
 `docs/stock-initial.md`) : ce qui compte est l'**égalité avec la source**. Toute différence avec la source
 fait échouer le test.
 
-**e. Application (facultatif, à décider)** : démarrer l'application **en local** contre la branche de test
+**e. Empreintes de structure et de contenu** (ajouté le 2026-11-10)
+
+Structure : la requête d'empreinte de `mission-16-neon.md` § 2 (tables, colonnes, index, contraintes, clés
+étrangères dont composées, déclencheurs, fonctions) doit donner les mêmes valeurs sur la source et sur la
+copie. Au 2026-11-10 : 63 tables, 605 colonnes, 200 index, 825 contraintes (dont 158 clés étrangères, 70
+composées), 3 déclencheurs.
+
+Contenu : une somme de contrôle par table, calculée dans un ordre total (clé primaire) et dans un fuseau fixe
+(la représentation texte d'un `timestamptz` dépend du réglage `TimeZone`). La requête suivante **génère** la
+requête de contrôle des 63 tables ; on exécute ensuite son résultat sur la source puis sur la copie :
+
+```sql
+set timezone = 'UTC';
+select string_agg(format(
+  'select %L as t, count(*) as n, md5(coalesce(string_agg(x::text, %L order by %s), %L)) as h from %I.%I x',
+  c.relname, '|',
+  (select string_agg(format('x.%I', a.attname), ', ' order by k.ord)
+     from pg_index i
+     cross join lateral unnest(i.indkey) with ordinality as k(attnum, ord)
+     join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum
+    where i.indrelid = c.oid and i.indisprimary),
+  '', n.nspname, c.relname), E'\nunion all\n' order by c.relname) || ';'
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public' and c.relkind = 'r';
+```
+
+Les 63 tables ont une clé primaire (sinon la requête générée contient `order by` vide et échoue : c'est voulu).
+Ce calcul lit chaque table entièrement : acceptable tant que la base fait quelques centaines de Mo ; au-delà,
+le limiter aux tables financières et de stock, ou le faire par commerce. Les tables très actives
+(`session`, `rate_limit_bucket`, `audit_event`) ne seront égales que si la source est figée (branche à un
+instant passé, ou copie faite application arrêtée).
+
+**f. Application (facultatif, à décider)** : démarrer l'application **en local** contre la branche de test
 (jamais via Vercel), se connecter avec un compte de test, ouvrir un rapport. Ne lancer aucune écriture.
 
 ### 6.5 Compte rendu
@@ -385,20 +551,25 @@ commerçant. Ce n'est **pas** une sauvegarde de la plateforme :
 
 ## 11. Prérequis et points ouverts
 
-1. Vérifier le plan Neon souscrit, puis régler la fenêtre d'historique et les sauvegardes planifiées (§ 5).
+1. Vérifier le plan Neon souscrit (au 2026-11-10 : Free, géré par Vercel), puis régler la fenêtre
+   d'historique et les sauvegardes planifiées (§ 5) **depuis le tableau de bord Vercel**.
 2. Créer la paire de clés de chiffrement des sauvegardes ; ranger la clé privée (coffre + hors ligne).
 3. Créer le bucket R2 de sauvegarde et ses jetons séparés.
 4. Installer `pg_dump`/`pg_restore` de la version majeure du serveur sur le poste de l'opérateur.
-5. Premier essai complet **sur la branche de staging** : `pg_dump` (§ 4), puis test variante C (§ 6.3) vers
-   une branche vide, et variante A (§ 6.1) depuis staging si c'est une branche racine (sinon, attendre la
-   branche principale).
+5. Premier essai complet **sur la branche de staging** : `pg_dump` de `qadr_staging` (§ 4), puis test
+   variante C' vers la base vide `qadr_restore_test` (§ 6.3 bis, sans nouvelle branche, accord du
+   propriétaire requis). La variante A (§ 6.1) ne s'applique pas à staging, branche **enfant** de `main` :
+   elle attendra la branche principale de production.
 6. Avant la première migration de la branche principale : instantané manuel, puis test variante A dès que des
    données réelles existent.
 7. Nommer les personnes du § 8 ; créer le registre.
 8. Dépôt Git distant privé (§ 7.3).
-9. Mettre à jour les valeurs attendues du § 6.4 (25 migrations, 63 tables) à chaque nouvelle migration.
+9. Mettre à jour les valeurs attendues du § 6.4 (25 migrations, 63 tables, empreintes du § 6.4 e) à chaque
+   nouvelle migration.
+10. Supprimer, avec l'accord du propriétaire, les 3 bases orphelines `qadr_t_*` de la branche de staging
+    (`mission-16-neon.md` § 3), et corriger le harnais pour qu'un échec de migration supprime sa base.
 
-## 12. Sources consultées (2026-11-09)
+## 12. Sources consultées (2026-11-09, complétées le 2026-11-10)
 
 - Neon, *Instant restore* : https://neon.com/docs/introduction/branch-restore
 - Neon, *Backup & restore* (instantanés, planifications, restauration en une ou plusieurs étapes) :
@@ -409,6 +580,11 @@ commerçant. Ce n'est **pas** une sauvegarde de la plateforme :
 - Neon, *Backups with pg_dump* : https://neon.com/docs/manage/backup-pg-dump
 - Neon, *Migrate from Postgres* (options `pg_dump` / `pg_restore`) : https://neon.com/docs/import/migrate-from-postgres
 - Neon, *Branching* : https://neon.com/docs/guides/branching-intro
+- Neon, *Plans* relue le 2026-11-10 (page mise à jour le 2026-11-04) : tableau du § 5.1.
+- Neon, *Automate pg_dump backups* : https://neon.com/docs/manage/backup-pg-dump-automate (relevé, non appliqué).
+- Neon, *Vercel-Managed Integration* (facturation et réglages dans Vercel, variables `DATABASE_URL` *pooled* et
+  `DATABASE_URL_UNPOOLED` directe) : https://neon.com/docs/guides/vercel-managed-integration (mise à jour le
+  2026-10-23).
 
 Les tarifs, plafonds et noms de plans changent : les revérifier sur ces pages au moment de souscrire ou de
 modifier la configuration, et noter la date.

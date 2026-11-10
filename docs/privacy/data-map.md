@@ -2,7 +2,7 @@
 
 > **Statut : document de travail, à valider par un juriste et par le propriétaire.** Il décrit ce que le
 > code fait aujourd'hui et ce qui a été vérifié. Il ne constitue pas une déclaration de conformité.
-> Dernière mise à jour : 2026-11-08.
+> Dernière mise à jour : 2026-11-10 (localisation de la base relue, mission 16).
 
 Légende de la colonne « Vérifié » :
 - **Oui** : constaté directement (code, console du prestataire en lecture seule).
@@ -13,7 +13,7 @@ Légende de la colonne « Vérifié » :
 
 | Prestataire | Rôle | Données concernées | Localisation | Vérifié |
 | --- | --- | --- | --- | --- |
-| **Neon** (PostgreSQL) | Base de données, source de vérité | Toutes les données des commerces, comptes, sessions, journaux d'audit | Projet `qadr-data-base` : région **AWS us-east-1 (États-Unis)**. Un second projet (`eu-west-2`, Londres) existe, vide et non utilisé. | Oui (lecture seule, 2026-11-07) ; aucune table applicative n'y existe encore |
+| **Neon** (PostgreSQL) | Base de données, source de vérité | Toutes les données des commerces, comptes, sessions, journaux d'audit | Projet `qadr-data-base` : région **AWS us-east-1 (Virginie du Nord, États-Unis)**, choisie à la création par l'intégration Vercel et **non modifiable** pour ce projet. Un second projet (`eu-west-2`, Londres) existe, vide et non utilisé. Aucune région Neon en Afrique. | Oui (lecture seule, 2026-11-10) : seule la base de staging est migrée et ne contient que des données de test ; la branche de production est vide. Choix de la région de production à décider (`docs/engineering/neon-production-plan.md` § 4) |
 | **Vercel** | Exécution de l'application Next.js, crons | Tout ce qui transite par une requête (données en mémoire, non stockées), journaux d'exécution | Aucune région fixée dans `apps/web/vercel.json` : région des fonctions **par défaut du projet** (souvent `iad1`, États-Unis) | À vérifier dans le projet Vercel |
 | **Cloudflare** | DNS, pare-feu (WAF), Turnstile, stockage R2 | Adresses IP et en-têtes des visiteurs ; fichiers privés (imports, exports) dans R2 | Réseau mondial ; R2 : juridiction `eu` possible (`R2_JURISDICTION`), sinon emplacement automatique | Code ; compte à vérifier |
 | **Resend** | E-mails transactionnels (vérification, mot de passe, invitations) | Adresse e-mail, nom, nom du commerce, liens à usage unique | À vérifier (compte non créé) | Code ; non configuré |
@@ -24,7 +24,9 @@ Légende de la colonne « Vérifié » :
 | **Services push des navigateurs** (FCM, Mozilla, Apple) | Acheminement des notifications | Message chiffré pour l'appareil : titre court, texte générique, lien interne | Fournisseurs mondiaux | Code |
 
 **Conséquence :** dans la configuration actuelle, les données des commerçants seraient hébergées hors de
-Côte d'Ivoire et hors CEDEAO (base aux États-Unis). Aucune promesse de « données en Afrique » ou de
+Côte d'Ivoire et hors CEDEAO (base aux **États-Unis**, Virginie du Nord). Les copies de sauvegarde suivent la
+base : historique et instantanés Neon dans la même région ; copies `pg_dump` chiffrées là où l'opérateur les
+range (`docs/engineering/backup-restore.md` § 4.3). Aucune promesse de « données en Afrique » ou de
 « souveraineté » ne doit être faite. Une base en Union européenne est possible chez Neon, mais n'est pas
 en soi une garantie d'adéquation au sens du droit ivoirien : à faire confirmer par le juriste.
 
