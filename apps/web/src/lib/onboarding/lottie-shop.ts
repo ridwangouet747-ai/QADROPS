@@ -21,9 +21,9 @@ export const lottieOverlays = {
 
 type Vec = number[];
 const palette = {
-  ground: "#e4e1f6", plinth: "#c9c3fb", night: "#1b1a2e", nightSoft: "#2a2942", wall: "#ffffff", glass: "#d9d4fd",
-  brand: "#5b4df2", brandSoft: "#8b80f9", lavender: "#eeecfe", warm: "#ff9f7a", sand: "#d8cfbf", sandDark: "#b9ad98",
-  steel: "#6e6c8a", leaf: "#3f9c74", bulb: "#ffd166", white: "#ffffff",
+  ground: "#e1e8f5", plinth: "#c5d4f7", night: "#03108e", nightSoft: "#0b1ea6", wall: "#ffffff", glass: "#cddcf9",
+  brand: "#1853d7", brandSoft: "#5d88e8", lavender: "#e6edfc", warm: "#95b1f0", sand: "#d8cfbf", sandDark: "#b9ad98",
+  steel: "#636c82", leaf: "#3f9c74", bulb: "#ffd166", white: "#ffffff",
 };
 
 const rgb = (hex: string): Vec => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255).concat(1);

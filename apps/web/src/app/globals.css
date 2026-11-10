@@ -20,33 +20,46 @@
   --color-white: #ffffff;
   --color-black: #000000;
 
-  /* Environnement : lavande très claire, surfaces blanches */
-  --color-canvas: #f3f2fb;
-  --color-paper: #f7f6fe;
+  /* Échelle de marque Qadr (palette officielle du 2026-11-10, docs/design/direction-artistique.md).
+     950 à 500 sont fournis par le propriétaire ; 400 à 50 en sont dérivés pour les fonds. */
+  --color-qadr-950: #03108e;
+  --color-qadr-900: #042eb7;
+  --color-qadr-800: #063fce;
+  --color-qadr-600: #1853d7;
+  --color-qadr-500: #3168df;
+  --color-qadr-400: #5d88e8;
+  --color-qadr-300: #95b1f0;
+  --color-qadr-200: #c5d4f7;
+  --color-qadr-100: #e6edfc;
+  --color-qadr-50: #f2f6fe;
+
+  /* Environnement : gris bleuté très clair (Surface #F5F7FA), surfaces blanches */
+  --color-canvas: #f5f7fa;
+  --color-paper: #f9fafc;
   --color-surface: #ffffff;
-  --color-surface-muted: #f1f0fa;
-  --color-line: #e7e5f4;
-  --color-line-strong: #c9c6e0;
+  --color-surface-muted: #eef2f8;
+  --color-line: #e2e7f0;
+  --color-line-strong: #c2cbdc;
 
-  /* Texte et bleu nuit (navigation, panneaux importants) */
-  --color-ink: #16152b;
-  --color-fg: #1f1d3a;
-  --color-fg-muted: #5f5d7a;
-  --color-fg-subtle: #6e6c8a;
-  --color-night: #1b1a2e;
-  --color-night-soft: #2a2942;
-  --color-night-line: #3a3956;
-  --color-night-fg: #b9b7d4;
+  /* Texte (Ink #171B26) et bleu profond (navigation, panneaux importants) */
+  --color-ink: #171b26;
+  --color-fg: #1c2232;
+  --color-fg-muted: #545d72;
+  --color-fg-subtle: #636c82;
+  --color-night: #03108e;
+  --color-night-soft: #0b1ea6;
+  --color-night-line: #2337bb;
+  --color-night-fg: #c3cdf4;
 
-  /* Violet intense : actions principales, sélection */
-  --color-brand: #5b4df2;
-  --color-brand-strong: #4a3de0;
-  --color-brand-soft: #eeecfe;
-  --color-brand-tint: #c9c3fb;
-  --color-cta: #5b4df2;
-  --color-cta-strong: #4a3de0;
-  --color-cta-mark: #6e62f6;
-  --color-cta-soft: #eeecfe;
+  /* Bleu royal : actions principales, sélection (blanc sur #1853D7 : 6,4:1) */
+  --color-brand: #1853d7;
+  --color-brand-strong: #042eb7;
+  --color-brand-soft: #e6edfc;
+  --color-brand-tint: #c5d4f7;
+  --color-cta: #1853d7;
+  --color-cta-strong: #042eb7;
+  --color-cta-mark: #3168df;
+  --color-cta-soft: #e6edfc;
 
   /* Couleurs fonctionnelles (texte ≥ 4.5:1 sur leur fond doux) */
   --color-ok: #15803d;
@@ -58,9 +71,9 @@
   --color-danger: #c0262d;
   --color-danger-soft: #fdecec;
   --color-danger-line: #f3b5b8;
-  --color-info: #3b5bdb;
-  --color-info-soft: #ebefff;
-  --color-info-line: #bdc8f6;
+  --color-info: #0b6a8c;
+  --color-info-soft: #e4f3f8;
+  --color-info-line: #a6d4e3;
 
   /* Typographie : une seule police variable (Plus Jakarta Sans, latin) ; l'arabe utilise
      la police arabe du système. */
@@ -73,10 +86,10 @@
   --radius-lg: 18px;
   --radius-xl: 24px;
   --radius-2xl: 28px;
-  --shadow-card: 0 1px 2px rgb(27 26 46 / 4%), 0 6px 20px -12px rgb(76 64 180 / 18%);
-  --shadow-raised: 0 12px 32px -12px rgb(58 46 160 / 28%);
-  --shadow-overlay: 0 28px 64px -16px rgb(22 21 43 / 40%);
-  --shadow-brand: 0 10px 24px -10px rgb(91 77 242 / 65%);
+  --shadow-card: 0 1px 2px rgb(23 27 38 / 4%), 0 6px 20px -12px rgb(4 46 183 / 18%);
+  --shadow-raised: 0 12px 32px -12px rgb(4 46 183 / 26%);
+  --shadow-overlay: 0 28px 64px -16px rgb(23 27 38 / 40%);
+  --shadow-brand: 0 10px 24px -10px rgb(24 83 215 / 60%);
   --ease-snappy: cubic-bezier(0.23, 1, 0.32, 1);
 
   /* Qadr Ops Platform (console Super Admin) : identité monochrome isolée sous le préfixe pf-.
@@ -107,6 +120,8 @@
 @theme inline {
   --font-sans: var(--font-jakarta), system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
   --font-heading: var(--font-jakarta), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Titres de la page publique (Rubik, latin et arabe) ; chargée seulement par la page publique. */
+  --font-display: var(--font-rubik), var(--font-jakarta), system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 @layer qadr {
@@ -125,12 +140,12 @@
   /* Les chiffres, montants et références restent lisibles de gauche à droite. */
   .numeric { direction: ltr; unicode-bidi: isolate; font-variant-numeric: tabular-nums; }
 
-  /* Dégradé violet de la direction artistique : panneaux de détail, sélection, actions fortes. */
-  .bg-brand-gradient { background-image: linear-gradient(135deg, #7366f6 0%, #5b4df2 48%, #4535d8 100%); }
-  .bg-brand-glow { background-image: radial-gradient(120% 120% at 100% 0%, rgb(255 255 255 / 18%) 0%, rgb(255 255 255 / 0%) 55%), linear-gradient(135deg, #7366f6 0%, #5b4df2 50%, #4535d8 100%); }
-  .bg-night-gradient { background-image: linear-gradient(160deg, #23223a 0%, #1b1a2e 60%, #17162a 100%); }
+  /* Dégradé bleu royal de la direction artistique : panneaux de détail, sélection, actions fortes. */
+  .bg-brand-gradient { background-image: linear-gradient(135deg, #3168df 0%, #1853d7 48%, #042eb7 100%); }
+  .bg-brand-glow { background-image: radial-gradient(120% 120% at 100% 0%, rgb(255 255 255 / 18%) 0%, rgb(255 255 255 / 0%) 55%), linear-gradient(135deg, #3168df 0%, #1853d7 50%, #042eb7 100%); }
+  .bg-night-gradient { background-image: linear-gradient(160deg, #0b1ea6 0%, #03108e 60%, #020b70 100%); }
 
-  dialog.qadr-dialog::backdrop { background: rgb(22 21 43 / 50%); }
+  dialog.qadr-dialog::backdrop { background: rgb(23 27 38 / 50%); }
 
   @media (prefers-reduced-motion: reduce) {
     *, ::before, ::after {

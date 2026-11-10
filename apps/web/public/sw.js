@@ -7,7 +7,7 @@
  *   aucune donnée du commerce et aucune réponse d'API n'est conservée ici : sans réseau, rien ne peut
  *   être enregistré, et la page le dit.
  */
-const OFFLINE_CACHE = "qadr-offline-v2";
+const OFFLINE_CACHE = "qadr-offline-v3";
 const OFFLINE_URL = "/offline.html";
 
 self.addEventListener("install", (event) => {

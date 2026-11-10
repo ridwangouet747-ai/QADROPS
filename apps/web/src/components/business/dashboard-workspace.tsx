@@ -120,7 +120,7 @@ export function DashboardWorkspace() {
           </section>
 
           <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-            {/* Panneau bleu nuit : liste à gauche, détail en dégradé violet à droite (cf. référence). */}
+            {/* Panneau bleu nuit : liste à gauche, détail en dégradé bleu royal à droite (cf. référence). */}
             <Card tone="night" className="p-3 sm:p-4" aria-labelledby="recent-sales-title">
               <div className="mb-3 flex items-center justify-between gap-3 px-1 pt-1">
                 <h2 id="recent-sales-title" className="m-0 text-[1.05rem] font-bold">{t("dashboard.recentTitle")}</h2>

@@ -254,7 +254,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
         {/* Scène compacte sur téléphone et tablette, réduite quand le clavier est ouvert (champ actif). */}
         <div className="group/scene mt-4 lg:hidden">
           {desktop === false ? <OnboardingScene plan={plan} stage={stage} logo={values.logo ?? ""}
-            className="relative h-[min(30vh,230px)] rounded-[24px] bg-[radial-gradient(120%_90%_at_50%_10%,#ffffff_0%,#eeecfe_60%,#e3e0fb_100%)] transition-[height] duration-300 [.wizard-typing_&]:h-[96px]" /> : <div className="h-[min(30vh,230px)] rounded-[24px] bg-surface-muted" />}
+            className="relative h-[min(30vh,230px)] rounded-[24px] bg-[radial-gradient(120%_90%_at_50%_10%,#ffffff_0%,#e6edfc_60%,#d9e4fa_100%)] transition-[height] duration-300 [.wizard-typing_&]:h-[96px]" /> : <div className="h-[min(30vh,230px)] rounded-[24px] bg-surface-muted" />}
           <p className="m-0 mt-2 text-center text-[0.8rem] font-semibold text-fg-muted" aria-live="polite">{t(`wizard.scene.captions.${stage}`)}</p>
         </div>
 
@@ -405,7 +405,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
 
       {/* Zone scène (ordinateur) */}
       <aside className="relative hidden p-5 lg:block" aria-label={t("wizard.scene.label")}>
-        <div className="relative h-full overflow-hidden rounded-[32px] bg-[radial-gradient(120%_90%_at_50%_0%,#ffffff_0%,#eeecfe_55%,#dcd7fb_100%)] shadow-raised">
+        <div className="relative h-full overflow-hidden rounded-[32px] bg-[radial-gradient(120%_90%_at_50%_0%,#ffffff_0%,#e6edfc_55%,#cfdcf8_100%)] shadow-raised">
           {desktop && <OnboardingScene plan={plan} stage={stage} logo={values.logo ?? ""} className="absolute inset-0" />}
           <div className="pointer-events-none absolute inset-x-6 top-6 flex items-center justify-between gap-3">
             <span className="rounded-full bg-white/80 px-4 py-2 text-[0.8rem] font-semibold text-ink shadow-card backdrop-blur-sm">{t("wizard.tagline")}</span>

@@ -1,14 +1,14 @@
 /*
  * Réalignement des écrans encore écrits avec les classes de legacy.css (produits, ventes,
  * clients, stock, fournisseurs, achats, dépenses, paramètres, rapports, détail de vente)
- * sur la direction artistique de la mission 04 : fond lavande, cartes blanches très arrondies,
- * violet pour l'action, bleu nuit pour les éléments forts.
+ * sur la direction artistique de la mission 04 : fond gris bleuté, cartes blanches très arrondies,
+ * bleu royal pour l'action, bleu profond pour les éléments forts.
  * Ce fichier est chargé dans la couche `qadr`, qui l'emporte sur `legacy`.
  * À supprimer écran par écran au fur et à mesure de leur migration vers src/components/ui.
  */
 :root {
   /* legacy.css redéfinit --color-paper (vert pâle) : on rétablit la valeur du design system. */
-  --color-paper: #f7f6fe;
+  --color-paper: #f9fafc;
   --ops-navy: var(--color-night);
   --ops-blue: var(--color-brand);
   --ops-blue-dark: var(--color-brand-strong);
@@ -52,7 +52,7 @@
 
 /* Champs */
 .business-page input, .business-page select, .business-page textarea { border: 1px solid var(--color-line-strong); border-radius: 14px; color: var(--color-fg); font: 400 16px/1.3 var(--font-sans); }
-.business-page input:focus, .business-page select:focus, .business-page textarea:focus { border-color: var(--color-brand); outline: 3px solid rgb(91 77 242 / 18%); }
+.business-page input:focus, .business-page select:focus, .business-page textarea:focus { border-color: var(--color-brand); outline: 3px solid rgb(24 83 215 / 18%); }
 .suite-form label, .suite-inline-form label, .suite-form-grid label, .suite-toolbar label { color: var(--color-ink); font-size: 0.82rem; }
 
 /* Messages */
@@ -81,7 +81,7 @@
 .suite-metric > span, .metric-card > span { color: var(--color-fg-muted); font-size: 0.74rem; letter-spacing: 0.04em; }
 .suite-metric > strong, .metric-card > strong { color: var(--color-ink); font-weight: 700; }
 .suite-metric > small, .metric-card > small { color: var(--color-fg-subtle); font-size: 0.76rem; }
-.suite-metric-main, .metric-featured { background-image: linear-gradient(135deg, #7366f6 0%, #5b4df2 48%, #4535d8 100%); border-color: transparent; box-shadow: var(--shadow-raised); }
+.suite-metric-main, .metric-featured { background-image: linear-gradient(135deg, #3168df 0%, #1853d7 48%, #042eb7 100%); border-color: transparent; box-shadow: var(--shadow-raised); }
 .suite-metric-main > span, .suite-metric-main > small, .metric-featured > span, .metric-featured > small, .metric-comparison span, .metric-comparison small { color: rgb(255 255 255 / 80%); }
 .suite-metric-main > strong, .metric-featured > strong, .metric-comparison b { color: #fff; }
 .trend-track, .progress-track { background: var(--color-surface-muted); border-radius: 999px; }
@@ -106,7 +106,7 @@
 .suite-module-link > b { color: var(--color-brand); }
 
 /* Fenêtres */
-.suite-dialog-backdrop { background: rgb(22 21 43 / 50%); }
+.suite-dialog-backdrop { background: rgb(23 27 38 / 50%); }
 .suite-dialog { border-color: var(--color-line); border-radius: var(--radius-xl); box-shadow: var(--shadow-overlay); }
 .suite-dialog h2 { color: var(--color-ink); }
 .suite-receipt-preview { border-color: var(--color-line-strong); border-radius: 14px; }

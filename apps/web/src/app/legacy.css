@@ -2,7 +2,7 @@
   color-scheme: light;
   --color-primary: #2563eb;
   --color-on-primary: #ffffff;
-  --color-accent: #ea580c;
+  --color-accent: #3168df;
   --color-background: #f8fafc;
   --color-foreground: #1e293b;
   --color-muted-foreground: #475569;
@@ -78,7 +78,7 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--color-primary);
 .hero-lede { color: #41566b; font-size: clamp(1rem, 1.35vw, 1.12rem); line-height: 1.75; margin: 28px 0 26px; max-width: 48ch; }
 .button-primary, .button-light { align-items: center; display: inline-flex; font-size: 0.9rem; font-weight: 750; gap: 24px; justify-content: space-between; min-height: 52px; padding: 0 20px; transition: background-color 170ms ease-out, color 170ms ease-out, transform 170ms ease-out; }
 .button-primary { background: var(--color-accent); color: #1e293b; }
-.button-primary:hover { background: #f36a22; transform: translateY(-2px); }
+.button-primary:hover { background: #1853d7; transform: translateY(-2px); }
 .button-primary:active, .button-light:active, .sector-option:active { transform: translateY(1px); }
 .button-primary span { color: #3b2518; font-size: 1rem; }
 .hero-note { color: #66798a; font-size: 0.78rem; margin: 18px 0 0; }
@@ -369,7 +369,7 @@ a:focus-visible, button:focus-visible { outline: 3px solid var(--color-primary);
 .hero-copy h1 em { color: #76a7ff; }
 .hero-lede { color: #c2d0df; max-width: 43ch; }
 .button-primary { border-radius: 3px; color: #fff; min-height: 54px; }
-.button-primary:hover { background: #f36a22; }
+.button-primary:hover { background: #1853d7; }
 .button-primary span { color: #fff; }
 .hero-note { color: #9eb1c4; max-width: 42ch; }
 .hero-visual { isolation: isolate; max-width: 640px; padding: 27px 15px 39px 0; }

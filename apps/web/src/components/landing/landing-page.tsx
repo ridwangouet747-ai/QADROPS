@@ -1,268 +1,321 @@
+import type { CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { LanguageSwitcher } from "@/components/i18n/language-switcher";
-import { buttonClasses } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Icon, type IconName } from "@/components/ui/icon";
-import type { Locale } from "@/lib/i18n/config";
+import { intlLocale, type Locale } from "@/lib/i18n/config";
+import { formatXof } from "@/lib/i18n/format";
 import type { Translate } from "@/lib/i18n/translate";
+import { DaySection } from "./day-section";
+import { displayFont } from "./fonts";
+import { LandingHeader } from "./landing-header";
+import { LandingMotion } from "./landing-motion";
+import { BrandMark, Mascot } from "./mascot";
+import { PricingSection } from "./pricing-section";
+import type { ReceiptData } from "./receipt";
+import { ReceiptStage } from "./receipt-stage";
+import "./landing.css";
 
 /*
- * Page publique de présentation (mission 16, cahier des charges docs/product/landing-page-plan.md).
- * Composant serveur, sans donnée de commerce ni session. Les captures sont de vraies captures de l'application
- * (mode aperçu, données de démonstration, voir docs/product/landing-page.md) et sont marquées comme telles.
+ * Page publique officielle (2026-11-10). Direction artistique : docs/design/direction-artistique.md ;
+ * état livré, preuves et limites : docs/product/landing-page.md.
+ * Composant serveur ; seuls l'en-tête, le ticket 3D et le mouvement sont des composants client isolés.
+ * Captures : vraies captures de l'application en mode aperçu (données de démonstration, marquées comme telles).
  */
 
-const container = "mx-auto w-full max-w-6xl px-4 sm:px-6";
-const sectionTitle = "m-0 font-heading text-[1.65rem] leading-tight font-extrabold tracking-tight text-ink rtl:leading-snug rtl:tracking-normal sm:text-[2.1rem]";
+const container = "mx-auto w-full max-w-[76rem] px-5 sm:px-8";
 
-function SectionHeading({ id, title, intro }: { id: string; title: string; intro?: string }) {
-  return (
-    <div className="max-w-2xl">
-      <h2 id={id} className={sectionTitle}>{title}</h2>
-      {intro && <p className="m-0 mt-3 text-base leading-relaxed text-fg-muted">{intro}</p>}
-    </div>
-  );
+/* Délai d'entrée d'un élément du hero, lu par landing.css. L'entrée est une animation CSS : elle part
+   dès le premier affichage, sans attendre le JavaScript, et ne retarde donc pas le LCP. */
+const delay = (ms: number) => ({ "--d": `${ms}ms` }) as CSSProperties;
+
+function receiptData(t: Translate, locale: Locale): ReceiptData {
+  const n = (value: number) => new Intl.NumberFormat(intlLocale[locale]).format(value);
+  const strip = (value: string) => value.replace(/[⁦-⁩]/g, "");
+  return {
+    dir: locale === "ar" ? "rtl" : "ltr",
+    shop: t("landing.receipt.shop"),
+    sale: t("landing.receipt.sale"),
+    lines: [
+      { label: t("landing.receipt.cement"), detail: `2 × ${n(6500)}`, amount: n(13000) },
+      { label: t("landing.receipt.cable"), detail: `${locale === "fr" ? "1,5" : "1.5"} m × ${n(900)}`, amount: n(1350) },
+    ],
+    totals: [
+      { label: t("landing.receipt.total"), amount: strip(formatXof("14350", locale)), strong: true },
+      { label: t("landing.receipt.wave"), amount: n(12000) },
+      { label: t("landing.receipt.credit"), amount: n(2350) },
+    ],
+    thanks: t("landing.receipt.thanks"),
+  };
 }
 
-function Wordmark({ t }: { t: Translate }) {
+function Hero({ t, locale }: { t: Translate; locale: Locale }) {
+  const points = [["devices", "grid"], ["languages", "globe"], ["barcode", "search"]] as const satisfies readonly (readonly [string, IconName])[];
   return (
-    <Link href="/" aria-label={t("landing.home")} className="inline-flex min-h-11 items-center gap-2.5 font-heading text-[1.05rem] font-extrabold tracking-tight text-ink no-underline">
-      <span className="grid size-9 place-items-center rounded-md bg-brand-gradient text-sm font-black text-white shadow-brand" aria-hidden="true">Q</span>
-      <span dir="ltr" className="whitespace-nowrap">QADR OPS</span>
-    </Link>
-  );
-}
-
-function Screens({ t, locale }: { t: Translate; locale: Locale }) {
-  return (
-    <figure className="relative m-0 mx-auto w-full max-w-xl lg:max-w-none" aria-label={t("landing.hero.shotsLabel")}>
-      {/* Ordinateur : capture de la vue d'ensemble (chargée seulement à partir de la tablette). */}
-      <div className="ms-auto hidden w-[88%] overflow-hidden rounded-xl border border-line bg-surface shadow-overlay md:block">
-        <div className="flex h-7 items-center gap-1.5 border-b border-line bg-surface-muted px-3" aria-hidden="true">
-          <i className="size-2.5 rounded-full bg-line-strong" /><i className="size-2.5 rounded-full bg-line-strong" /><i className="size-2.5 rounded-full bg-line-strong" />
+    <section id="hero" aria-labelledby="hero-title" className="relative isolate overflow-hidden bg-qadr-950 text-white">
+      <div aria-hidden="true" className="absolute inset-0 -z-20 bg-[radial-gradient(70%_60%_at_78%_35%,var(--color-qadr-800),transparent_72%),radial-gradient(60%_50%_at_10%_100%,var(--color-qadr-900),transparent_70%)]" />
+      <div aria-hidden="true" className="qadr-curves qadr-curves-hero absolute inset-0 -z-10 text-qadr-500" />
+      <div className={cn(container, "grid items-center gap-14 pt-32 pb-24 sm:pt-36 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] lg:gap-8 lg:pt-40 lg:pb-32")}>
+        <div className="min-w-0">
+          <h1 id="hero-title" className="m-0 font-display text-[clamp(2.8rem,8.4vw,6rem)] leading-[0.94] font-extrabold tracking-[-0.04em] rtl:leading-[1.22] rtl:tracking-normal">
+            <span className="block overflow-hidden pb-[0.08em]"><span data-hero-line style={delay(0)} className="block">{t("landing.hero.line1")}</span></span>{" "}
+            <span className="block overflow-hidden pb-[0.08em]"><span data-hero-line style={delay(90)} className="block">{t("landing.hero.line2")}</span></span>{" "}
+            <span className="block overflow-hidden pb-[0.08em]"><span data-hero-line style={delay(180)} className="block">{t("landing.hero.line3")}</span></span>
+          </h1>
+          <p data-hero-fade style={delay(380)} className="m-0 mt-7 max-w-[34rem] text-[1.08rem] leading-relaxed text-night-fg sm:text-[1.15rem]">{t("landing.hero.lede")}</p>
+          <div data-hero-fade style={delay(460)} className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <Link href="/register" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-7 font-semibold text-qadr-900 no-underline shadow-[0_14px_30px_-12px_rgb(0_0_0/0.45)] transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">
+              {t("landing.register")}<Icon name="forward" className="size-4.5 rtl:-scale-x-100" />
+            </Link>
+            <Link href="/login" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/35 px-7 font-semibold text-white no-underline transition-colors hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.login")}</Link>
+          </div>
+          <ul data-hero-fade style={delay(540)} className="m-0 mt-9 flex list-none flex-wrap gap-x-6 gap-y-2.5 p-0 text-[0.92rem] text-qadr-100">
+            {points.map(([key, icon]) => <li key={key} className="inline-flex items-center gap-2"><Icon name={icon} className="size-4 text-qadr-300" />{t(`landing.hero.points.${key}`)}</li>)}
+          </ul>
         </div>
-        <Image src={`/landing/dashboard-desktop-${locale}.png`} alt={t("landing.hero.desktopAlt")} width={1280} height={800} loading="eager" sizes="(min-width: 1024px) 560px, 88vw" className="block h-auto w-full" />
-      </div>
-      {/* Téléphone : capture de la caisse, toujours visible (premier plan sur ordinateur). */}
-      <div className="relative mx-auto w-[62%] max-w-[260px] md:absolute md:bottom-[-8%] md:start-0 md:w-[34%]">
-        <div className="overflow-hidden rounded-[1.6rem] border-[6px] border-night bg-night shadow-overlay">
-          <Image src={`/landing/pos-phone-${locale}.png`} alt={t("landing.hero.phoneAlt")} width={390} height={844} priority sizes="(min-width: 768px) 200px, 62vw" className="block h-auto w-full rounded-[1.1rem]" />
+
+        {/* Scène : vraie caisse sur téléphone, ticket (3D si possible), mascotte, questions du commerçant. */}
+        <div className="relative mx-auto aspect-[1/1.08] w-full max-w-[33rem] min-w-0 sm:aspect-[1.05/1]">
+          <div data-hero-device style={delay(150)} className="absolute start-[21%] top-0 w-[43%] -rotate-[5deg] rtl:rotate-[5deg]">
+            <div className="rounded-[2.3rem] bg-ink p-[4.5%] shadow-[0_40px_70px_-30px_rgb(0_0_0/0.65)] ring-1 ring-white/10">
+              <Image src={`/landing/pos-phone-${locale}.png`} alt={t("landing.hero.phoneAlt")} width={390} height={844} priority fetchPriority="high" sizes="(min-width: 1024px) 230px, 40vw" className="block h-auto w-full rounded-[1.85rem]" />
+            </div>
+          </div>
+          <div data-hero-device style={delay(300)} className="absolute end-[0%] top-[17%] w-[42%] sm:top-[21%] sm:w-[35%] rotate-[7deg] rtl:-rotate-[7deg]">
+            <ReceiptStage data={receiptData(t, locale)} label={t("landing.hero.receiptLabel")} />
+          </div>
+          <div data-hero-device style={delay(450)} className="absolute start-[-4%] bottom-[-3%] w-[40%] sm:start-[-2%]">
+            <Mascot className="w-full drop-shadow-[0_22px_24px_rgb(0_0_0/0.35)]" />
+          </div>
+          <p aria-hidden="true" data-bubble style={delay(950)} className="hero-bubble end-[0%] top-[4%]">{t("landing.hero.bubbles.stock")}</p>
+          <p aria-hidden="true" data-bubble style={delay(1150)} className="hero-bubble start-[-2%] top-[30%] hidden sm:block">{t("landing.hero.bubbles.credit")}</p>
+          <p aria-hidden="true" data-bubble style={delay(1350)} className="hero-bubble end-[2%] bottom-[-5%]">{t("landing.hero.bubbles.cash")}</p>
+          <p data-hero-fade style={delay(1100)} className="absolute start-0 -bottom-14 m-0 inline-flex w-full justify-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[0.78rem] font-semibold whitespace-nowrap text-qadr-100"><Icon name="info" className="size-3.5" />{t("landing.hero.demo")}</span>
+          </p>
         </div>
       </div>
-      <figcaption className="mt-4 flex justify-center md:mt-14 md:justify-end">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-warn-line bg-warn-soft px-3 py-1 text-xs font-semibold text-warn">
-          <Icon name="info" className="size-3.5" />{t("landing.hero.demo")}
-        </span>
-      </figcaption>
-    </figure>
+    </section>
   );
 }
 
-const problems = ["stock", "credit", "cash", "team"] as const;
-const problemIcons: Record<(typeof problems)[number], IconName> = { stock: "box", credit: "users", cash: "wallet", team: "shield" };
-const features = ["pos", "payments", "stock", "credit", "cash", "reports"] as const;
-const featureIcons: Record<(typeof features)[number], IconName> = { pos: "cart", payments: "receipt", stock: "layers", credit: "users", cash: "wallet", reports: "chart" };
-const more = ["suppliers", "inventory", "imports", "receipts", "team", "notifications", "install", "languages", "dataExport", "isolation"] as const;
-const sectors = ["hardware", "phones", "general", "clothing"] as const;
-const sectorIcons: Record<(typeof sectors)[number], IconName> = { hardware: "tag", phones: "activity", general: "store", clothing: "grid" };
-const steps = ["step1", "step2", "step3"] as const;
-const honest = ["online", "payments", "imports"] as const;
-const honestIcons: Record<(typeof honest)[number], IconName> = { online: "cloudOff", payments: "wallet", imports: "clipboard" };
-const faq = ["devices", "barcode", "staff", "data", "languages"] as const;
+function Benefits({ t }: { t: Translate }) {
+  const items = ["stock", "credit", "cash"] as const;
+  return (
+    <section aria-labelledby="benefits-title" className="bg-surface py-20 sm:py-28">
+      <div className={container}>
+        <h2 id="benefits-title" className="landing-h2 max-w-xl">{t("landing.benefits.title")}</h2>
+        <ul className="m-0 mt-12 list-none border-t border-line p-0">
+          {items.map((key) => (
+            <li key={key} className="grid gap-3 border-b border-line py-8 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] md:items-baseline md:gap-12 md:py-10">
+              <h3 className="m-0 font-display text-[clamp(1.6rem,3.4vw,2.6rem)] leading-[1.1] font-bold tracking-[-0.02em] text-ink rtl:leading-snug rtl:tracking-normal">{t(`landing.benefits.${key}.title`)}</h3>
+              <p className="m-0 max-w-lg text-[1.05rem] leading-relaxed text-fg-muted">{t(`landing.benefits.${key}.body`)}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function Sectors({ t }: { t: Translate }) {
+  const items = [["hardware", "tag"], ["phones", "activity"], ["general", "store"], ["clothing", "grid"]] as const satisfies readonly (readonly [string, IconName])[];
+  return (
+    <section id="sectors" aria-labelledby="sectors-title" className="scroll-mt-20 bg-canvas py-20 sm:py-28">
+      <div className={container}>
+        <div className="max-w-2xl">
+          <h2 id="sectors-title" className="landing-h2">{t("landing.sectors.title")}</h2>
+          <p className="m-0 mt-4 text-[1.05rem] leading-relaxed text-fg-muted">{t("landing.sectors.intro")}</p>
+        </div>
+        <ul className="m-0 mt-12 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
+          {items.map(([key, icon]) => (
+            <li key={key} className="flex min-w-0 flex-col rounded-[1.75rem] border border-line bg-surface p-6">
+              <p className="m-0 flex items-center gap-2 text-[0.95rem] font-semibold text-fg-muted"><Icon name={icon} className="size-4.5 text-brand" />{t(`landing.sectors.${key}.title`)}</p>
+              <p className="m-0 mt-8 font-display text-[clamp(1.7rem,2.6vw,2.15rem)] leading-[1.05] font-bold tracking-[-0.02em] break-words text-brand rtl:leading-snug rtl:tracking-normal">{t(`landing.sectors.${key}.example`)}</p>
+              <p className="m-0 mt-4 leading-relaxed text-fg-muted">{t(`landing.sectors.${key}.body`)}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function Features({ t, locale }: { t: Translate; locale: Locale }) {
+  const groups = [
+    { key: "sell", items: ["landing.features.sell.pos", "landing.features.sell.split", "landing.features.sell.receipt", "landing.features.sell.receiptLang"] },
+    { key: "stock", items: ["landing.features.stock.opening", "landing.features.stock.moves", "landing.features.stock.count", "landing.features.stock.import"] },
+    { key: "money", items: ["landing.features.money.credit", "landing.features.money.debts", "landing.features.money.till", "landing.features.money.suppliers"] },
+    { key: "team", items: ["landing.features.team.roles", "landing.features.team.reports", "landing.features.team.export", "landing.features.team.isolation"] },
+  ] as const;
+  return (
+    <section id="features" aria-labelledby="features-title" className="scroll-mt-20 bg-surface py-20 sm:py-28">
+      <div className={container}>
+        <div className="max-w-2xl">
+          <h2 id="features-title" className="landing-h2">{t("landing.features.title")}</h2>
+          <p className="m-0 mt-4 text-[1.05rem] leading-relaxed text-fg-muted">{t("landing.features.intro")}</p>
+        </div>
+        <div className="mt-12 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+          {groups.map((group) => (
+            <div key={group.key} className="min-w-0 border-t-2 border-qadr-950 pt-5">
+              <h3 className="m-0 font-display text-[1.3rem] font-bold text-ink">{t(`landing.features.${group.key}.title`)}</h3>
+              <ul className="m-0 mt-4 grid list-none gap-3 p-0">
+                {group.items.map((item) => <li key={item} className="flex items-start gap-2.5 leading-relaxed text-fg"><Icon name="check" className="mt-1 size-4 shrink-0 text-brand" />{t(item)}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <figure className="m-0 mt-16">
+          <div className="overflow-hidden rounded-[1.4rem] border border-line bg-surface shadow-overlay">
+            <div className="flex h-8 items-center gap-1.5 border-b border-line bg-surface-muted px-4" aria-hidden="true">
+              <i className="size-2.5 rounded-full bg-line-strong" /><i className="size-2.5 rounded-full bg-line-strong" /><i className="size-2.5 rounded-full bg-line-strong" />
+            </div>
+            <Image src={`/landing/dashboard-desktop-${locale}.png`} alt={t("landing.features.shotAlt")} width={1280} height={800} sizes="(min-width: 1216px) 1152px, 92vw" className="block h-auto w-full" />
+          </div>
+          <figcaption className="mt-3 flex justify-end">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-warn-line bg-warn-soft px-3 py-1 text-[0.78rem] font-semibold text-warn"><Icon name="info" className="size-3.5" />{t("landing.hero.demo")}</span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+  );
+}
+
+/** Témoignages : aucun témoignage réel n'a été recueilli. La liste est vide et la section ne s'affiche pas.
+    N'ajouter ici que des propos réels, avec l'accord écrit du commerçant (docs/product/landing-page.md). */
+type Testimonial = { quote: string; name: string; business: string; city: string };
+const testimonials: Testimonial[] = [];
+
+function Testimonials({ t }: { t: Translate }) {
+  if (testimonials.length === 0) return null;
+  return (
+    <section aria-labelledby="testimonials-title" className="bg-surface pb-20 sm:pb-28">
+      <div className={container}>
+        <h2 id="testimonials-title" className="landing-h2">{t("landing.testimonials.title")}</h2>
+        <ul className="m-0 mt-10 grid list-none gap-5 p-0 md:grid-cols-2">
+          {testimonials.map((item) => (
+            <li key={item.name} className="rounded-[1.75rem] bg-qadr-50 p-7">
+              <blockquote className="m-0 font-display text-[1.3rem] leading-snug text-ink">{item.quote}</blockquote>
+              <p className="m-0 mt-4 text-fg-muted"><span className="font-semibold text-ink">{item.name}</span>, {item.business}, {item.city}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function Integrations({ t }: { t: Translate }) {
+  const columns = [
+    { key: "live", dot: "bg-ok", items: ["landing.integrations.live.mobile", "landing.integrations.live.files", "landing.integrations.live.pdf", "landing.integrations.live.print", "landing.integrations.live.install"] },
+    { key: "testing", dot: "bg-warn", items: ["landing.integrations.testing.geniuspay", "landing.integrations.testing.thermal", "landing.integrations.testing.push"] },
+    { key: "planned", dot: "border-2 border-fg-subtle bg-transparent", items: ["landing.integrations.planned.offline", "landing.integrations.planned.photos", "landing.integrations.planned.operators"] },
+  ] as const;
+  return (
+    <section aria-labelledby="integrations-title" className="bg-canvas py-20 sm:py-28">
+      <div className={container}>
+        <div className="max-w-2xl">
+          <h2 id="integrations-title" className="landing-h2">{t("landing.integrations.title")}</h2>
+          <p className="m-0 mt-4 text-[1.05rem] leading-relaxed text-fg-muted">{t("landing.integrations.intro")}</p>
+        </div>
+        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+          {columns.map((column) => (
+            <div key={column.key} className="min-w-0 rounded-[1.75rem] border border-line bg-surface p-6 sm:p-7">
+              <h3 className="m-0 flex items-center gap-2.5 text-[1.05rem] font-bold text-ink"><span aria-hidden="true" className={cn("size-2.5 rounded-full", column.dot)} />{t(`landing.integrations.${column.key}.title`)}</h3>
+              <ul className="m-0 mt-5 grid list-none gap-3.5 p-0">
+                {column.items.map((item) => <li key={item} className="border-t border-line pt-3.5 leading-relaxed text-fg">{t(item)}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Faq({ t }: { t: Translate }) {
+  const items = ["devices", "barcode", "staff", "offline", "payments", "imports", "data", "languages"] as const;
+  return (
+    <section id="faq" aria-labelledby="faq-title" className="scroll-mt-20 bg-canvas py-20 sm:py-28">
+      <div className={cn(container, "grid gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-16")}>
+        <div className="lg:sticky lg:top-28 lg:self-start">
+          <h2 id="faq-title" className="landing-h2">{t("landing.faq.title")}</h2>
+          <Mascot className="mt-10 hidden w-36 lg:block" />
+        </div>
+        <div className="min-w-0 divide-y divide-line border-y border-line">
+          {items.map((key) => (
+            <details key={key} className="group">
+              <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 py-4 text-start text-[1.08rem] font-semibold text-ink [&::-webkit-details-marker]:hidden">
+                {t(`landing.faq.${key}.q`)}
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface text-brand ring-1 ring-line transition-transform duration-200 group-open:rotate-45 motion-reduce:transition-none" aria-hidden="true"><Icon name="plus" className="size-4" /></span>
+              </summary>
+              <p className="m-0 max-w-2xl pb-6 leading-relaxed text-fg-muted">{t(`landing.faq.${key}.a`)}</p>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Closing({ t }: { t: Translate }) {
+  const year = new Date().getFullYear();
+  const linkClass = "inline-flex min-h-11 items-center text-qadr-100 no-underline hover:text-white";
+  return (
+    <footer className="relative isolate overflow-hidden bg-qadr-950 text-white">
+      <div aria-hidden="true" className="qadr-curves qadr-curves-footer absolute inset-0 -z-10 text-qadr-600" />
+      <section aria-labelledby="cta-title" className={cn(container, "grid items-center gap-10 pt-24 pb-20 sm:pt-28 md:grid-cols-[minmax(0,1fr)_auto]")}>
+        <div className="min-w-0">
+          <h2 id="cta-title" className="m-0 max-w-3xl font-display text-[clamp(2.3rem,5.6vw,4.4rem)] leading-[1] font-extrabold tracking-[-0.035em] rtl:leading-[1.25] rtl:tracking-normal">{t("landing.cta.title")}</h2>
+          <p className="m-0 mt-5 max-w-xl text-[1.08rem] leading-relaxed text-night-fg">{t("landing.cta.body")}</p>
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <Link href="/register" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-7 font-semibold text-qadr-900 no-underline transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.cta.primary")}<Icon name="forward" className="size-4.5 rtl:-scale-x-100" /></Link>
+            <Link href="/login" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/35 px-7 font-semibold text-white no-underline transition-colors hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.cta.secondary")}</Link>
+          </div>
+        </div>
+        <Mascot className="mx-auto w-44 md:w-60" />
+      </section>
+      <div className={cn(container, "grid gap-10 border-t border-white/15 py-12 text-[0.95rem] sm:grid-cols-3 md:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]")}>
+        <div className="min-w-0 sm:col-span-3 md:col-span-1">
+          <BrandMark />
+          <p className="m-0 mt-3 max-w-xs leading-relaxed text-night-fg">{t("landing.footer.tagline")}</p>
+        </div>
+        <nav aria-labelledby="footer-product"><h2 id="footer-product" className="m-0 text-[0.95rem] font-semibold text-white">{t("landing.footer.product")}</h2>
+          <ul className="m-0 mt-2 list-none p-0">{(["features", "day", "pricing", "faq"] as const).map((key) => <li key={key}><a href={`#${key}`} className={linkClass}>{t(`landing.nav.${key}`)}</a></li>)}</ul>
+        </nav>
+        <nav aria-labelledby="footer-account"><h2 id="footer-account" className="m-0 text-[0.95rem] font-semibold text-white">{t("landing.footer.account")}</h2>
+          <ul className="m-0 mt-2 list-none p-0"><li><Link href="/register" className={linkClass}>{t("landing.register")}</Link></li><li><Link href="/login" className={linkClass}>{t("landing.login")}</Link></li></ul>
+        </nav>
+        <nav aria-labelledby="footer-info"><h2 id="footer-info" className="m-0 text-[0.95rem] font-semibold text-white">{t("landing.footer.info")}</h2>
+          <ul className="m-0 mt-2 list-none p-0"><li><Link href="/privacy" className={linkClass}>{t("landing.footer.privacy")}</Link></li></ul>
+        </nav>
+      </div>
+      <div className={cn(container, "flex flex-col gap-1 border-t border-white/15 py-6 text-[0.85rem] text-night-fg sm:flex-row sm:justify-between")}>
+        <p className="m-0">{t("landing.footer.editor")}</p>
+        <p className="m-0">{t("landing.footer.rights", { year })}</p>
+      </div>
+    </footer>
+  );
+}
 
 export function LandingPage({ t, locale }: { t: Translate; locale: Locale }) {
-  const year = new Date().getFullYear();
   return (
-    <div className="min-h-dvh bg-canvas text-fg">
+    <div data-landing className={cn(displayFont.variable, "min-h-dvh bg-canvas text-fg")}>
       <a href="#contenu" className="sr-only focus:not-sr-only focus:fixed focus:start-3 focus:top-3 focus:z-50 focus:rounded-full focus:bg-surface focus:px-4 focus:py-2 focus:font-semibold focus:text-ink focus:shadow-raised">{t("landing.skip")}</a>
-
-      <header className="sticky top-0 z-40 border-b border-line/70 bg-canvas/85 backdrop-blur-md">
-        <div className={cn(container, "flex min-h-16 items-center gap-3")}>
-          <Wordmark t={t} />
-          <nav aria-label={t("landing.nav.label")} className="ms-6 hidden lg:block">
-            <ul className="m-0 flex list-none gap-1 p-0">
-              {(["features", "sectors", "how", "faq"] as const).map((key) => (
-                <li key={key}><a href={`#${key}`} className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-semibold text-fg-muted no-underline hover:bg-surface hover:text-ink">{t(`landing.nav.${key}`)}</a></li>
-              ))}
-            </ul>
-          </nav>
-          <div className="ms-auto flex items-center gap-2">
-            <LanguageSwitcher />
-            <Link href="/login" className="hidden min-h-11 items-center rounded-full px-3 text-sm font-semibold whitespace-nowrap text-brand-strong no-underline hover:bg-brand-soft sm:inline-flex">{t("landing.login")}</Link>
-            <span className="hidden sm:inline-flex"><Link href="/register" className={buttonClasses({ variant: "cta", className: "whitespace-nowrap no-underline" })}>{t("landing.register")}</Link></span>
-          </div>
-        </div>
-      </header>
-
+      <LandingHeader />
       <main id="contenu" tabIndex={-1} className="outline-none">
-        {/* Présentation */}
-        <section aria-labelledby="hero-title" className="relative overflow-hidden">
-          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[36rem] bg-[radial-gradient(60%_60%_at_80%_10%,rgb(91_77_242/16%),transparent_70%)]" />
-          <div className={cn(container, "relative grid items-center gap-12 pt-10 pb-20 sm:pt-14 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:pt-20 lg:pb-28")}>
-            <div>
-              <p className="m-0 inline-flex items-center gap-2 rounded-2xl border border-brand-tint bg-surface px-3 py-1.5 text-[0.8rem] leading-snug font-semibold text-brand-strong">
-                <span className="size-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true" />{t("landing.hero.kicker")}
-              </p>
-              <h1 id="hero-title" className="m-0 mt-5 font-heading text-[2.15rem] leading-[1.08] font-extrabold tracking-tight text-ink rtl:leading-[1.3] rtl:tracking-normal sm:text-5xl lg:text-[3.4rem]">{t("landing.hero.title")}</h1>
-              <p className="m-0 mt-5 max-w-xl text-[1.05rem] leading-relaxed text-fg-muted sm:text-lg">{t("landing.hero.lede")}</p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link href="/register" className={buttonClasses({ variant: "cta", size: "lg", className: "no-underline" })}>
-                  {t("landing.register")}<Icon name="forward" className="size-4.5" />
-                </Link>
-                <Link href="/login" className={buttonClasses({ variant: "secondary", size: "lg", className: "no-underline" })}>{t("landing.login")}</Link>
-              </div>
-              <p className="m-0 mt-5 flex items-start gap-2 text-sm text-fg-subtle"><Icon name="check" className="mt-0.5 size-4 text-ok" />{t("landing.hero.note")}</p>
-            </div>
-            <Screens t={t} locale={locale} />
-          </div>
-        </section>
-
-        {/* Problèmes résolus */}
-        <section aria-labelledby="problems-title" className="bg-surface py-16 sm:py-24">
-          <div className={container}>
-            <SectionHeading id="problems-title" title={t("landing.problems.title")} intro={t("landing.problems.intro")} />
-            <ul className="m-0 mt-10 grid list-none gap-4 p-0 sm:grid-cols-2">
-              {problems.map((key) => (
-                <li key={key} className="flex gap-4 rounded-xl border border-line bg-paper p-5 sm:p-6">
-                  <span className="grid size-11 shrink-0 place-items-center rounded-md bg-brand-soft text-brand-strong"><Icon name={problemIcons[key]} /></span>
-                  <div>
-                    <h3 className="m-0 text-[1.05rem] font-bold text-ink">{t(`landing.problems.${key}.q`)}</h3>
-                    <p className="m-0 mt-2 leading-relaxed text-fg-muted">{t(`landing.problems.${key}.a`)}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        {/* Fonctions */}
-        <section id="features" aria-labelledby="features-title" className="scroll-mt-20 py-16 sm:py-24">
-          <div className={container}>
-            <SectionHeading id="features-title" title={t("landing.features.title")} intro={t("landing.features.intro")} />
-            <ul className="m-0 mt-10 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-3">
-              {features.map((key) => (
-                <li key={key} className="rounded-xl border border-line bg-surface p-6 shadow-card">
-                  <span className="grid size-11 place-items-center rounded-md bg-brand-gradient text-white shadow-brand"><Icon name={featureIcons[key]} /></span>
-                  <h3 className="m-0 mt-5 text-lg font-bold text-ink">{t(`landing.features.${key}.title`)}</h3>
-                  <p className="m-0 mt-2 leading-relaxed text-fg-muted">{t(`landing.features.${key}.body`)}</p>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-10 rounded-xl border border-line bg-paper p-6 sm:p-8">
-              <h3 className="m-0 text-lg font-bold text-ink">{t("landing.features.moreTitle")}</h3>
-              <ul className="m-0 mt-4 grid list-none gap-x-8 gap-y-3 p-0 sm:grid-cols-2">
-                {more.map((key) => (
-                  <li key={key} className="flex items-start gap-2.5 leading-relaxed text-fg"><Icon name="check" className="mt-1 size-4 text-ok" />{t(`landing.features.more.${key}`)}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        {/* Secteurs */}
-        <section id="sectors" aria-labelledby="sectors-title" className="scroll-mt-20 bg-night-gradient py-16 text-night-fg sm:py-24">
-          <div className={container}>
-            <div className="max-w-2xl">
-              <h2 id="sectors-title" className={cn(sectionTitle, "text-white")}>{t("landing.sectors.title")}</h2>
-              <p className="m-0 mt-3 text-base leading-relaxed">{t("landing.sectors.intro")}</p>
-            </div>
-            <ul className="m-0 mt-10 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
-              {sectors.map((key) => (
-                <li key={key} className="rounded-xl border border-night-line bg-night-soft p-6">
-                  <span className="grid size-11 place-items-center rounded-md bg-night text-brand-tint"><Icon name={sectorIcons[key]} /></span>
-                  <h3 className="m-0 mt-5 text-lg font-bold text-white">{t(`landing.sectors.${key}.title`)}</h3>
-                  <p className="m-0 mt-2 leading-relaxed">{t(`landing.sectors.${key}.body`)}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        {/* Démarrer */}
-        <section id="how" aria-labelledby="how-title" className="scroll-mt-20 py-16 sm:py-24">
-          <div className={container}>
-            <SectionHeading id="how-title" title={t("landing.how.title")} />
-            <ol className="m-0 mt-10 grid list-none gap-4 p-0 lg:grid-cols-3">
-              {steps.map((key, index) => (
-                <li key={key} className="relative rounded-xl border border-line bg-surface p-6 shadow-card">
-                  <span className="grid size-10 place-items-center rounded-full bg-brand-soft font-heading text-base font-extrabold text-brand-strong" aria-hidden="true">{index + 1}</span>
-                  <h3 className="m-0 mt-4 text-lg font-bold text-ink">{t(`landing.how.${key}.title`)}</h3>
-                  <p className="m-0 mt-2 leading-relaxed text-fg-muted">{t(`landing.how.${key}.body`)}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
-        {/* Limites dites clairement */}
-        <section aria-labelledby="honest-title" className="pb-16 sm:pb-24">
-          <div className={container}>
-            <div className="rounded-2xl border border-line bg-paper p-6 sm:p-10">
-              <h2 id="honest-title" className="m-0 font-heading text-xl font-extrabold text-ink sm:text-2xl">{t("landing.honest.title")}</h2>
-              <ul className="m-0 mt-6 grid list-none gap-6 p-0 lg:grid-cols-3">
-                {honest.map((key) => (
-                  <li key={key} className="flex gap-3">
-                    <span className="grid size-10 shrink-0 place-items-center rounded-md bg-surface text-fg-muted ring-1 ring-line"><Icon name={honestIcons[key]} /></span>
-                    <div>
-                      <h3 className="m-0 font-bold text-ink">{t(`landing.honest.${key}.title`)}</h3>
-                      <p className="m-0 mt-1.5 text-[0.95rem] leading-relaxed text-fg-muted">{t(`landing.honest.${key}.body`)}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        {/* Questions fréquentes */}
-        <section id="faq" aria-labelledby="faq-title" className="scroll-mt-20 bg-surface py-16 sm:py-24">
-          <div className={cn(container, "max-w-3xl")}>
-            <h2 id="faq-title" className={sectionTitle}>{t("landing.faq.title")}</h2>
-            <div className="mt-8 divide-y divide-line border-y border-line">
-              {faq.map((key) => (
-                <details key={key} className="group">
-                  <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 py-4 text-start text-[1.02rem] font-bold text-ink [&::-webkit-details-marker]:hidden">
-                    {t(`landing.faq.${key}.q`)}
-                    <Icon name="chevronDown" className="text-fg-subtle transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none" />
-                  </summary>
-                  <p className="m-0 pb-5 leading-relaxed text-fg-muted">{t(`landing.faq.${key}.a`)}</p>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Appel final */}
-        <section aria-labelledby="cta-title" className="py-16 sm:py-24">
-          <div className={container}>
-            <div className="rounded-2xl bg-brand-glow px-6 py-12 text-center text-white shadow-raised sm:px-12">
-              <h2 id="cta-title" className="m-0 font-heading text-[1.65rem] leading-tight font-extrabold sm:text-[2.1rem]">{t("landing.cta.title")}</h2>
-              <p className="m-0 mx-auto mt-3 max-w-xl text-white/90">{t("landing.cta.body")}</p>
-              <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-                <Link href="/register" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-6 font-semibold text-brand-strong no-underline hover:bg-brand-soft focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white">
-                  {t("landing.cta.primary")}<Icon name="forward" className="size-4.5" />
-                </Link>
-                <Link href="/login" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/50 px-6 font-semibold text-white no-underline hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white">{t("landing.cta.secondary")}</Link>
-              </div>
-            </div>
-          </div>
-        </section>
+        <Hero t={t} locale={locale} />
+        <Benefits t={t} />
+        <Sectors t={t} />
+        <DaySection t={t} locale={locale} container={container} />
+        <Features t={t} locale={locale} />
+        <Testimonials t={t} />
+        <Integrations t={t} />
+        <PricingSection t={t} locale={locale} container={container} />
+        <Faq t={t} />
       </main>
-
-      <footer className="border-t border-line bg-surface py-10">
-        <div className={cn(container, "flex flex-col gap-4 text-sm text-fg-muted sm:flex-row sm:items-center sm:justify-between")}>
-          <div>
-            <Wordmark t={t} />
-            <p className="m-0 mt-1">{t("landing.footer.tagline")}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4">
-            <Link href="/privacy" className="inline-flex min-h-11 items-center font-semibold text-fg-muted no-underline hover:text-ink">{t("landing.footer.privacy")}</Link>
-            <Link href="/login" className="inline-flex min-h-11 items-center font-semibold text-fg-muted no-underline hover:text-ink">{t("landing.login")}</Link>
-            <span>{t("landing.footer.rights", { year })}</span>
-          </div>
-        </div>
-      </footer>
+      <Closing t={t} />
+      <LandingMotion />
     </div>
   );
 }

@@ -18,9 +18,9 @@ gsap.registerPlugin(useGSAP);
 
 type Tier = "high" | "low";
 const colors = {
-  plinth: "#dcd8fb", plinthEdge: "#c9c3fb", night: "#1b1a2e", nightSoft: "#2a2942", wall: "#fbfaff", floor: "#efedfb",
-  brand: "#5b4df2", brandSoft: "#8b80f9", glass: "#cfc9fd", warm: "#ff9f7a", sand: "#d8cfbf", sandDark: "#b9ad98",
-  steel: "#6e6c8a", leaf: "#3f9c74", bulb: "#ffd166", white: "#ffffff",
+  plinth: "#dbe5fa", plinthEdge: "#c5d4f7", night: "#03108e", nightSoft: "#0b1ea6", wall: "#fbfcff", floor: "#edf2fb",
+  brand: "#1853d7", brandSoft: "#5d88e8", glass: "#c3d4f8", warm: "#95b1f0", sand: "#d8cfbf", sandDark: "#b9ad98",
+  steel: "#636c82", leaf: "#3f9c74", bulb: "#ffd166", white: "#ffffff",
 };
 
 /** Apparition pilotée par GSAP ; chaque image demandée par onUpdate (frameloop à la demande). */
@@ -130,8 +130,8 @@ function Sign({ text, logo, tier }: { text: string; logo: string | null; tier: T
       const k = width / 1024;
       const context = canvas.getContext("2d")!;
       const gradient = context.createLinearGradient(0, 0, width, height);
-      gradient.addColorStop(0, "#5b4df2");
-      gradient.addColorStop(1, "#7f74f8");
+      gradient.addColorStop(0, "#1853d7");
+      gradient.addColorStop(1, "#3168df");
       context.clearRect(0, 0, width, height);
       context.fillStyle = gradient;
       context.beginPath();

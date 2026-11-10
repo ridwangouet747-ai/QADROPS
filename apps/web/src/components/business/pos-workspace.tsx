@@ -296,7 +296,7 @@ export function PosWorkspace() {
               {mobilePartExists && <p className="m-0 rounded-[12px] bg-warn-soft p-2.5 text-xs text-warn">{t("pos.pendingNote")}</p>}
             </fieldset>
 
-            {/* Totaux en panneau violet, comme le détail de la référence */}
+            {/* Totaux en panneau bleu royal, comme le détail de la référence */}
             <div className="grid gap-3 rounded-[20px] bg-brand-glow p-4 text-white shadow-raised">
               <div className="grid gap-1.5 sm:grid-cols-3 sm:gap-2">
                 {[["pos.cashConfirmed", confirmedCash], ["pos.entered", paymentsTotal], ["pos.balanceDue", balance]].map(([key, value]) => (

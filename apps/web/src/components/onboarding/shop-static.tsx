@@ -14,11 +14,11 @@ function Layer({ show, children }: { show: boolean; children: ReactNode }) {
 }
 
 export function ShopStatic({ plan, logo }: { plan: ScenePlan; logo: string }) {
-  const c = { night: "#1b1a2e", soft: "#2a2942", brand: "#5b4df2", brandSoft: "#8b80f9", lav: "#eeecfe", plinth: "#c9c3fb", glass: "#d9d4fd", warm: "#ff9f7a", sand: "#d8cfbf", leaf: "#3f9c74", bulb: "#ffd166", steel: "#6e6c8a" };
+  const c = { night: "#03108e", soft: "#0b1ea6", brand: "#1853d7", brandSoft: "#5d88e8", lav: "#e6edfc", plinth: "#c5d4f7", glass: "#cddcf9", warm: "#95b1f0", sand: "#d8cfbf", leaf: "#3f9c74", bulb: "#ffd166", steel: "#636c82" };
   return (
     <div className="absolute inset-0 grid place-items-center [container-type:size]">
       <svg viewBox="0 0 480 360" className="aspect-[4/3] w-[min(100%,560px,133.33cqh)]" aria-hidden="true">
-        <ellipse cx="240" cy="300" rx="200" ry="24" fill="#e4e1f6" />
+        <ellipse cx="240" cy="300" rx="200" ry="24" fill="#e1e8f5" />
         <rect x="60" y="268" width="360" height="24" rx="12" fill={c.plinth} />
         <rect x="90" y="252" width="300" height="20" rx="6" fill={c.night} />
         <Layer show={plan.structure}>

@@ -31,7 +31,7 @@ export function StatCard({ label, value, hint, icon, iconTone = "brand", childre
 }
 
 /**
- * Histogramme léger en CSS (aucune bibliothèque) : barres lavande, la dernière en violet.
+ * Histogramme léger en CSS (aucune bibliothèque) : barres bleu pâle, la dernière en bleu royal.
  * Les valeurs sont des nombres d'affichage ; l'étiquette accessible porte le détail.
  */
 export function BarChart({ data, label }: { data: { key: string; label: string; value: number; title: string }[]; label: string }) {

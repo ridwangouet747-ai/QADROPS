@@ -8,6 +8,12 @@
       "port": 3001
     },
     {
+      "name": "qadr-web-local-production",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/web", "run", "start", "--", "-p", "3005"],
+      "port": 3005
+    },
+    {
       "name": "qadr-web-preview-slow-network",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "apps/web", "run", "preview"],

@@ -25,7 +25,7 @@ const cardTones: Record<CardTone, string> = {
   brand: "border-transparent bg-brand-glow text-white shadow-raised",
 };
 
-/** Carte arrondie : blanche par défaut, bleu nuit pour les panneaux forts, dégradé violet pour le détail sélectionné. */
+/** Carte arrondie : blanche par défaut, bleu nuit pour les panneaux forts, dégradé bleu royal pour le détail sélectionné. */
 export function Card({ className, tone = "surface", ...props }: HTMLAttributes<HTMLElement> & { tone?: CardTone }) {
   return <section className={cn("rounded-xl border p-4 sm:p-5", cardTones[tone], className)} {...props} />;
 }

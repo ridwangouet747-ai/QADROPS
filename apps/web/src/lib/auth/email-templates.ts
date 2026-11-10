@@ -11,7 +11,7 @@ import { emailMessages } from "./email-messages";
  */
 
 const font = "-apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Noto Sans Arabic', Tahoma, Arial, sans-serif";
-const colors = { canvas: "#f3f2fb", night: "#1b1a2e", brand: "#5b4df2", link: "#4338ca", ink: "#1b1a2e", muted: "#4a4867", subtle: "#6b6987", paper: "#f3f2fb" };
+const colors = { canvas: "#f5f7fa", night: "#03108e", brand: "#1853d7", link: "#042eb7", ink: "#171b26", muted: "#4a5267", subtle: "#5f6880", paper: "#f5f7fa" };
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 

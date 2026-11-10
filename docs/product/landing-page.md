@@ -1,95 +1,152 @@
-# Page publique `/` : état livré (mission 16)
+# Page publique `/` : état livré
 
-Ce document complète le cahier des charges `landing-page-plan.md` : il dit ce qui est construit, sur quels faits
-et avec quelles hypothèses. **La page n'est pas déployée.** Elle est vérifiée en local uniquement.
+Ce document complète le cahier des charges `landing-page-plan.md` et la direction artistique
+`docs/design/direction-artistique.md`. Il dit ce qui est construit, sur quels faits et avec quelles hypothèses.
+**La page n'est pas déployée.** Elle est vérifiée en local uniquement.
+
+Historique : une première version (mission 16, lot F) reprenait la direction de l'application (violet, Plus
+Jakarta Sans). Elle est remplacée le 2026-11-10 par la version « cahier de la boutique », en bleu roi.
 
 ## 1. Fichiers
 
 | Fichier | Rôle |
 | --- | --- |
 | `apps/web/src/app/page.tsx` | Route `/` : métadonnées traduites, Open Graph, données structurées `SoftwareApplication` (sans note, avis ni prix) |
-| `apps/web/src/components/landing/landing-page.tsx` | Composant serveur de la page, sans JavaScript client propre (sélecteur de langue mis à part) |
-| `apps/web/src/lib/i18n/messages/landing.ts` | Textes fr/en/ar, typés par `Shape` (parité vérifiée par `messages.test.ts`) |
-| `apps/web/src/app/robots.ts` | Tout interdit hors `VERCEL_ENV=production` ; en production, seule la partie publique est indexable |
-| `apps/web/public/landing/*.png` | Six captures : tableau de bord (1280 × 800) et caisse sur téléphone (390 × 844), en fr/en/ar |
-
-L'ancienne page d'accueil, qui affichait une maquette fictive en français seulement, reste dans l'historique
-Git. `sector-picker.tsx` et les classes de `legacy.css` qu'elle utilisait sont conservés.
+| `components/landing/landing-page.tsx` | Composant serveur : hero, bénéfices, métiers, fonctions, intégrations, FAQ, pied de page |
+| `components/landing/day-section.tsx` | « Une journée à la boutique » : six moments horodatés, fragments d'écran en HTML |
+| `components/landing/pricing-section.tsx` | Tarifs lus en base (composant serveur asynchrone) |
+| `components/landing/landing-header.tsx` | En-tête fixe, menu sur téléphone et tablette (client) |
+| `components/landing/landing-motion.tsx` | GSAP + ScrollTrigger pour la journée seulement (client) |
+| `components/landing/receipt*.ts(x)` | Ticket d'exemple : HTML (rendu serveur, repli) et 3D Three.js facultative |
+| `components/landing/mascot.tsx` | Mascotte SVG **provisoire** et marque « Qadr Ops » |
+| `components/landing/landing.css`, `fonts.ts` | Styles propres à la page (motifs, entrée du hero), police Rubik |
+| `lib/domain/public-plans.ts` | Lecture des formules publiées (`subscription_plan`), cache 10 min |
+| `lib/i18n/messages/landing.ts` | Textes fr/en/ar, typés par `Shape` (parité vérifiée par `messages.test.ts`) |
+| `public/patterns/qadr-curves.svg`, `qadr-links.svg` | Points ondulés (export Durves fourni) et maillons entrelacés |
+| `public/landing/*.png` | Six captures : tableau de bord (1280 × 800) et caisse (390 × 844), en fr/en/ar |
+| `app/robots.ts` | Tout interdit hors `VERCEL_ENV=production` |
 
 ## 2. Inventaire : chaque promesse et sa preuve dans le code
 
 | Affirmation de la page | Vérifié dans |
 | --- | --- |
-| Caisse avec recherche, sans code-barres obligatoire | `/business/sales`, recherche textuelle par nom, référence ou SKU |
-| Espèces, Wave, Orange Money, MTN MoMo **enregistrés** (pas encaissés en ligne) | liste des moyens de paiement de la vente ; aucune intégration Mobile Money des ventes |
-| Une vente envoyée deux fois n'est enregistrée qu'une fois | `runIdempotent`, clé `Idempotency-Key` |
-| Stock, mouvements, inventaire | `stock`, `inventory`, `setVariantStock` |
-| Crédits clients et paiements partiels | dettes et paiements des clients |
-| Ouverture et clôture de caisse, avec écart | `cash-session.ts`, `cashDifference` |
-| Rapports jour/semaine/mois/année et exports Excel/CSV/PDF | `reports.ts`, `lib/exports/` ; la page précise que le PDF n’existe qu’en français et en anglais (422 en arabe) |
-| Rôles (caissier, gestionnaire de stock…) | `lib/auth/permissions.ts` |
-| Numéros de série pour les téléphones, taille et couleur pour les vêtements | `trackSerial`, variantes taille/couleur |
-| Ticket dans une autre langue que l'écran | paramètre de langue du ticket (`receipt-document.ts`) |
-| Import de catalogue CSV/Excel | `/business/imports` ; **PDF et photos non annoncés** (D-03) |
-| Notifications **dans l'application** | boîte de notifications ; les notifications push ne sont pas annoncées (aucun appareil réel testé) |
+| Caisse avec recherche, sans code-barres obligatoire | caisse : recherche par nom, référence ou SKU |
+| Espèces, Wave, Orange Money, MTN MoMo **enregistrés par le commerçant** (pas reçus en ligne) | moyens de paiement de la vente ; aucune intégration Mobile Money des ventes |
+| Plusieurs paiements dans une même vente, reste à crédit | paiements partiels, solde client |
+| Stock de départ distinct d'un achat, mouvements avec auteur, inventaire avec écarts | `writeStockOpening`, mouvements de stock, inventaire |
+| Caisse du jour : ouverture, mouvements, clôture, écart ; caisse clôturée figée | `cash-session.ts`, déclencheur de gel |
+| Rapports jour → année, exports Excel/CSV/PDF (PDF en fr/en seulement) | `reports.ts`, `lib/exports/` |
+| Rôles (un caissier ne voit pas les réglages) | `lib/auth/permissions.ts` |
+| Téléphonie : « chaque modèle et ses déclinaisons ont leur propre stock et leur référence » | variantes de produit (`on_hand` et SKU par variante). **Pas de suivi des numéros de série** : `trackSerial` n'est qu'un indicateur, la page ne le promet plus |
+| Vêtements : taille et couleur rattachées au même article | variantes |
+| Quantités décimales (1,5 m) | quantités `numeric` |
+| Ticket dans une autre langue que l'écran, imprimé depuis le navigateur | `receipt-document.ts`, impression navigateur |
+| Import de catalogue CSV/Excel vérifié avant l'enregistrement | `/business/imports` (rien n'est écrit avant confirmation) |
+| Export complet des données du commerce par le propriétaire | `GET /api/business/data-export` |
+| Un espace séparé par commerce | isolation par `business_id`, `tenant-isolation.http.test.ts` |
 | Installable sur l'écran d'accueil | manifeste et service worker (`docs/pwa.md`) |
-| Export complet des données | `GET /api/business/data-export` |
-| Chaque commerce a son espace séparé | isolation par `business_id`, `tenant-isolation.http.test.ts` |
 
-Le bloc « Ce que Qadr Ops ne fait pas encore » le dit en clair :
-- pas de fonctionnement hors ligne ;
-- les paiements Mobile Money des ventes sont saisis, pas reçus automatiquement ;
-- les PDF et les photos ne sont pas encore importés.
+Section « Ce qui est branché, et ce qui ne l'est pas encore » :
+- **Disponible** : paiements enregistrés, Excel/CSV, rapports PDF fr/en, ticket depuis le navigateur,
+  installation sur l'écran d'accueil.
+- **En cours de validation** : paiement de l'abonnement par GeniusPay (sandbox seulement), impression
+  thermique directe (aucune imprimante réelle testée), notifications sur l'écran du téléphone (aucun appareil
+  réel n'en a reçu).
+- **Pas encore disponible** : fonctionnement hors ligne, lecture des photos de cahiers et des PDF,
+  confirmation automatique des paiements Mobile Money.
 
-**Absents volontairement :**
-- témoignages, nombre de clients, logos de partenaires, notes ;
-- prix, durée d'essai, moyens de paiement de l'abonnement ;
-- contact, conditions générales, mentions légales.
+**Absents volontairement :** témoignages (la section existe mais ne s'affiche pas tant que la liste est
+vide), nombre de clients, logos de partenaires, notes, contact, conditions générales, mentions légales.
 
-## 3. Hypothèses retenues en attendant les décisions D1 à D12
+## 3. Tarifs et code promotionnel
 
-| # | Hypothèse appliquée | Pour changer |
+- Les prix ne sont jamais écrits dans le code de la page. `getPublicPlans()` lit les formules **actives** en
+  XOF de `subscription_plan`, triées par prix puis par code, avec les limites d'articles et de membres.
+- Cache `unstable_cache` de 10 minutes, étiquette `public-plans` : une formule modifiée dans la console
+  apparaît au plus tard 10 minutes après (ou tout de suite après `revalidateTag("public-plans")`, non branché).
+- Aucune formule publiée : la section le dit et renvoie vers l'inscription. Base injoignable : état
+  « indisponible », jamais un prix inventé ni une page en erreur.
+- En aperçu local, les formules viennent de la base de démonstration PGlite et un badge « Formules fictives
+  de l'aperçu local » est affiché.
+- Le code Qadr Agency se saisit pendant la création du commerce (`/api/public/campaigns/check`). La page ne
+  le simule pas : elle explique où le saisir et renvoie vers `/register`.
+- Au 2026-11-10, **aucun prix réel** n'est publié en staging ni en production.
+
+## 4. Données d'exemple
+
+Toutes les valeurs du ticket, de la journée et des captures sont marquées « Exemple » ou « Données de
+démonstration ». Elles sont cohérentes entre elles et avec le catalogue de démonstration : 2 sacs de ciment à
+6 500 et 1,5 m de câble à 900 font 14 350 F CFA, dont 12 000 par Wave et 2 350 à crédit (client fictif
+« Moussa Traoré »). Les noms de produits restent en français dans les trois langues : les noms saisis par un
+commerçant ne sont jamais traduits.
+
+## 5. Captures
+
+- Prises le 2026-11-10 dans l'aperçu PGlite, avec le commerce de démonstration et la palette bleue, par
+  Playwright à la taille exacte (390 × 844 et 1280 × 800). Le bandeau « Prévisualisation · données
+  fictives » reste visible.
+- Avant la prise : invitation d'installation, indicateur de développement Next.js et barre de défilement
+  masqués ; deux sacs de ciment sont mis au panier (13 000 F CFA).
+- L'aperçu n'embarque pas la police Plus Jakarta Sans : les captures montrent la police de repli. À refaire
+  depuis un build de production avant la mise en ligne.
+
+## 6. Performance
+
+Rendu différé des sections hors écran (`content-visibility: auto` dans `landing.css`, sauf le hero et la
+journée). Sans lui, Chrome mettait en page tout le texte de la page avant le premier affichage : une seule
+mise en page de 2,3 s, dont 1,5 s de mise en forme du texte, avant le FCP (processeur ×4). Conséquences :
+- le défilement doux est coupé sur cette page (`scroll-behavior: auto`) : Chrome interrompait le défilement
+  vers `#faq` dès qu'une section différée prenait sa vraie hauteur ;
+- `landing-motion.tsx` recalcule les déclencheurs GSAP quand la hauteur de `#contenu` change ;
+- une capture « pleine page » montre les sections hors écran vides : c'est un artefact de capture. Pour
+  contrôler le rendu, agrandir la fenêtre à la hauteur de la page.
+
+L'image du téléphone du hero est préchargée avec `fetchPriority="high"`.
+
+## 7. Vérifications (2026-11-10)
+
+Build de production local (`npm run build`, puis `next start` sur le port 3005, configuration
+`qadr-web-local-production`), Chromium piloté par Playwright. Réseau « 4G lente » simulé : 150 ms de latence,
+1,6 Mbit/s. Cache désactivé. Trois passages par cas.
+
+| Cas | LCP | CLS | INP (clic réel sur le menu) |
+| --- | --- | --- | --- |
+| 390 px, processeur ×4, fr / ar | 2,7 à 3,0 s (avant le rendu différé : 3,2 à 4,6 s) | 0 | 88 à 160 ms |
+| 390 px, processeur ×2, fr / ar | 2,0 s | 0 | non mesuré |
+| 390 px, processeur ×1, fr / ar | 1,9 s / 1,0 s | 0 | non mesuré |
+| 1440 px, processeur ×1, fr / ar | 2,0 s / 1,1 s | 0,0002 / 0 | non mesuré |
+
+- **Objectif LCP ≤ 2,5 s : non atteint avec le processeur ×4** sur ce poste ; atteint à ×1 et ×2. Pour
+  comparaison, `/login` affiche son premier contenu en 1,6 à 1,8 s dans les mêmes conditions. Le coût restant
+  vient surtout du socle commun : 150 Ko de CSS dont `legacy.css`, Sentry, PostHog et le bloc Turnstile
+  chargés par la mise en page racine.
+- Aucun défilement horizontal en fr, en et ar à 320, 360, 390, 768, 1024, 1280 et 1440 px.
+- Liens d'ancre (`#features`, `#pricing`, `#faq`) : arrivée exacte en fr à 1440 px, en ar à 390 px et en en à
+  320 px.
+- Journée : le moment actif et l'horloge suivent le défilement après le rendu différé.
+- Tarifs : sans `DATABASE_URL`, la page affiche l'état « indisponible », sans erreur 500 ni prix inventé.
+  Avec des formules, le test `public-plans.integration.test.ts` vérifie le tri, le filtrage des formules
+  inactives et les grands montants.
+- Le premier `npm run build` a échoué une fois au téléchargement de Rubik depuis Google Fonts
+  (`next/font`) ; les builds suivants ont réussi sans modification. La police est téléchargée au build, pas
+  par le visiteur.
+
+## 8. Non vérifié
+
+- Relecture des textes arabes par un locuteur natif.
+- Mesure sur un vrai téléphone d'entrée de gamme, ou avec Lighthouse / PageSpeed sur un déploiement réel.
+- Lecteur d'écran (NVDA, TalkBack, VoiceOver).
+- Image Open Graph dédiée (absente).
+- Logo officiel : la mascotte reste provisoire tant que le fichier source n'est pas fourni.
+- Prix réels : aucune formule publiée en staging ni en production.
+- Blender n'est pas installé : aucun modèle 3D n'a été produit avec lui.
+
+## 9. Hypothèses en attente de décision
+
+| Sujet | Hypothèse appliquée | Pour changer |
 | --- | --- | --- |
-| D1 | Direction artistique de l'application (Plus Jakarta Sans, violet, nuit) | remplacer les classes du composant |
-| D2 | La nouvelle page remplace `/` | restaurer l'ancienne depuis Git |
-| D3 | Langue par cookie `qadr-locale`, comme le reste de l'application (rendu dynamique, une seule URL) | des routes `/en`, `/ar` avec `hreflang` restent possibles |
-| D4, D5 | Aucun prix ni moyen de paiement affiché | ajouter une section quand les offres sont fixées |
-| D6, D7, D12 | Ni contact ni mentions légales ; le pied de page renvoie seulement vers `/privacy` | à fournir par le propriétaire |
-| D8 | `/privacy` reste en français seul | traduction à décider |
-| D9, D10 | Captures du logiciel seulement ; pas de photos ni de vidéo | budget de prise de vue |
-| D11 | Pas de `sitemap` ni d'URL canonique (domaine non choisi) | les ajouter avec le domaine |
-
-## 4. Captures
-
-- Elles sont prises dans l'aperçu PGlite (`npm run preview`), avec le **commerce de démonstration**. Le
-  bandeau « Prévisualisation · données fictives » reste visible sur chaque image, et un badge « Données de
-  démonstration » est posé sur la page : aucune donnée ne peut passer pour un vrai client.
-- Avant la prise, l'invitation d'installation, l'indicateur de développement Next.js et la barre de
-  défilement sont masqués.
-- L'aperçu n'embarque pas la police Plus Jakarta Sans : les captures montrent la police de repli (Arial). Il
-  faudra les refaire depuis un build de production avant la mise en ligne.
-- Les noms de produits du catalogue de démonstration restent en français dans les captures arabes et
-  anglaises : les noms saisis par un commerçant ne sont jamais traduits.
-
-## 5. Vérifications faites (2026-11-10, local)
-
-- `tsc --noEmit` et `eslint` (landing, `page.tsx`, `robots.ts`) : sans erreur. `messages.test.ts` : 11/11.
-- Navigateur (Playwright, aperçu sur le port 3001), en fr, en et ar, à 375, 768 et 1280 px :
-  - `scrollWidth` égal à `clientWidth` (aucun défilement horizontal) ;
-  - liens, boutons et sélecteurs d'au moins 44 px de haut (seul le lien d'évitement, masqué, fait 1 px tant
-    qu'il n'a pas le focus) ;
-  - `dir="rtl"` et `lang="ar"` en arabe.
-- Corrections faites pendant la vérification :
-  - en-tête sur téléphone : le bouton d'inscription n'est plus forcé à l'affichage, et le logo ne se coupe
-    plus ;
-  - titres en arabe : `letter-spacing` normal et interligne plus grand (l'espacement négatif abîme la
-    liaison des lettres) ;
-  - capture d'ordinateur en `loading="eager"` (signalée par Next.js comme LCP à 1280 px).
-
-## 6. Non vérifié
-
-- Le texte arabe est à faire relire par un locuteur natif.
-- Aucun audit Lighthouse ou WebPageTest sur un vrai téléphone ni sur un réseau lent.
-- Pas d'aperçu des partages (Open Graph) sur WhatsApp ni Facebook : la page n'a pas encore d'image de
-  partage.
-- Pas de test avec un lecteur d'écran (TalkBack, VoiceOver).
+| Logo | Mascotte SVG provisoire dessinée d'après l'image fournie (118 × 205 px, inutilisable telle quelle) ; favicon et icônes de l'application inchangés | fournir le fichier source (SVG ou PNG ≥ 1024 px) |
+| Langue | Cookie `qadr-locale`, une seule URL | routes `/en`, `/ar` avec `hreflang` possibles |
+| Contact, mentions légales | Absents ; le pied de page renvoie seulement vers `/privacy` | à fournir par le propriétaire |
+| `sitemap`, URL canonique | Absents (domaine non choisi) | à ajouter avec le domaine |
+| Image de partage | Aucune image Open Graph dédiée | à produire |

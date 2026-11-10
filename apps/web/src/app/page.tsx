@@ -15,7 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: t("landing.meta.title"),
     description: t("landing.meta.description"),
-    openGraph: { type: "website", siteName: "QADR OPS", title: t("landing.meta.title"), description: t("landing.meta.description"), locale: { fr: "fr_FR", en: "en_US", ar: "ar" }[locale] },
+    openGraph: { type: "website", siteName: "Qadr Ops", title: t("landing.meta.title"), description: t("landing.meta.description"), locale: { fr: "fr_FR", en: "en_US", ar: "ar" }[locale] },
   };
 }
 
@@ -24,7 +24,7 @@ export default async function HomePage() {
   const t = createTranslator(locale);
   // Données structurées factuelles : ni note, ni avis, ni prix (aucun prix n'est encore publié).
   const structuredData = {
-    "@context": "https://schema.org", "@type": "SoftwareApplication", name: "QADR OPS",
+    "@context": "https://schema.org", "@type": "SoftwareApplication", name: "Qadr Ops",
     applicationCategory: "BusinessApplication", operatingSystem: "Web", inLanguage: ["fr", "en", "ar"],
     description: t("landing.meta.description"), publisher: { "@type": "Organization", name: "Qadr Agency" },
   };

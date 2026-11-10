@@ -72,11 +72,12 @@ describe("service worker : liens des notifications", () => {
 
 describe("service worker : hors ligne", () => {
   it("met en cache la seule page hors ligne et supprime les anciens caches Qadr", async () => {
-    const sw = loadServiceWorker({ cacheNames: ["qadr-offline-v1", "qadr-offline-v2", "autre-site"] });
+    // v3 : page hors ligne recolorée en bleu (2026-11-10) ; v1 et v2 sont d'anciennes versions.
+    const sw = loadServiceWorker({ cacheNames: ["qadr-offline-v1", "qadr-offline-v2", "qadr-offline-v3", "autre-site"] });
     await sw.run("install", {});
     await sw.run("activate", {});
     expect(sw.cached).toEqual(["/offline.html"]);
-    expect(sw.deleted).toEqual(["qadr-offline-v1"]);
+    expect(sw.deleted).toEqual(["qadr-offline-v1", "qadr-offline-v2"]);
   });
 
   it("une navigation passe par le réseau ; la page hors ligne n'apparaît que si le réseau échoue", async () => {
