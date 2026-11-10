@@ -1,6 +1,6 @@
 import { createDecipheriv, createECDH, createHmac, createPublicKey, verify } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import { b64url, encryptPushPayload, generateVapidKeys, isAllowedPushEndpoint, vapidAuthorization } from "./web-push";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { b64url, createWebPushSender, encryptPushPayload, generateVapidKeys, isAllowedPushEndpoint, vapidAuthorization } from "./web-push";
 
 // Vecteur de l'annexe A de la RFC 8291 (« When I grow up, I want to be a watermelon »).
 const rfc = {
@@ -67,5 +67,61 @@ describe("Web Push standard (RFC 8291 / 8292)", () => {
     expect(isAllowedPushEndpoint("https://169.254.169.254/latest")).toBe(false);
     expect(isAllowedPushEndpoint("https://fcm.googleapis.com.evil.test/x")).toBe(false);
     expect(isAllowedPushEndpoint("https://fcm.googleapis.com:8443/x")).toBe(false);
+  });
+});
+
+/*
+ * Mission 16 : réponse du service push → décision de l'envoi (`fetch` global remplacé, aucun appel réel).
+ * 404/410 : appareil désabonné (désactivé par le moteur) ; 429/5xx et panne réseau : relance ; autre 4xx : échec définitif.
+ */
+describe("envoi Web Push : interprétation des réponses du service push", () => {
+  const keys = { ...generateVapidKeys(), subject: "mailto:support@qadr-ops.ci" };
+  const target = { endpoint: "https://fcm.googleapis.com/fcm/send/appareil", p256dh: rfc.uaPublic, auth: rfc.auth };
+  const options = { ttlSeconds: 3600, urgency: "normal" as const, topic: "vente" };
+  const respond = (status: number) => vi.fn(async () => new Response(null, { status }));
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("succès : requête chiffrée aes128gcm, VAPID, TTL, urgence et sujet, message déchiffrable par l'appareil", async () => {
+    const fetchMock = respond(201);
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await createWebPushSender(keys)(target, { title: "Qadr Ops" }, options)).toEqual({ ok: true, status: 201 });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit & { headers: Record<string, string> }];
+    expect(url).toBe(target.endpoint);
+    expect(init.method).toBe("POST");
+    expect(init.headers).toMatchObject({ "content-encoding": "aes128gcm", ttl: "3600", urgency: "normal", topic: "vente" });
+    expect(init.headers.authorization).toMatch(/^vapid t=[^,]+, k=/);
+    expect(decrypt(init.body as Buffer, b64url.decode(rfc.uaPrivate), b64url.decode(rfc.auth))).toBe('{"title":"Qadr Ops"}');
+  });
+
+  it("404 et 410 : appareil expiré, sans relance", async () => {
+    for (const status of [404, 410]) {
+      vi.stubGlobal("fetch", respond(status));
+      expect(await createWebPushSender(keys)(target, {}, options)).toEqual({ ok: false, status, expired: true, retryable: false, error: `http_${status}` });
+    }
+  });
+
+  it("429 et 5xx : relance ; 400, 403 (clé VAPID refusée), 413 : échec définitif sans désactiver l'appareil", async () => {
+    for (const status of [429, 500, 503]) {
+      vi.stubGlobal("fetch", respond(status));
+      expect(await createWebPushSender(keys)(target, {}, options)).toMatchObject({ ok: false, expired: false, retryable: true });
+    }
+    for (const status of [400, 403, 413]) {
+      vi.stubGlobal("fetch", respond(status));
+      expect(await createWebPushSender(keys)(target, {}, options)).toMatchObject({ ok: false, expired: false, retryable: false, error: `http_${status}` });
+    }
+  });
+
+  it("panne réseau ou délai : relance, sans message d'erreur qui contiendrait l'adresse", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError(`échec vers ${target.endpoint}`); }));
+    const result = await createWebPushSender(keys)(target, {}, options);
+    expect(result).toEqual({ ok: false, status: null, expired: false, retryable: true, error: "TypeError" });
+  });
+
+  it("adresse hors des services push connus : aucune requête, appareil considéré expiré", async () => {
+    const fetchMock = respond(201);
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createWebPushSender(keys)({ ...target, endpoint: "https://interne.qadr.test/push" }, {}, options);
+    expect(result).toMatchObject({ ok: false, expired: true, retryable: false, error: "endpoint_not_allowed" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

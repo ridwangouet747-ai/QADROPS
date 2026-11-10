@@ -1,15 +1,24 @@
 import { runAfterResponse } from "../auth/server";
 import type { CommercialDatabase } from "../domain/commercial";
 import { processNotificationOutbox } from "../domain/notifications";
+import { readVapidKeys, vapidSubjectProblem } from "./vapid-config";
 import { createWebPushSender, type PushSender } from "./web-push";
 
-/** Clés VAPID lues dans l'environnement ; sans elles, les notifications internes marchent et le push est sauté (« non configuré »). */
+let placeholderWarned = false;
+
+/**
+ * Clés VAPID lues dans l'environnement ; sans elles, les notifications internes marchent et le push est sauté
+ * (« non configuré »). En production, un sujet d'exemple (`@example.com`) désactive aussi le push (voir
+ * `vapid-config.ts`) ; un avertissement sans valeur est écrit une fois par processus.
+ */
 export function vapidFromEnvironment() {
-  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
-  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
-  const subject = process.env.VAPID_SUBJECT?.trim();
-  if (!publicKey || !privateKey || !subject || !/^(mailto:|https:\/\/)/.test(subject)) return null;
-  return { publicKey, privateKey, subject };
+  const keys = readVapidKeys();
+  if (!keys && !placeholderWarned && process.env.NODE_ENV === "production" && process.env.VAPID_PUBLIC_KEY?.trim()
+    && vapidSubjectProblem(process.env.VAPID_SUBJECT) === "placeholder") {
+    placeholderWarned = true;
+    console.warn(JSON.stringify({ event: "push.vapid_subject_placeholder", detail: "VAPID_SUBJECT désigne un domaine d’exemple : push désactivé." }));
+  }
+  return keys;
 }
 
 export function pushSenderFromEnvironment(): PushSender | null {

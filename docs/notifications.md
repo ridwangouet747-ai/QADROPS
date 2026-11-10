@@ -48,6 +48,8 @@ Chiffrement `aes128gcm` (RFC 8291) et authentification VAPID (RFC 8292) écrits 
 
 Configuration : `node scripts/generate-vapid-keys.mjs`, puis `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (`mailto:` ou `https:`). Sans ces variables, les notifications internes fonctionnent et les envois push sont marqués « non configuré ».
 
+`VAPID_SUBJECT` (mission 16, `src/lib/notifications/vapid-config.ts`) : contact réel de l'exploitant, par exemple `mailto:support@<domaine retenu>`. Le service push s'en sert pour prévenir avant de limiter les envois (RFC 8292). En production, un domaine d'exemple ou local (`example.com`, `exemple.com`, `.test`, `localhost`…) désactive le push (« non configuré ») avec l'avertissement `push.vapid_subject_placeholder` ; un sujet mal formé est refusé partout. Réponses du service push : 404/410 → appareil expiré, 429/5xx et panne réseau → relance, autre 4xx → échec définitif (`web-push.test.ts`).
+
 ## 6. Interfaces et API
 
 - Cloche dans l'en-tête (compteur interrogé toutes les 60 s, seulement onglet visible), panneau des 8 dernières, page `/business/notifications` (filtres non lues / catégorie, pagination par date, réglages, appareils).
@@ -56,6 +58,6 @@ Configuration : `node scripts/generate-vapid-keys.mjs`, puis `VAPID_PUBLIC_KEY`,
 
 ## 7. À valider en conditions réelles
 
-- Push réel sur Android (Chrome), Windows (Edge) et iPhone (Safari 16.4+, application ajoutée à l'écran d'accueil) : aucun envoi vers un vrai service push n'a été fait, faute de clés VAPID configurées et d'appareil.
+- Push réel sur Android (Chrome), Windows (Edge) et iPhone (Safari 16.4+, application ajoutée à l'écran d'accueil) : aucun envoi vers un vrai service push n'a été fait (clés VAPID présentes en local depuis la mission 15, mais aucun appareil). Liste d'essais pas à pas : `docs/engineering/mission-16-cloudflare-r2-push.md` § 5. Parcours navigateur (activation, 409, appareil partagé, déconnexion) testé avec un faux navigateur : `client.test.ts`.
 - Tâche planifiée : Vercel Cron Hobby ne s'exécute qu'une fois par jour ; un rattrapage plus fréquent demande un forfait payant ou un planificateur externe gratuit. Sans tâche planifiée, le traitement après réponse et le bouton de la console suffisent pour l'essentiel.
 - `FOR UPDATE SKIP LOCKED` et la concurrence de plusieurs instances : à éprouver sur PostgreSQL réel (PGlite n'a qu'une connexion).

@@ -151,10 +151,12 @@ Fait :
 | `src/lib/domain/stored-files.integration.test.ts` | PGlite : original gardé, isolation, sans stockage, échec d'envoi puis orphelin, abandon, échéance, refus 413/415. |
 | `src/test/stored-files.http.test.ts` | Routes réelles : téléchargement, caissière 403, abandon, sans stockage, purge par le cron. |
 | `src/test/tenant-isolation.http.test.ts` | Attaque A → B sur `/api/business/imports/{id}/original`. |
+| `src/lib/storage/r2-test-target.ts` + `.test.ts` | Mission 16 : cible du test réel, lue seulement dans `QADR_TEST_R2_*` ; bucket refusé sans segment `test`/`tests`/`staging`/`dev`/`preview`. |
+| `src/lib/storage/r2.integration.test.ts` | Mission 16 : **R2 réel**, sauté sans `QADR_TEST_R2_*`. Écrasement (412), `Content-MD5` faux, URL signée (pièce jointe, altérée, détournée, expirée), lecture non signée, portée du jeton, suppression ; avec PGlite : A/B, 413/415 sans envoi, abandon et purge. Mode d'emploi : `docs/engineering/mission-16-cloudflare-r2-push.md` § 3. |
 
 ## 8. Limites connues
 
-- **R2 jamais contacté.** Le comportement réel de `If-None-Match`, `Content-MD5`, de la juridiction et des URL présignées n'a pas été observé. Premier essai à faire sur le bucket de test (§ 4).
+- **R2 jamais contacté.** Le comportement réel de `If-None-Match`, `Content-MD5`, de la juridiction et des URL présignées n'a pas été observé. Le test `r2.integration.test.ts` (mission 16) le vérifie dès qu'un bucket de test et un jeton limité existent (§ 4). État lu le 2026-11-10 : **aucun bucket** dans le compte Cloudflare ; dans `.env.local`, seul `R2_BUCKET_NAME` est renseigné (configuration partielle, donc erreur de configuration à l'ouverture du stockage).
 - Pas d'antivirus (§ 5).
 - Finalité `export` non branchée.
 - Le passage planifié est quotidien : un fichier échu est introuvable immédiatement, mais l'objet peut rester jusqu'à 24 h dans R2.
