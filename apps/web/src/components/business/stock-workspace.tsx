@@ -139,11 +139,11 @@ export function StockWorkspace() {
                 const gauge = gaugeFor(item.onHand, item.lowStockThreshold);
                 const cost = item.costKnown ? roundXof(item.averageCostXof) : null;
                 return (
-                  <li key={item.variantId} className={cn("grid gap-3 rounded-[18px] border bg-surface p-3.5", rowStatus === "out" ? "border-danger-line" : rowStatus === "low" ? "border-warn-line" : "border-line")}>
+                  <li key={item.variantId} className={cn("grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 rounded-[18px] border bg-surface p-3.5", rowStatus === "out" ? "border-danger-line" : rowStatus === "low" ? "border-warn-line" : "border-line")}>
                     <div className="flex items-start gap-3">
                       <Monogram text={item.name} className="size-10 rounded-[13px]" />
                       <div className="min-w-0 flex-1">
-                        <strong dir="auto" className="block truncate text-[0.93rem] text-ink">{item.name}</strong>
+                        <strong dir="auto" className="line-clamp-2 text-[0.93rem] leading-snug break-words text-ink" title={item.name}>{item.name}</strong>
                         <small className="block truncate text-xs text-fg-subtle">
                           {showVariant(item.variantLabel, item.baseUnit) && <span dir="auto">{item.variantLabel} · </span>}
                           {item.sku ? <span dir="ltr" className="font-mono">{item.sku}</span> : <span dir="auto">{item.categoryName ?? ""}</span>}

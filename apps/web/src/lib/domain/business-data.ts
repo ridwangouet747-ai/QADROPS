@@ -9,7 +9,7 @@ import {
 } from "@/lib/db/schema";
 import { parseQuantityMicros, QUANTITY_SCALE, UNIT_COST_SCALE, weightedAverageCost } from "./costing";
 import { CommercialError, type CommercialDatabase } from "./commercial";
-import { getDashboardReports } from "./reports";
+import { assertValidTimezone, getDashboardReports } from "./reports";
 import { assertBusinessOperational, idempotencyKeySchema, runIdempotent } from "./operation-guard";
 import { attachOpenCashSession } from "./cash-session";
 import { decodeCursor, encodeCursor, movementCursorSchema, pageLimit, productCursorSchema } from "./cursor";
@@ -32,8 +32,9 @@ const xof = z.string().regex(/^(0|[1-9]\d{0,17})$/);
 const quantity = z.string().regex(/^(0|[1-9]\d{0,17})(?:\.\d{1,6})?$/);
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-function abidjanDate(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Abidjan", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+/** Date commerciale (AAAA-MM-JJ) dans le fuseau du commerce, la même règle que `reportRange` (docs/engineering/fuseaux-horaires.md). */
+function businessDate(timeZone: string, date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
@@ -55,7 +56,7 @@ export async function getBusinessOverview(db: CommercialDatabase, context: Conte
     throw new CommercialError("Vous n’avez pas l’autorisation d’effectuer cette opération.", 403);
   }
   if (!identity.timezone || !identity.activity) throw new CommercialError("Commerce introuvable.", 404);
-  const today = abidjanDate();
+  const today = businessDate(assertValidTimezone(identity.timezone));
   const lists = async () => {
     const recentSales = await db.select({ id: sale.id, reference: sale.reference, status: sale.status, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
       customerName: customer.name, paidXof: sql<string>`coalesce(sum(case when ${payment.status} = 'confirmed' then ${payment.amountXof} else 0 end),0)::text` })

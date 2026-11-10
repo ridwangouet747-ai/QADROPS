@@ -1,4 +1,5 @@
 import { metaFr } from "./meta";
+import { landingFr } from "./landing";
 import { subscriptionFr } from "./subscription";
 import { reportsFr } from "./reports";
 import { cashFr } from "./cash";
@@ -560,6 +561,7 @@ export const fr = {
       submit: "Recevoir le lien",
       sent: "Si un compte existe avec cette adresse, un lien vient d’être envoyé. Il est valable une heure.",
       unavailable: "La réinitialisation par e-mail n’est pas encore activée sur ce serveur. Demandez au propriétaire de votre commerce de vous aider.",
+      throttled: "Trop de demandes pour le moment. Patientez une heure avant de redemander un lien.",
       back: "Retour à la connexion",
     },
     reset: {
@@ -568,6 +570,7 @@ export const fr = {
       submit: "Enregistrer le mot de passe",
       done: "Mot de passe modifié. Vous pouvez vous connecter.",
       invalid: "Ce lien n’est plus valable. Demandez-en un nouveau.",
+      throttled: "Trop d’essais depuis cette connexion. Patientez quelques minutes : votre lien reste valable jusqu’à son expiration.",
     },
     social: {
       google: "Continuer avec Google", apple: "Continuer avec Apple", or: "ou avec votre adresse e-mail",
@@ -746,6 +749,7 @@ export const fr = {
   },
   wizard: wizardFr,
   meta: metaFr,
+  landing: landingFr,
   subscription: subscriptionFr,
   reports: reportsFr,
   cash: cashFr,

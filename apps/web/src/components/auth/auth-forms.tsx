@@ -124,9 +124,9 @@ export function LoginForm() {
   };
   return (
     <AuthShell title={t("auth.login.title")} intro={t("auth.login.intro")}
-      footer={<>{t("auth.login.noAccount")} <Link href={`/register${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-semibold text-brand-strong no-underline">{t("auth.login.register")}</Link>
+      footer={<>{t("auth.login.noAccount")} <Link href={`/register${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.login.register")}</Link>
         {/* Accès discret à l'espace d'administration : seule la page de connexion dédiée est exposée. */}
-        <span className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1"><Link href="/privacy" className="text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("privacy.footer")}</Link><Link href="/platform/login" className="text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("auth.login.adminAccess")}</Link></span></>}>
+        <span className="mt-1 flex flex-wrap justify-center gap-x-4"><Link href="/privacy" className="inline-flex min-h-11 items-center px-1 text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("privacy.footer")}</Link><Link href="/platform/login" className="inline-flex min-h-11 items-center px-1 text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("auth.login.adminAccess")}</Link></span></>}>
       <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
         {error && <Alert tone="danger">{error}</Alert>}
         <SocialButtons next={next} onError={setError} />
@@ -134,7 +134,7 @@ export function LoginForm() {
         <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-2">
             <label htmlFor="login-password" className="text-sm font-semibold text-ink">{t("auth.password")}</label>
-            <Link href="/forgot-password" className="text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>
+            <Link href="/forgot-password" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>
           </div>
           <PasswordInput id="login-password" value={password} onChange={setPassword} autoComplete="current-password" />
         </div>
@@ -163,7 +163,7 @@ export function RegisterForm() {
   };
   return (
     <AuthShell title={t("auth.register.title")} intro={t("auth.register.intro")}
-      footer={<>{t("auth.register.haveAccount")} <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-semibold text-brand-strong no-underline">{t("auth.register.login")}</Link></>}>
+      footer={<>{t("auth.register.haveAccount")} <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.register.login")}</Link></>}>
       <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
         {error && <Alert tone="danger">{error}</Alert>}
         <SocialButtons next={next} onError={setError} />
@@ -200,12 +200,15 @@ export function ForgotPasswordForm() {
     const { error: failure } = await authClient.requestPasswordReset({ email: email.trim(), redirectTo: "/reset-password", fetchOptions: securityHeaders(security.token) })
       .catch(() => ({ error: { message: "network" } as { code?: string; message?: string } }));
     setBusy(false);
-    if (failure) { setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : t("errors.generic")); security.renew(); return; }
+    if (failure) {
+      const throttled = "status" in failure && failure.status === 429;
+      setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : throttled ? t("auth.forgot.throttled") : t("errors.generic")); security.renew(); return;
+    }
     setSent(true);
   };
   return (
     <AuthShell title={t("auth.forgot.title")} intro={available ? t("auth.forgot.intro") : undefined}
-      footer={<Link href="/login" className="font-semibold text-brand-strong no-underline">{t("auth.forgot.back")}</Link>}>
+      footer={<Link href="/login" className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.forgot.back")}</Link>}>
       {available === null ? <p className="m-0 text-sm text-fg-muted">{t("common.loading")}</p>
         : !available ? <Alert tone="info">{t("auth.forgot.unavailable")}</Alert>
         : sent ? <Alert tone="success">{t("auth.forgot.sent")}</Alert>
@@ -225,20 +228,22 @@ export function ResetPasswordForm() {
   const { t } = useI18n();
   const token = useSearchParams().get("token");
   const [password, setPassword] = useState("");
-  const [state, setState] = useState<"idle" | "busy" | "done" | "invalid">(token ? "idle" : "invalid");
+  const [state, setState] = useState<"idle" | "busy" | "done" | "invalid" | "throttled">(token ? "idle" : "invalid");
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!token) return;
     setState("busy");
     const { error } = await authClient.resetPassword({ newPassword: password, token });
-    setState(error ? "invalid" : "done");
+    // Trop d'essais (429) : le lien n'est pas consommé, il reste utilisable ; seul un refus du jeton l'invalide.
+    setState(!error ? "done" : error.status === 429 ? "throttled" : "invalid");
   };
   return (
     <AuthShell title={t("auth.reset.title")} intro={t("auth.reset.intro")}
-      footer={<Link href="/login" className="font-semibold text-brand-strong no-underline">{t("auth.forgot.back")}</Link>}>
+      footer={<Link href="/login" className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.forgot.back")}</Link>}>
       {state === "done" ? <Alert tone="success">{t("auth.reset.done")}</Alert> : (
         <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
           {state === "invalid" && <Alert tone="danger">{t("auth.reset.invalid")}</Alert>}
+          {state === "throttled" && <Alert tone="warning">{t("auth.reset.throttled")}</Alert>}
           <Field label={t("auth.password")} hint={t("auth.passwordHint")}>
             {(props) => <PasswordInput id={props.id} describedBy={props["aria-describedby"]} value={password} onChange={setPassword} autoComplete="new-password" />}
           </Field>

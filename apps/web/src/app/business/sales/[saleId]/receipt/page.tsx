@@ -4,11 +4,12 @@ import { ThermalReceipt } from "@/components/receipts/thermal-receipt";
 import { getBusinessContext } from "@/lib/domain/business-context";
 import { CommercialError } from "@/lib/domain/commercial";
 import { getSaleReceiptDocument } from "@/lib/domain/receipt";
-import { getRequestLocale } from "@/lib/i18n/server";
+import { getRequestLocale, localizedPageMetadata } from "@/lib/i18n/server";
 import { createTranslator } from "@/lib/i18n/translate";
 import { isReceiptLanguage } from "@/lib/printing/receipt-document";
 
 export const runtime = "nodejs";
+export const generateMetadata = () => localizedPageMetadata("meta.receipt");
 
 /**
  * Ticket à l'écran : le commerce vient de la session, la vente doit lui appartenir. La langue du ticket

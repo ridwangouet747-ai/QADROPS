@@ -265,7 +265,7 @@ function ColumnsCard({ detail, editable, mutate }: { detail: Detail; editable: b
               const title = cellText(headerCells?.[column]);
               const inferred = batch.mapping.find((entry) => entry.column === column);
               return (
-                <li key={column} className="grid gap-2 rounded-[16px] border border-line bg-paper p-3">
+                <li key={column} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-[16px] border border-line bg-paper p-3">
                   <div className="flex items-start justify-between gap-2">
                     <strong dir="auto" className="min-w-0 truncate text-sm text-ink">{title || t("imports.columns.columnN", { letter: letter(column) })}</strong>
                     {!batch.mappingConfirmed && inferred?.field && inferred.field === field && inferred.confidence && (

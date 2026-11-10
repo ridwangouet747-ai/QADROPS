@@ -1,4 +1,5 @@
 import { metaAr } from "./meta";
+import { landingAr } from "./landing";
 import { subscriptionAr } from "./subscription";
 import { reportsAr } from "./reports";
 import { cashAr } from "./cash";
@@ -562,6 +563,7 @@ export const ar: Messages = {
       submit: "استلام الرابط",
       sent: "إن وُجد حساب بهذا البريد، فقد أُرسل رابط للتو. صالح لمدة ساعة.",
       unavailable: "إعادة التعيين عبر البريد غير مفعّلة بعد على هذا الخادم. اطلب المساعدة من صاحب المتجر.",
+      throttled: "طلبات كثيرة في الوقت الحالي. انتظر ساعة قبل طلب رابط جديد.",
       back: "العودة إلى تسجيل الدخول",
     },
     reset: {
@@ -570,6 +572,7 @@ export const ar: Messages = {
       submit: "حفظ كلمة المرور",
       done: "تم تغيير كلمة المرور. يمكنك تسجيل الدخول.",
       invalid: "هذا الرابط لم يعد صالحاً. اطلب رابطاً جديداً.",
+      throttled: "محاولات كثيرة من هذا الاتصال. انتظر بضع دقائق: يبقى رابطك صالحاً حتى انتهاء مدته.",
     },
     social: {
       google: "المتابعة باستخدام Google", apple: "المتابعة باستخدام Apple", or: "أو باستخدام بريدك الإلكتروني",
@@ -748,6 +751,7 @@ export const ar: Messages = {
   },
   wizard: wizardAr,
   meta: metaAr,
+  landing: landingAr,
   subscription: subscriptionAr,
   reports: reportsAr,
   cash: cashAr,

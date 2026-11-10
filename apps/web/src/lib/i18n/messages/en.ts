@@ -1,4 +1,5 @@
 import { metaEn } from "./meta";
+import { landingEn } from "./landing";
 import { subscriptionEn } from "./subscription";
 import { reportsEn } from "./reports";
 import { cashEn } from "./cash";
@@ -561,6 +562,7 @@ export const en: Messages = {
       submit: "Send me the link",
       sent: "If an account exists for this address, a link has just been sent. It is valid for one hour.",
       unavailable: "Email password reset is not enabled on this server yet. Ask your business owner for help.",
+      throttled: "Too many requests for now. Wait an hour before asking for a new link.",
       back: "Back to sign in",
     },
     reset: {
@@ -569,6 +571,7 @@ export const en: Messages = {
       submit: "Save password",
       done: "Password changed. You can now sign in.",
       invalid: "This link is no longer valid. Request a new one.",
+      throttled: "Too many attempts from this connection. Wait a few minutes: your link stays valid until it expires.",
     },
     social: {
       google: "Continue with Google", apple: "Continue with Apple", or: "or with your email address",
@@ -747,6 +750,7 @@ export const en: Messages = {
   },
   wizard: wizardEn,
   meta: metaEn,
+  landing: landingEn,
   subscription: subscriptionEn,
   reports: reportsEn,
   cash: cashEn,

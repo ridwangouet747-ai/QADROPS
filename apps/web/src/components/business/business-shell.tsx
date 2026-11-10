@@ -149,7 +149,8 @@ export function BusinessShell({ active, preview = false, children }: { active: B
               ))}
               <MoreMenu entries={desktopMore} active={active} />
             </nav>
-            <div className="ms-auto flex items-center gap-2 lg:ms-0">
+            {/* min-w-0 : à 1280 px la barre de défilement réduit la largeur utile, la pastille du commerce rétrécit au lieu de faire déborder l’en-tête (mission 16). */}
+            <div className="ms-auto flex min-w-0 items-center gap-2 lg:ms-0">
               {preview && <span className="hidden rounded-full border border-warn-line bg-warn-soft px-3 py-1.5 text-xs font-semibold text-warn 2xl:inline">{t("shell.previewBadge")}</span>}
               <LanguageSwitcher className="shrink-0" />
               <NotificationBell />
@@ -159,7 +160,7 @@ export function BusinessShell({ active, preview = false, children }: { active: B
                   <Icon name="settings" />
                 </Link>
               )}
-              <Link href="/select-business" aria-label={t("selectBusiness.switch")} className="hidden items-center gap-2.5 rounded-full border border-line bg-surface py-1 ps-1 pe-4 text-inherit no-underline hover:border-brand-tint md:flex max-w-52 lg:hidden xl:flex" title={t("selectBusiness.switch")}>
+              <Link href="/select-business" aria-label={t("selectBusiness.switch")} className="hidden items-center gap-2.5 rounded-full border border-line bg-surface py-1 ps-1 pe-4 text-inherit no-underline hover:border-brand-tint md:flex min-w-0 max-w-52 lg:hidden xl:flex" title={t("selectBusiness.switch")}>
                 <Monogram text={displayName} className="size-9" />
                 <span className="grid min-w-0 leading-tight">
                   <small className="truncate text-[0.66rem] font-semibold tracking-[0.06em] whitespace-nowrap text-fg-subtle">{t("shell.activeBusiness")}</small>

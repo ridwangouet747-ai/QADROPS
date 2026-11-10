@@ -35,6 +35,18 @@ describe("traductions", () => {
     expect(createTranslator("ar")("meta.register")).toMatch(/[؀-ۿ]/);
   });
 
+  it("donne à chaque écran du commerce son propre titre d’onglet (mission 16 : 13 écrans gardaient celui de l’accueil)", () => {
+    const screens = ["dashboard", "pos", "products", "sales", "customers", "stock", "suppliers", "purchases", "expenses", "settings", "modules", "inventory", "opening", "team", "sale", "receipt"] as const;
+    for (const locale of locales) {
+      const t = createTranslator(locale);
+      const titles = screens.map((screen) => t(`meta.${screen}`));
+      expect(titles.filter((title) => title === t("meta.siteTitle"))).toEqual([]);
+      expect(titles.filter((title) => !title.endsWith(" · QADR OPS"))).toEqual([]);
+      expect(new Set(titles).size).toBe(screens.length);
+    }
+    expect(createTranslator("ar")("meta.pos")).toMatch(/[؀-ۿ]/);
+  });
+
   it("remplace les variables connues et laisse les autres visibles", () => {
     expect(interpolate("{counted}/{total} comptés", { counted: 3, total: 10 })).toBe("3/10 comptés");
     expect(interpolate("Bonjour {nom}", {})).toBe("Bonjour {nom}");

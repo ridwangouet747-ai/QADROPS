@@ -103,17 +103,17 @@ export function ReportsWorkspace() {
         <Segmented label={t("reports.periods.label")} value={period} onChange={(value) => { setPeriod(value); setDate(""); }}
           options={(["daily", "weekly", "monthly", "yearly", "custom"] as const).map((value) => ({ value, label: t(`reports.periods.${value}`) }))} />
         {period === "custom" ? (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t("reports.fields.from")}>{(props) => <Input {...props} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />}</Field>
-            <Field label={t("reports.fields.to")}>{(props) => <Input {...props} type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />}</Field>
+          <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
+            <Field label={t("reports.fields.from")}>{(props) => <Input {...props} className="min-w-0" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />}</Field>
+            <Field label={t("reports.fields.to")}>{(props) => <Input {...props} className="min-w-0" type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />}</Field>
           </div>
         ) : (
-          <div className="flex items-end gap-2">
+          <div className="flex min-w-0 items-end gap-2">
             <button type="button" onClick={() => go(-1)} aria-label={t("reports.previousPeriod")} className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-surface text-fg hover:text-ink"><Icon name="back" className="rtl:rotate-180" /></button>
             <Field className="min-w-0 flex-1" label={t(period === "monthly" ? "reports.fields.month" : period === "weekly" ? "reports.fields.week" : period === "yearly" ? "reports.fields.year" : "reports.fields.day")}>
               {(props) => period === "monthly"
-                ? <Input {...props} type="month" value={anchor.slice(0, 7)} onChange={(event) => setDate(event.target.value ? `${event.target.value}-01` : "")} />
-                : <Input {...props} type="date" value={anchor} onChange={(event) => setDate(event.target.value)} />}
+                ? <Input {...props} className="min-w-0" type="month" value={anchor.slice(0, 7)} onChange={(event) => setDate(event.target.value ? `${event.target.value}-01` : "")} />
+                : <Input {...props} className="min-w-0" type="date" value={anchor} onChange={(event) => setDate(event.target.value)} />}
             </Field>
             <button type="button" onClick={() => go(1)} aria-label={t("reports.nextPeriod")} className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-surface text-fg hover:text-ink"><Icon name="forward" className="rtl:rotate-180" /></button>
           </div>
