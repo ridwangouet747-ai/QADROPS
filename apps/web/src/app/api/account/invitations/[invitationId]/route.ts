@@ -1,7 +1,7 @@
 import { currentInvitationPolicy } from "@/lib/auth/server";
 import { acceptInvitation, getInvitationForUser } from "@/lib/domain/account";
 import { getAccountContext } from "@/lib/domain/account-context";
-import { errorResponse, jsonSafe } from "@/lib/domain/business-context";
+import { assertTrustedOrigin, errorResponse, jsonSafe } from "@/lib/domain/business-context";
 
 export const runtime = "nodejs";
 
@@ -15,6 +15,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/account/invi
 
 export async function POST(request: Request, ctx: RouteContext<"/api/account/invitations/[invitationId]">) {
   try {
+    assertTrustedOrigin(request.headers, request.method);
     const context = await getAccountContext(request.headers);
     const { invitationId } = await ctx.params;
     return Response.json(await acceptInvitation(context.auth, request.headers, invitationId));

@@ -44,6 +44,19 @@ const MAX_SHEET_NAME = 31;
 
 const STYLE = { normal: 0, bold: 1, literal: 2, integer: 3, boldLiteral: 4 } as const;
 
+/**
+ * Bornes de taille (mission 16, docs/exports.md). `maxXmlBytes` borne la mémoire : le XML des feuilles est
+ * compté ligne par ligne et la génération s'arrête dès le dépassement, sans construire la suite.
+ * `maxFileBytes` borne le fichier compressé renvoyé (une fonction Vercel ne répond pas au-delà de 4,5 Mo).
+ */
+export type XlsxLimits = { maxXmlBytes: number; maxFileBytes: number };
+export const DEFAULT_XLSX_LIMITS: XlsxLimits = { maxXmlBytes: 64 * 1024 * 1024, maxFileBytes: 4 * 1024 * 1024 };
+
+/** Classeur trop volumineux : aucune donnée dans le message ; `limit` dit quelle borne est atteinte. */
+export class XlsxTooLargeError extends Error {
+  constructor(readonly limit: "xml_bytes" | "file_bytes") { super("xlsx.too_large"); this.name = "XlsxTooLargeError"; }
+}
+
 // Caractères interdits en XML 1.0 (contrôles, demi-paires de substitution isolées, U+FFFE/U+FFFF).
 // Les caractères de contrôle sont précisément la cible : on les retire avant d'écrire le XML.
 // eslint-disable-next-line no-control-regex
@@ -111,17 +124,21 @@ function sheetName(raw: string, used: Set<string>) {
   return name;
 }
 
-function worksheetXml(sheet: XlsxSheet, selected: boolean) {
+function worksheetXml(sheet: XlsxSheet, selected: boolean, budget: { remaining: number }) {
   const frozen = sheet.frozenRows ?? 0;
   const pane = frozen > 0 ? `<pane ySplit="${frozen}" topLeftCell="A${frozen + 1}" activePane="bottomLeft" state="frozen"/>` : "";
   const view = `<sheetViews><sheetView workbookViewId="0"${sheet.rightToLeft ? ` rightToLeft="1"` : ""}${selected ? ` tabSelected="1"` : ""}>${pane}</sheetView></sheetViews>`;
   const cols = sheet.columnWidths?.length
     ? `<cols>${sheet.columnWidths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${Math.max(4, Math.min(80, width))}" customWidth="1"/>`).join("")}</cols>`
     : "";
-  const rows = sheet.rows.map((row, r) => {
-    const cells = row.map((cell, c) => cellXml(cell, `${columnName(c)}${r + 1}`)).join("");
-    return `<row r="${r + 1}">${cells}</row>`;
-  }).join("");
+  const parts: string[] = [];
+  for (const [r, row] of sheet.rows.entries()) {
+    const xml = `<row r="${r + 1}">${row.map((cell, c) => cellXml(cell, `${columnName(c)}${r + 1}`)).join("")}</row>`;
+    budget.remaining -= Buffer.byteLength(xml, "utf8");
+    if (budget.remaining < 0) throw new XlsxTooLargeError("xml_bytes");
+    parts.push(xml);
+  }
+  const rows = parts.join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${NS_MAIN}" xmlns:r="${NS_REL}">${view}<sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${rows}</sheetData></worksheet>`;
 }
 
@@ -132,8 +149,8 @@ const NS_PKG = "http://schemas.openxmlformats.org/package/2006";
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="${NS_MAIN}"><fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" quotePrefix="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
-/** Construit le classeur. La première feuille est celle qui s'ouvre. */
-export function buildXlsx(sheets: readonly XlsxSheet[]) {
+/** Construit le classeur. La première feuille est celle qui s'ouvre. Lève `XlsxTooLargeError` au-delà des bornes. */
+export function buildXlsx(sheets: readonly XlsxSheet[], limits: XlsxLimits = DEFAULT_XLSX_LIMITS) {
   if (sheets.length === 0) throw new Error("Un classeur doit contenir au moins une feuille.");
   const used = new Set<string>();
   const names = sheets.map((sheet) => sheetName(sheet.name, used));
@@ -146,14 +163,18 @@ export function buildXlsx(sheets: readonly XlsxSheet[]) {
   const workbookRels = `${header}<Relationships xmlns="${NS_PKG}/relationships">${
     sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${NS_REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")
   }<Relationship Id="rId${sheets.length + 1}" Type="${NS_REL}/styles" Target="styles.xml"/></Relationships>`;
-  return createZip([
+  const budget = { remaining: limits.maxXmlBytes };
+  const worksheets = sheets.map((sheet, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, content: worksheetXml(sheet, i === 0, budget) }));
+  const file = createZip([
     { name: "[Content_Types].xml", content: contentTypes },
     { name: "_rels/.rels", content: rootRels },
     { name: "xl/workbook.xml", content: workbook },
     { name: "xl/_rels/workbook.xml.rels", content: workbookRels },
     { name: "xl/styles.xml", content: STYLES },
-    ...sheets.map((sheet, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, content: worksheetXml(sheet, i === 0) })),
+    ...worksheets,
   ]);
+  if (file.length > limits.maxFileBytes) throw new XlsxTooLargeError("file_bytes");
+  return file;
 }
 
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

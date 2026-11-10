@@ -1,10 +1,11 @@
 import { getAuth, type QadrAuth } from "@/lib/auth/server";
 import { getDatabase } from "@/lib/db/client";
-import { BusinessContextError } from "./business-context";
+import { assertTrustedOrigin, BusinessContextError } from "./business-context";
 import type { CommercialDatabase } from "./commercial";
 
 /** Contexte d'un utilisateur connecté, avec ou sans commerce actif (onboarding, invitations, sélection). */
 export async function getAccountContext(headers: Headers): Promise<{ auth: QadrAuth; db: CommercialDatabase; userId: string; email: string; emailVerified: boolean; activeBusinessId: string | null; sessionId: string }> {
+  assertTrustedOrigin(headers);
   const preview = process.env.QADR_PREVIEW_MODE === "true";
   if (preview && process.env.NODE_ENV !== "development") throw new BusinessContextError("La prévisualisation locale est désactivée hors développement.", 403);
   const auth = await getAuth();

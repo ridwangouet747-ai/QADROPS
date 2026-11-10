@@ -13,7 +13,7 @@ Ce document décrit l'état réel livré dans `apps/web` le 2026-10-31 (mission 
 | Choix / changement de commerce | `/select-business`, pastille du commerce dans l'en-tête | `POST /api/account/active-business` : appartenance et accès vérifiés côté serveur avant `setActiveOrganization` |
 | Équipe | `/business/team` (menu « Plus ») | liste, invitation, rôle, désactivation, matrice des permissions |
 | Invitation | `/invitations/{id}` | lecture réservée au compte dont l'e-mail correspond ; acceptation via `auth.api.acceptInvitation`, puis le commerce devient actif |
-| Mot de passe oublié | `/forgot-password`, `/reset-password` | `requestPasswordReset` (jeton Turnstile) puis e-mail Resend ; `resetPassword` avec le jeton à usage unique. **Indisponible sans Resend configuré** (l'écran le dit) |
+| Mot de passe oublié | `/forgot-password`, `/reset-password` | `requestPasswordReset` (jeton Turnstile) puis e-mail Resend ; `resetPassword` avec le jeton à usage unique. **Indisponible sans Resend configuré** (l'écran le dit). Revue de bout en bout en mission 16 (§ 11.2) |
 
 Le logo choisi à la création est réduit à 256 px dans le navigateur, envoyé en data URL (200 Ko au plus) et vérifié côté serveur par ses octets de signature (PNG, JPEG, WebP). Il est stocké dans `organization.logo` et utilisé par les reçus existants.
 
@@ -25,7 +25,7 @@ Le logo choisi à la création est réduit à 256 px dans le navigateur, envoyé
 | --- | --- | --- |
 | Durée de session | 7 jours, renouvelée au plus une fois par jour | appareils de boutique utilisés tous les jours ; une session inactive 7 jours expire |
 | Mot de passe | 8 à 128 caractères, haché par Better Auth | pas de règle de complexité qui bloquerait des utilisateurs peu habitués |
-| Réinitialisation | lien valable 1 h, usage unique, toutes les sessions révoquées après changement | |
+| Réinitialisation | lien valable 1 h, usage unique, toutes les sessions révoquées après changement ; jeton stocké en empreinte SHA-256 (mission 16) | |
 | Invitations | 7 jours ; réinviter la même adresse renouvelle l'invitation existante et renvoie un e-mail | délai réaliste pour un employé sans e-mail consulté chaque jour |
 | Vérification d'adresse | envoi possible (lien valable 24 h), **non imposée** | voir § 5.4 |
 | Commerces par compte | 20 au plus | limite anti-abus |
@@ -107,7 +107,7 @@ Un membre n'est jamais supprimé : ses ventes et mouvements y font référence. 
 
 1. Créer ou utiliser le compte Resend de Qadr Agency (l'offre gratuite suffit pour les essais ; vérifier ses quotas et conditions avant la production).
 2. Générer une clé API à droits « Sending access », limitée au domaine d'envoi.
-3. Ajouter le domaine d'envoi (par exemple un sous-domaine dédié aux e-mails).
+3. Ajouter le domaine d'envoi (par exemple un sous-domaine dédié aux e-mails). Procédure détaillée : `docs/engineering/resend-dns.md` (mission 16).
 4. Créer chez le registrar les enregistrements DNS demandés par Resend (SPF/MX du sous-domaine, DKIM, DMARC recommandé).
 5. Attendre que Resend affiche le domaine « Verified ».
 6. Choisir l'adresse d'expédition sur ce domaine, par exemple `QADR OPS <no-reply@…>`, et éventuellement une adresse de réponse.
@@ -149,7 +149,7 @@ Mise en service de Turnstile (aucun compte connecté par l'agent, aucune clé à
 | `DATABASE_URL` (Neon) | non contacté ; migrations 0000–0009 jamais appliquées à Neon |
 | `BETTER_AUTH_SECRET` (32 caractères au moins) | `getAuth()` refuse de démarrer sans lui |
 | `BETTER_AUTH_URL`, `NEXT_PUBLIC_AUTH_URL` | URL publique exacte (cookies, origine de confiance, liens des e-mails, contrôle Turnstile) |
-| Resend | code prêt et testé avec un faux client ; **domaine, clé et envoi réel non vérifiés** (§ 5.5) |
+| Resend | code prêt et testé avec un faux client ; **domaine, clé et envoi réel non vérifiés** (§ 5.5). Constat du 2026-11-10 (lecture seule de l'API) : **aucun domaine** dans le compte Resend associé à la clé locale, et l'adresse d'expédition locale est sur un domaine de messagerie grand public, que Resend ne permet pas de vérifier : aucun e-mail ne peut partir vers un tiers en l'état (`docs/engineering/resend-dns.md`) |
 | Turnstile | widget et validation serveur en place, testés avec les clés de test et un faux Siteverify ; **clés de production non créées ni vérifiées** |
 | Vérification d'adresse pour les invitations | exigée en production (§ 5.4) |
 | Limitation de débit | **Mission 14 : compteurs partagés dans PostgreSQL** (`docs/rate-limiting.md`, migration 0024) sur connexion (par IP et par compte visé), inscription, demande et application de réinitialisation, renvoi de vérification et connexion sociale, en plus de la limitation en mémoire de Better Auth. Reste à vérifier sur l'hébergement réel : l'adresse lue derrière Cloudflare et Vercel. |
@@ -203,3 +203,45 @@ Vulnérabilités modérées restantes et réduction du risque :
 | `drizzle-kit` 0.31.11 → `@esbuild-kit/esm-loader` → `@esbuild-kit/core-utils` 3.3.2 → `esbuild` 0.18.20 | GHSA-67mh-4wv8-2f99 (serveur de développement esbuild lisible par un autre site, ≤ 0.24.2) | `drizzle-kit` 0.31.11 est la dernière version stable ; `@esbuild-kit` n'est plus maintenu (dernière version 2023) ; forcer esbuild 0.25 dans ce chargeur serait un changement majeur non testé | Développement seulement. drizzle-kit n'utilise esbuild que pour lire `drizzle.config.ts` et ne lance jamais le serveur esbuild. Ne lancer `drizzle-kit` que localement ; réévaluer au passage à drizzle-kit 1.x stable. |
 | `eslint` 10.11.0, `typescript-eslint` 8.56.0, `@eslint/js`, `@next/eslint-plugin-next`, `@eslint-community/eslint-utils`, `@eslint/config-array` → `minimatch` 10.2.6 / 9.0.9 | GHSA-g3hv-75wg-m249 (déni de service sur motifs « globparts », < 11.0.1) | correction seulement dans `minimatch` 11 (majeure), que ces outils n'acceptent pas encore | Développement seulement ; les motifs viennent de notre configuration, pas d'un utilisateur. Mettre à jour dès qu'ESLint publie une version compatible. |
 | `@sentry/nextjs` 10.78.0 → `@sentry/bundler-plugins` / `@sentry/webpack-plugin` → `glob` 13.0.6 | GHSA-3g3m-2fjr-6pw4 (annulation par AbortSignal ignorée, ≤ 14.0.1) | correction dans `glob` 14.0.2 (majeure), non acceptée par les plugins Sentry | Build seulement, et ces plugins ne s'exécutent qu'avec `withSentryConfig`, non utilisé. Mettre à jour Sentry quand ses plugins passeront à glob 14. |
+
+## 11. Revue de sécurité de la mission 16 (2026-11-10)
+
+Détail et commandes : `docs/engineering/mission-16-securite.md`. Tests : `src/test/auth-security.http.test.ts` (harnais HTTP, Better Auth réel sur PGlite).
+
+### 11.1 Inscription : adresse déjà inscrite
+
+- **Avant** : `POST /api/auth/sign-up/email` répondait 422 `USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL`, et ce refus était rapide (aucun hachage), donc mesurable.
+- **Maintenant** : crochet `after` de `createQadrAuth` ; les refus `USER_ALREADY_EXISTS*` et `FAILED_TO_CREATE_USER` deviennent un seul corps `422 { code: "SIGN_UP_FAILED", message: "SIGN_UP_FAILED" }` (`signUpRefusal`), et le mot de passe reçu est haché pour que la durée rejoigne celle d'une création. Les erreurs de saisie (mot de passe trop court, adresse invalide) restent signalées, mais **avant** tout test d'existence : elles ne révèlent rien. L'écran affichait déjà un message générique (`auth.register.failed`, `wizard.errors.accountFailed`).
+- **Limite exacte (compromis assumé)** : sans vérification d'adresse obligatoire, une inscription acceptée ouvre une session (200 + cookie) et un refus non. Quelqu'un qui réussit le défi Turnstile peut donc encore savoir qu'une adresse est inscrite, une adresse à la fois (30 inscriptions par heure et par adresse IP). La non-révélation complète exigerait `requireEmailVerification: true` (ou `autoSignIn: false` suivi d'un e-mail « vous avez déjà un compte ») : l'inscription ne connecterait plus directement et l'onboarding attendrait la confirmation. C'est une décision du propriétaire, qui suppose Resend opérationnel (§ 7).
+
+### 11.2 Récupération du mot de passe, de bout en bout
+
+| Point | Comportement vérifié |
+| --- | --- |
+| Demande | `POST /api/auth/request-password-reset` : 200 et même corps pour une adresse connue, inconnue ou à second facteur ; un seul e-mail, au titulaire, envoyé après la réponse ; Turnstile en production ; 3 demandes par heure et par compte, 20 par adresse IP |
+| Jeton | `generateId(24)` de Better Auth : 24 caractères alphanumériques (≈ 143 bits) ; **stocké en empreinte SHA-256** (`verification.storeIdentifier`, override `reset-password:`) ; la table `verification` ne contient plus le jeton |
+| Lien | `…/api/auth/reset-password/<jeton>?callbackURL=%2Freset-password` → 302 vers `/reset-password?token=…` ; jeton inconnu ou expiré → `/reset-password?error=INVALID_TOKEN` ; lien de retour vers un autre site refusé à la demande (403 `INVALID_REDIRECT_URL`) |
+| Expiration | 1 h ; un jeton expiré est refusé (400 `INVALID_TOKEN`) |
+| Usage unique | consommation atomique par Better Auth ; second usage → 400 `INVALID_TOKEN` ; un mot de passe trop court (400 `PASSWORD_TOO_SHORT`) ne consomme pas le jeton |
+| Sessions | `revokeSessionsOnPasswordReset: true` : toutes les sessions du compte sont supprimées (les sessions plateforme suivent par cascade) ; ancien mot de passe refusé, nouveau accepté |
+| Compte à second facteur | aucun e-mail envoyé (réponse identique) : le propriétaire de la plateforme change son mot de passe par `scripts/platform-owner.ts` |
+| Messages | trop d'essais : `auth.forgot.throttled` et `auth.reset.throttled` (le lien reste valable) au lieu de « lien invalide » |
+
+### 11.3 Contrôle d'origine des routes de l'application
+
+- Better Auth contrôle l'origine de ses routes (`trustedOrigins`). Ses contrôles étaient **désactivés en test** (comportement par défaut quand `NODE_ENV=test`) : `advanced.disableOriginCheck: false` les force partout, la production est inchangée et les tests vérifient désormais la même chose qu'elle.
+- Les routes de l'application authentifiées par cookie (`/api/account/*`, `/api/business/*`, `/api/platform/*`, `/api/notifications/*`) ne reposaient que sur `SameSite=Lax`, qui laisse passer un sous-domaine frère, et `parseJsonRequest` accepte un JSON envoyé en `text/plain`. `getBusinessContext`, `getAccountContext` et `getPlatformContext` appellent maintenant `assertTrustedOrigin` (`src/lib/security/request-origin.ts`) : un `Origin` présent doit être `BETTER_AUTH_URL` ou l'hôte qui reçoit la requête (aperçu local) ; `Origin: null` est refusé ; réponse **403 `{ error: "Origine de la requête refusée.", code: "invalid_origin" }`**. Les routes d'écriture de `/api/account/*` vérifient aussi `Sec-Fetch-Site` (intersite sans `Origin` → 403).
+- Sans `Origin` (lecture GET, client hors navigateur), la requête passe : un navigateur envoie toujours `Origin` pour POST/PUT/PATCH/DELETE, et un client hors navigateur ne porte pas les cookies d'une victime.
+- Hors champ : webhooks (signature), crons (`CRON_SECRET`), `/api/public/campaigns/check` (sans cookie), connexion du propriétaire (`isSameOriginRequest` depuis la mission 13).
+
+### 11.4 Audit (état constaté, aucun écart bloquant)
+
+| Sujet | Constat |
+| --- | --- |
+| Sessions | 7 jours, renouvelées au plus une fois par jour ; pas de cache de session en cookie : une session supprimée (déconnexion, réinitialisation, désactivation) cesse immédiatement d'ouvrir les routes ; cookies `HttpOnly`, `SameSite=Lax`, `Secure` en production |
+| Déconnexion | `signOutAndResetAnalytics` : oubli de l'appareil push, puis `signOut` (session supprimée en base) |
+| Appareils | un abonnement push appartient à une session vivante (mission 13) |
+| Propriétaire de la plateforme | `platform_admin` + `platform_session` de 8 h ouverte seulement par `/api/platform/auth/verify` (TOTP) ; `/sign-in/email` refuse tout compte à second facteur ; routes HTTP `two-factor`, `sign-in/username`, `organization/*` fermées (404) ; un commerçant n'atteint aucune route `/api/platform/*` (404 sans droit) et le propriétaire n'a pas de commerce |
+| Rôles | `src/lib/auth/permissions.ts`, vérifiés côté serveur sur chaque route (tests `roles-and-status.http.test.ts`) |
+| Limitation | `docs/rate-limiting.md` ; règles de récupération revues (tableau « Récupération de compte ») |
+| Écart restant | inscription : voir la limite du § 11.1 ; Resend non opérationnel (§ 7) ; adresse IP derrière Cloudflare + Vercel non vérifiée |

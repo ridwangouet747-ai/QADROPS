@@ -63,9 +63,14 @@ Le PDF utilise les polices standard Helvetica (encodage WinAnsi), sans police em
   - Feuilles de la période (Ventes, Stock, Achats, Dépenses, Paiements) : au-delà, l'export est **refusé** (422 `export_too_large`, « choisissez une période plus courte ») plutôt que de livrer une feuille incomplète qui fausserait les sommes.
   - Listes de référence (Produits, Clients, Dettes, Fournisseurs) : **tronquées** à 5 000 lignes, et la troncature est écrite dans la Synthèse.
 - Les requêtes s'exécutent l'une après l'autre (une seule connexion).
+- **Taille (mission 16)** : les lignes ne bornent pas les octets (une note longue pèse plus qu'un nom court). En plus, `EXPORT_LIMITS` fixe :
+  - `xlsxXmlBytes` = 64 Mio : XML des feuilles, compté ligne par ligne pendant la génération (`buildXlsx`, `XlsxTooLargeError("xml_bytes")`) ; la génération s'arrête au premier dépassement, sans construire la suite (mémoire du serveur) ;
+  - `fileBytes` = 4 Mio : tout fichier renvoyé (XLSX compressé, CSV, PDF), car une fonction Vercel ne répond pas au-delà de 4,5 Mo.
+  - Au-delà : **422 `{ error, code: "export_too_large" }`**, sans en-tête `content-disposition` ni fichier partiel ; l'écran affiche déjà `exports.errors.tooLarge` pour ce code. Tests : `src/lib/exports/xlsx.test.ts` (bornes du générateur) et `src/test/auth-security.http.test.ts` (route réelle, XLSX, CSV et PDF).
 
 ## 6. Sécurité
 
+- Origine (mission 16) : `getBusinessContext` refuse en 403 `invalid_origin` une requête dont l'en-tête `Origin` n'est pas celui de l'application (`src/lib/security/request-origin.ts`) ; un téléchargement depuis l'écran des rapports (même origine) n'est pas concerné.
 - Commerce : toujours celui de la session (`getBusinessContext`, membre actif). Les paramètres `businessId` ou `actorUserId` ajoutés à l'URL sont ignorés (testé).
 - Permissions (`src/lib/auth/permissions.ts`) : `report:read` pour tout export, puis la permission de lecture de chaque domaine pour sa feuille (§ 2). Aucune nouvelle permission n'a été créée. Sans `report:read` (caissier) : 403. Sans session : 401.
 - Chaque requête SQL filtre par `business_id`, jointures comprises (clés composées). Un test crée deux commerces A et B, marque les données de B et vérifie qu'aucune ligne de B n'apparaît dans les feuilles ni dans les fichiers de A.

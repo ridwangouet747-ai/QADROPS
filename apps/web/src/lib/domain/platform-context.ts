@@ -3,7 +3,7 @@ import { getAuth } from "../auth/server";
 import { getDatabase } from "../db/client";
 import { platformAdmin } from "../db/schema";
 import type { CommercialDatabase } from "./commercial";
-import { BusinessContextError } from "./business-context";
+import { assertTrustedOrigin, BusinessContextError } from "./business-context";
 import { hasActivePlatformSession } from "./platform-auth";
 
 /** Le compte a le droit, mais sa session plateforme manque ou a expiré : se reconnecter (/platform/login). */
@@ -13,6 +13,7 @@ export class PlatformReauthRequired extends BusinessContextError {
 }
 
 export async function getPlatformContext(headers: Headers): Promise<{ db: CommercialDatabase; actorUserId: string; preview: boolean; sessionId: string | null }> {
+  assertTrustedOrigin(headers);
   if (process.env.QADR_PREVIEW_MODE === "true") {
     if (process.env.NODE_ENV !== "development") throw new BusinessContextError("La prévisualisation plateforme est réservée au développement local.", 403);
     const { getPreviewDatabase, previewIdentity } = await import("../preview/database");

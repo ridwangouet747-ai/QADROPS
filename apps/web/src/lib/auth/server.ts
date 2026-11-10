@@ -62,6 +62,16 @@ export function authRateChecks(path: string, body: unknown, ip: string | null | 
   }
 }
 
+/** Refus d'inscription renvoyés tels quels par Better Auth et réécrits en un refus unique (mission 16). */
+const signUpRefusalCodes = new Set(["USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", "FAILED_TO_CREATE_USER"]);
+/** Corps unique d'une inscription refusée : ni « adresse déjà utilisée », ni détail d'écriture. */
+export const signUpRefusal = { code: "SIGN_UP_FAILED", message: "SIGN_UP_FAILED" } as const;
+
+function apiErrorCode(value: unknown) {
+  const body = (value as { body?: { code?: unknown } } | null | undefined)?.body;
+  return typeof body?.code === "string" ? body.code : undefined;
+}
+
 /** Règles qui protègent un compte précis : comptées seulement après le défi Turnstile. */
 const accountRateRules = new Set<RateRule>([rateRules.signInAccount, rateRules.passwordResetRequestAccount]);
 
@@ -139,10 +149,17 @@ export function createQadrAuth(options: AuthOptions) {
       resetPasswordTokenExpiresIn: authDurations.passwordResetSeconds,
       // Sans fournisseur d'e-mail, le lien n'est ni envoyé ni journalisé : la réponse reste neutre.
       // Avec Resend, l'envoi part après la réponse (backgroundTasks) : même délai qu'un compte existe ou non.
-      sendResetPassword: transport ? async ({ user, url, token }, request) => {
-        await deliver(renderPasswordResetEmail({ locale: requestLocale(request), to: user.email, url, token }));
+      sendResetPassword: transport ? async ({ user: account, url, token }, request) => {
+        // Mission 16 : le compte à second facteur (propriétaire de la plateforme) ne se récupère jamais par le
+        // lien public ; son mot de passe se change par scripts/platform-owner.ts. Réponse HTTP inchangée (rien
+        // n'est révélé), aucun e-mail : une boîte de réception compromise ne suffit pas à couper ses sessions.
+        if ((account as { twoFactorEnabled?: boolean | null }).twoFactorEnabled) return;
+        await deliver(renderPasswordResetEmail({ locale: requestLocale(request), to: account.email, url, token }));
       } : undefined,
     },
+    // Mission 16 : le jeton de réinitialisation n'est conservé qu'en empreinte SHA-256 (une copie de la base
+    // ne donne aucun lien utilisable). Les autres identifiants de vérification restent inchangés.
+    verification: { storeIdentifier: { default: "plain", overrides: { "reset-password:": "hashed" } } },
     // Envoi disponible (authClient.sendVerificationEmail) mais non imposé : la vérification à l'inscription
     // changerait la politique d'accès et reste une décision du propriétaire (docs/authentication.md).
     emailVerification: transport ? {
@@ -224,6 +241,9 @@ export function createQadrAuth(options: AuthOptions) {
     })],
     advanced: {
       useSecureCookies: options.isProduction,
+      // Better Auth désactive par défaut ses contrôles d'origine et de liens de retour quand NODE_ENV=test :
+      // forcés ici, les tests vérifient exactement ce que fait la production (mission 16).
+      disableOriginCheck: false,
       ipAddress: { ipAddressHeaders: clientIpHeaders() },
       ...(options.backgroundTask ? { backgroundTasks: { handler: options.backgroundTask } } : {}),
     },
@@ -298,6 +318,16 @@ export function createQadrAuth(options: AuthOptions) {
             if (account?.twoFactorEnabled) throw new APIError("UNAUTHORIZED", { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" });
           }
         }
+      }),
+      after: createAuthMiddleware(async (context) => {
+        // Mission 16 : une inscription refusée ne dit plus pourquoi (adresse déjà inscrite ou écriture échouée).
+        // Le refus « adresse existante » de Better Auth est rapide (aucun hachage) : on hache ici le mot de passe
+        // reçu pour que sa durée rejoigne celle d'une création. Limite assumée (docs/authentication.md § 11) :
+        // sans vérification d'adresse obligatoire, une inscription acceptée ouvre une session, un refus non.
+        if (context.path !== "/sign-up/email" || !signUpRefusalCodes.has(apiErrorCode(context.context.returned) ?? "")) return;
+        const password = (context.body as { password?: unknown } | undefined)?.password;
+        if (typeof password === "string" && password) await context.context.password.hash(password);
+        throw new APIError("UNPROCESSABLE_ENTITY", { message: signUpRefusal.message, code: signUpRefusal.code });
       }),
     },
   });

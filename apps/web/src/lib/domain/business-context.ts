@@ -3,10 +3,16 @@ import { and, eq } from "drizzle-orm";
 import { getDatabase } from "@/lib/db/client";
 import { getAuth } from "@/lib/auth/server";
 import { businessMemberAccess, businessProfile, member } from "@/lib/db/schema";
+import { isTrustedRequest, originRefusal } from "@/lib/security/request-origin";
 import type { CommercialDatabase } from "./commercial";
 
 export class BusinessContextError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
+}
+
+/** Mission 16 : une route authentifiée par cookie refuse une origine étrangère (src/lib/security/request-origin.ts). */
+export function assertTrustedOrigin(headers: Headers, method?: string) {
+  if (!isTrustedRequest(headers, method)) throw new BusinessContextError(originRefusal.error, 403, originRefusal.code);
 }
 
 /**
@@ -25,6 +31,7 @@ export async function assertActiveMembership(db: CommercialDatabase, businessId:
 }
 
 export async function getBusinessContext(headers: Headers): Promise<{ db: CommercialDatabase; businessId: string; userId: string; actorUserId: string; sessionId: string | null }> {
+  assertTrustedOrigin(headers);
   const preview = process.env.QADR_PREVIEW_MODE === "true";
   if (preview && process.env.NODE_ENV !== "development") {
     throw new BusinessContextError("La prévisualisation locale est désactivée hors développement.", 403);

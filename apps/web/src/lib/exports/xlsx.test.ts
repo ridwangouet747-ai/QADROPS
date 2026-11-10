@@ -1,7 +1,7 @@
 import { inflateRawSync } from "node:zlib";
 import readXlsxFile from "read-excel-file/node";
 import { describe, expect, it } from "vitest";
-import { buildXlsx, columnName, decimalCell, excelDecimal, excelInteger, headingCell, integerCell } from "./xlsx";
+import { buildXlsx, columnName, decimalCell, DEFAULT_XLSX_LIMITS, excelDecimal, excelInteger, headingCell, integerCell, XlsxTooLargeError } from "./xlsx";
 
 /** Lit les entrées d'une archive ZIP via son répertoire central (contrôle indépendant du générateur). */
 function unzip(bytes: Buffer) {
@@ -117,5 +117,27 @@ describe("classeur XLSX sans dépendance", () => {
     expect(excelDecimal("123456789012345.6")).toBeNull();
     expect(excelDecimal("1e5")).toBeNull();
     expect([0, 25, 26, 701, 702].map(columnName)).toEqual(["A", "Z", "AA", "ZZ", "AAA"]);
+  });
+});
+
+describe("mission 16 : bornes de taille du classeur", () => {
+  const bigSheet = (rows: number) => ({ name: "Grande", rows: Array.from({ length: rows }, (_, i) => [`Article ${i} ${"x".repeat(200)}`, integerCell(String(i))]) });
+
+  it("s'arrête dès que le XML dépasse la borne, sans construire la suite", () => {
+    let error: unknown;
+    try { buildXlsx([bigSheet(1_000)], { maxXmlBytes: 10_000, maxFileBytes: DEFAULT_XLSX_LIMITS.maxFileBytes }); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(XlsxTooLargeError);
+    expect(error).toMatchObject({ limit: "xml_bytes", message: "xlsx.too_large" });
+  });
+
+  it("refuse un fichier compressé au-delà de la borne et accepte le même sous la borne", () => {
+    const file = buildXlsx([bigSheet(200)]);
+    expect(() => buildXlsx([bigSheet(200)], { maxXmlBytes: DEFAULT_XLSX_LIMITS.maxXmlBytes, maxFileBytes: file.length - 1 }))
+      .toThrow(expect.objectContaining({ limit: "file_bytes" }));
+    expect(buildXlsx([bigSheet(200)], { maxXmlBytes: DEFAULT_XLSX_LIMITS.maxXmlBytes, maxFileBytes: file.length }).equals(file)).toBe(true);
+  });
+
+  it("bornes par défaut : 64 Mio de XML, 4 Mio de fichier (réponse Vercel ≤ 4,5 Mo)", () => {
+    expect(DEFAULT_XLSX_LIMITS).toEqual({ maxXmlBytes: 64 * 1024 * 1024, maxFileBytes: 4 * 1024 * 1024 });
   });
 });

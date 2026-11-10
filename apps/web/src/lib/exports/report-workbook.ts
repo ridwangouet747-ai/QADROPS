@@ -2,7 +2,7 @@ import type { ExportData, ExportSheetKey } from "@/lib/domain/exports";
 import { localeDirection, type Locale } from "@/lib/i18n/config";
 import { createTranslator, type MessageKey, type Translate } from "@/lib/i18n/translate";
 import { labelOf, localStamp, summaryRows, type SummaryValue } from "./report-summary";
-import { buildXlsx, decimalCell, headingCell, integerCell, type XlsxCell, type XlsxSheet } from "./xlsx";
+import { buildXlsx, decimalCell, headingCell, integerCell, type XlsxCell, type XlsxLimits, type XlsxSheet } from "./xlsx";
 
 /*
  * Classeur des exports (mission 11, phase 4). En-têtes et noms de feuilles dans la langue de
@@ -33,7 +33,7 @@ function dataSheet<T>(name: string, columns: Column<T>[], data: { rows: T[]; tru
 const yesNo = (value: boolean, t: Translate) => t(value ? "exports.common.yes" : "exports.common.no");
 const method = (value: string | null, t: Translate) => labelOf(t, "reports.methods", value, "reports.methods.unknown");
 
-export function buildReportWorkbook(data: ExportData, locale: Locale) {
+export function buildReportWorkbook(data: ExportData, locale: Locale, limits?: XlsxLimits) {
   const t = createTranslator(locale);
   const rtl = localeDirection[locale] === "rtl";
   const { report, sheets, limit } = data;
@@ -154,7 +154,7 @@ export function buildReportWorkbook(data: ExportData, locale: Locale) {
     { header: "exports.columns.collectedInPeriod", width: 18, cell: (row, tr) => yesNo(row.collectedInPeriod, tr) },
     { header: "exports.columns.recordedBy", width: 20, cell: (row) => row.recordedBy },
   ]);
-  return buildXlsx(workbook);
+  return buildXlsx(workbook, limits);
 }
 
 export function workbookFileName(data: ExportData) {

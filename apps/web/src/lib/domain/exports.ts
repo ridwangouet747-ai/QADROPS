@@ -21,9 +21,12 @@ import { getCommercialReport, reportRange, type CommercialReport } from "./repor
  *   livrer une feuille incomplète ; les listes de référence (produits, clients, dettes, fournisseurs)
  *   sont tronquées et la troncature est écrite dans le fichier.
  * - Rien n'est stocké ni journalisé : les fichiers sont produits en mémoire par l'appelant.
+ * - Taille (mission 16) : en plus des lignes, le XML du classeur est borné à `xlsxXmlBytes` (mémoire du
+ *   serveur, compté pendant la génération) et tout fichier renvoyé à `fileBytes` (une fonction Vercel ne
+ *   répond pas au-delà de 4,5 Mo). Au-delà : 422 `export_too_large`, jamais de fichier tronqué.
  */
-
-export const EXPORT_LIMITS = { rowsPerSheet: 5_000 } as const;
+export type ExportLimits = { rowsPerSheet: number; xlsxXmlBytes: number; fileBytes: number };
+export const EXPORT_LIMITS: ExportLimits = { rowsPerSheet: 5_000, xlsxXmlBytes: 64 * 1024 * 1024, fileBytes: 4 * 1024 * 1024 };
 
 const exportInputSchema = z.object({
   businessId: z.string().min(1), actorUserId: z.string().min(1),

@@ -49,6 +49,19 @@ intégrée de Better Auth reste active en plus (par instance).
 Les règles s'appliquent aux requêtes HTTP (`context.request`) ; les appels serveur `auth.api.*` (scripts,
 services) ne sont pas comptés.
 
+### Récupération de compte (revue mission 16)
+
+| Abus | Protection | Vérifié par |
+| --- | --- | --- |
+| Inonder une boîte de réception de liens | 3 demandes par heure et par adresse visée (comptées après Turnstile), 20 par heure et par adresse IP, Turnstile obligatoire en production | `rate-limit.http.test.ts` (« trois par heure et par compte ») |
+| Énumérer les comptes par la demande | réponse identique (200, même corps) pour une adresse connue, inconnue ou à second facteur ; envoi après la réponse (`backgroundTasks`) | `auth-security.http.test.ts`, `auth-delivery.integration.test.ts` |
+| Deviner un jeton | 24 caractères alphanumériques aléatoires (≈ 143 bits), valable 1 h, usage unique, stocké en empreinte SHA-256 ; `POST /reset-password` limité à 20 essais par 15 min et par adresse IP | `auth-security.http.test.ts` |
+| Détourner le lien vers un autre site | `redirectTo` et `callbackURL` vérifiés contre `trustedOrigins` (403 `INVALID_REDIRECT_URL`) ; contrôle forcé aussi en test (`disableOriginCheck: false`) | `auth-security.http.test.ts` |
+| Reprendre le compte du propriétaire de la plateforme par sa boîte de réception | aucun lien envoyé à un compte à second facteur (changement par `scripts/platform-owner.ts` seulement) | `auth-security.http.test.ts` |
+
+Limite : le blocage par compte (3 par heure) peut être déclenché volontairement par un tiers qui connaît l'adresse
+et réussit le défi Turnstile ; la victime attend alors au plus une heure (l'écran affiche `auth.forgot.throttled`).
+
 ## Adresse du client
 
 Même politique que Better Auth (`src/lib/auth/client-ip-headers.ts`) : `x-forwarded-for` (posé par
