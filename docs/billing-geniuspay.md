@@ -4,7 +4,7 @@ Un commerce peut payer son abonnement à Qadr Agency par GeniusPay (API Merchant
 
 Ce parcours ne concerne que l'abonnement. Il ne touche ni aux ventes ni aux paiements clients du commerce (`sale`, `payment`…) et ne partage aucune table avec eux.
 
-**État : rien n'a été testé contre GeniusPay réel, même en sandbox.** Toutes les vérifications passent par un GeniusPay simulé (`src/test/fake-geniuspay.ts`), d'après la documentation lue le 2026-11-03. Avant la mise en production, il faut lever les points de la section 8 avec GeniusPay.
+**État (mission 16, 2026-11-10)** : le parcours a été exercé **une fois en sandbox réelle** le 2026-11-09 (succès, échec, en attente, double clic, retour falsifié, webhook perdu ; `docs/engineering/geniuspay-sandbox-tunnel.md` § 0 bis), puis relu en lecture seule le 2026-11-10 (§ 0 ter du même document). **Rien n'a été fait en live.** Les autres cas (montant ou devise faux, signature falsifiée, panne, délai dépassé, autre environnement) ne sont vérifiés qu'avec le GeniusPay simulé (`src/test/fake-geniuspay.ts`). Correspondance scénario → test, différences sandbox/production et cycle de vie : `docs/engineering/mission-16-geniuspay.md`. Avant la mise en production, il faut lever les points de la section 8 avec GeniusPay.
 
 ## 1. Parcours
 
@@ -13,7 +13,7 @@ Ce parcours ne concerne que l'abonnement. Il ne touche ni aux ventes ni aux paie
 3. **Checkout.** Appel de `POST /payments` sans `payment_method`. GeniusPay renvoie une `reference` (`MTX-…`) et une `checkout_url` (valable 24 h, HTTPS vérifié). Les métadonnées `qadr_invoice` et `qadr_attempt` sont envoyées. Le navigateur est redirigé vers `checkout_url`.
    - Même clé d'idempotence rejouée : la même tentative est renvoyée (200, `replayed`).
    - Paiement encore ouvert pour la même facture : il est d'abord relu, puis réutilisé (même `checkout_url`, `reused: true`) s'il lui reste au moins 10 minutes.
-   - Paiement en cours pour **une autre** formule : `409 payment_in_progress`.
+   - Paiement en cours pour **une autre** formule : `409 payment_in_progress`, tant que son lien n'a pas expiré depuis plus d'une heure. Au-delà (mission 16 : un paiement abandonné reste `pending` chez GeniusPay), la facture est annulée et une nouvelle est ouverte ; si l'ancien paiement aboutissait malgré tout, il serait enregistré et signalé (`subscription.payment_on_void_invoice`), sans période servie.
    - Échec de création chez GeniusPay (refus ou réseau) : la tentative passe `failed` (`init_<code>`) et la route répond `502 provider_unavailable`. Rien n'est activé.
 4. **Retour.** `success_url` et `error_url` pointent vers `/business/subscription/return?attempt=<id>`, construites sur `BETTER_AUTH_URL`. La page affiche « paiement en cours de vérification » et interroge `GET /api/business/subscription/payments/[attemptId]` après 2, 3, 5, 5, 10 et 15 s, puis toutes les 30 s. Cette route :
    - relit GeniusPay au plus une fois toutes les 5 s par tentative ;
@@ -22,7 +22,7 @@ Ce parcours ne concerne que l'abonnement. Il ne touche ni aux ventes ni aux paie
 5. **Confirmation**, par trois voies qui appliquent toutes la même fonction `applyProviderPayment` :
    - le webhook `POST /api/webhooks/geniuspay` (section 3) ;
    - la relecture déclenchée par la page de retour ;
-   - le rapprochement du cron quotidien `/api/cron/subscriptions` : au plus 50 tentatives `pending` de plus de 10 minutes, dans un budget de 120 s (le reste, compté dans `deferred`, attend le passage suivant ; route `maxDuration = 300`), puis le passage d'expiration existant.
+   - le rapprochement du cron quotidien `/api/cron/subscriptions` : au plus 50 tentatives `pending` de plus de 10 minutes et de moins de 7 jours, **de l'environnement de la clé configurée**, les jamais relues d'abord puis les moins récemment relues (mission 16 : une tentative en anomalie permanente ne monopolise plus les places), dans un budget de 120 s (le reste, compté dans `deferred`, attend le passage suivant ; route `maxDuration = 300`), puis le passage d'expiration existant.
 6. **Activation** (section 5), dans une seule transaction, avec un audit `subscription.payment_activated`. Les autres événements d'audit sont `subscription.invoice_created`, `subscription.payment_initiated`, `subscription.payment_failed` et `subscription.payment_anomaly`.
 
 Dans `/business/subscription`, la carte « Payer en ligne » (`PayCard`) est placée au-dessus de la saisie de code. Elle n'est proposée qu'au propriétaire et seulement si GeniusPay est configuré ; sinon, l'écran l'annonce indisponible. Les textes sont traduits en fr, en et ar, avec RTL (propriétés logiques).
@@ -42,8 +42,10 @@ Variables lues côté serveur uniquement (voir `apps/web/.env.example`) :
 
 Règles (`readGeniusPayConfig`, `getBillingProvider`) :
 - Les trois secrets vont ensemble. S'il en manque un, le paiement est déclaré indisponible et le webhook répond 503.
-- Une clé sandbox est refusée en production, sauf si `VERCEL_ENV=preview`. Une clé live est refusée hors production, et aussi sur tout déploiement Vercel dont `VERCEL_ENV` n'est pas `production` (mission 15 : Vercel fixe `NODE_ENV=production` en Preview).
-- L'environnement de chaque paiement est enregistré. Un webhook ou une relecture dans un autre environnement est rejeté (`environment_mismatch`).
+- L'environnement (sandbox ou live) vient **uniquement du préfixe des clés** (`pk_sandbox_`/`sk_sandbox_`, `pk_live_`/`sk_live_`, qui doivent concorder). Modifier `GENIUSPAY_BASE_URL` ne fait jamais passer en live.
+- Une clé sandbox est refusée en production, sauf si `VERCEL_ENV=preview`. Une clé live n'est acceptée que si `NODE_ENV=production` **et** `VERCEL_ENV=production` (mission 16 : auparavant, un `next start` local ou un hébergement hors Vercel sans `VERCEL_ENV` l'acceptait). Changer d'hébergeur impose de revoir cette règle.
+- Le secret `whsec_` ne porte pas d'environnement : rien ne détecte un secret sandbox avec des clés live. Un tel mélange fait refuser les webhooks live (401), sans activation ; la page de retour et le cron rattrapent alors les paiements.
+- L'environnement de chaque paiement est enregistré. Un webhook ou une relecture dans un autre environnement est rejeté (`environment_mismatch`). Une tentative d'un autre environnement n'est **jamais relue** avec la clé courante (mission 16) : la page de retour indique `verification: "unavailable"`, le cron l'ignore.
 
 Le fournisseur est injecté (`fetchImpl`) : appels `fetch` directs, délai de 15 s, `redirect: "error"`, aucune dépendance npm ajoutée.
 
@@ -169,12 +171,14 @@ La liste complète des questions, le message prêt à envoyer à GeniusPay et le
 - Un remboursement (`refunded`) est enregistré, mais ne raccourcit pas automatiquement la période déjà accordée.
 - Deux paiements réussis pour la même facture sont détectés (audit `payment_duplicate`), mais leur remboursement reste manuel.
 - Le rapprochement ne tourne qu'une fois par jour (cron existant). Entre-temps, la page de retour et le webhook assurent la confirmation.
+- Un paiement abandonné reste `pending` en base tant que GeniusPay le dit `pending` (constaté en sandbox) : il n'est plus relu par le cron après 7 jours et ne bloque plus un changement de formule une heure après l'expiration de son lien, mais il n'est pas clos localement.
+- Un paiement confirmé pendant une **suspension administrative** ouvre une nouvelle période qui court pendant la suspension (les périodes `suspended` ne sont pas « en cours »). Cas rare (le checkout est refusé à un commerce suspendu ; il faut un paiement ouvert avant la suspension) : décision du propriétaire attendue, voir `docs/engineering/mission-16-geniuspay.md`.
 - Pas de console Super Admin pour les factures et les anomalies : celles-ci ne sont visibles que dans l'audit.
 
 ## 10. Tests
 
-- `src/lib/billing/geniuspay.test.ts` : signature, tolérance, normalisation, configuration, appels simulés.
-- `src/test/subscription-billing.http.test.ts` : parcours complet par le harnais PGlite (rôle, idempotence, réutilisation, échec de création, webhook signé et dédupliqué, montant ou métadonnées falsifiés, référence inconnue, absence de régression, renouvellement à partir de la fin, changement de formule, commerce expiré, cron).
+- `src/lib/billing/geniuspay.test.ts` : signature, tolérance, normalisation, configuration (dont live seulement avec `VERCEL_ENV=production`, et aucun passage en live par l'URL), appels simulés, délai dépassé.
+- `src/test/subscription-billing.http.test.ts` : parcours complet par le harnais PGlite (rôle, idempotence, réutilisation, échec de création, webhook signé et dédupliqué, montant ou métadonnées falsifiés, référence inconnue, absence de régression, renouvellement à partir de la fin, changement de formule, commerce expiré, cron) ; mission 16 : en attente puis panne pendant le webhook (503 et relance), webhook perdu rattrapé par la seule page de retour, double clic simultané, tentative d'un autre environnement, anomalie permanente qui ne bloque plus le rapprochement, paiement abandonné après expiration, fenêtre de 7 jours.
 - `src/test/campaign-invoice-discount.http.test.ts` : remise de campagne sur la première facture (montant net envoyé, réutilisation, activation, une seule fois, autre formule, perte de la remise, montant trop faible, contraintes SQL, réclamation d'un autre commerce).
 - `src/test/tenant-isolation.http.test.ts` : un paiement de B est introuvable pour A, et A ne paie que sa propre facture.
 

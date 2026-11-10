@@ -46,6 +46,18 @@ Aperçu `qadr-web-preview-geniuspay-sandbox` (127.0.0.1:3001, base de démonstra
 - renvoi manuel d'un événement depuis le tableau de bord (doublon réel) ;
 - montant ou devise discordants : GeniusPay ne permet pas de les provoquer, ces cas restent couverts par `subscription-billing.http.test.ts`.
 
+## 0 ter. Relecture en lecture seule (2026-11-10, mission 16)
+
+Sans aperçu, sans tunnel et sans nouveau paiement : un script local (hors dépôt) a relu l'API sandbox avec les clés de `apps/web/.env.local`, jamais affichées, par la classe `GeniusPayProvider` du dépôt.
+
+| Appel | Résultat |
+| --- | --- |
+| `GET /payments/{référence inexistante}` | 404, lu comme « inconnu » (`null`) par `getPayment`, sans exception |
+| `GET /payments?per_page=10` (liste) | 200, 6 paiements sandbox, champs `amount, completed_at, created_at, currency, customer_email, customer_name, customer_phone, environment, external_reference, fees, id, merchant_id, net_amount, payment_method, reference, status` |
+| `GET /payments/{reference}` sur chacun | 2 `completed` (15 000 et 5 000 XOF), 1 `failed`, **3 encore `pending` le lendemain** ; tous `XOF`, `sandbox`, `orange_money`, métadonnées `qadr_attempt`, `qadr_invoice`, `scenario`, `success_url`, `error_url` |
+
+Conséquences tirées dans le code (mission 16) : un paiement abandonné n'expire pas chez GeniusPay après les 24 h du lien, donc il ne doit ni bloquer un changement de formule indéfiniment, ni être relu chaque jour sans fin (`docs/billing-geniuspay.md` § 1). Le scénario « Timeout » du checkout sandbox n'a toujours pas été joué : il n'est pas possible de savoir lequel des trois `pending` en provient.
+
 ## 1. Architecture de l'essai
 
 ```

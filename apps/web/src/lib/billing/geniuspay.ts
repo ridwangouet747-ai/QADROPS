@@ -45,8 +45,9 @@ export type GeniusPayConfigResult =
  * Lit la configuration serveur. Rien n'est jamais lu côté navigateur.
  * - Les trois secrets sont requis ensemble ; aucun = paiement en ligne indisponible (jamais de faux succès).
  * - L'environnement se lit sur le préfixe des clés (`pk_sandbox_`/`sk_sandbox_` ou `pk_live_`/`sk_live_`), qui doivent concorder.
- * - Clé sandbox refusée en production (sauf préproduction Vercel, `VERCEL_ENV=preview`) ; clé live refusée hors production,
- *   y compris sur un déploiement Vercel Preview ou Development (`VERCEL_ENV` ≠ `production`).
+ * - Clé sandbox refusée en production (sauf préproduction Vercel, `VERCEL_ENV=preview`) ; clé live acceptée SEULEMENT si
+ *   `NODE_ENV=production` ET `VERCEL_ENV=production` (refusée en Preview, en Development, en `next start` local, hors Vercel).
+ * - L'environnement ne dépend jamais de l'URL : changer GENIUSPAY_BASE_URL ne fait pas passer en live.
  */
 /**
  * Les clés partent en en-tête vers GENIUSPAY_BASE_URL : seuls les domaines GeniusPay cités par sa documentation sont
@@ -78,7 +79,10 @@ export function readGeniusPayConfig(source: NodeJS.ProcessEnv = process.env): Ge
   if (keyEnvironment === "sandbox" && production && !preproduction) return { status: "invalid", reason: "Clé GeniusPay sandbox refusée en production." };
   if (keyEnvironment === "live" && !production) return { status: "invalid", reason: "Clé GeniusPay live refusée hors production (aucun paiement réel en développement ou en test)." };
   // Sur Vercel, NODE_ENV vaut « production » aussi en Preview : seul VERCEL_ENV distingue la vraie production.
-  if (keyEnvironment === "live" && source.VERCEL_ENV && source.VERCEL_ENV !== "production") return { status: "invalid", reason: "Clé GeniusPay live refusée sur un déploiement Vercel autre que la production." };
+  // Mission 16 : VERCEL_ENV=production est EXIGÉ (pas seulement « différent de preview ») ; sans lui, un `next start`
+  // local ou un hébergement non prévu par la décision D-01 accepterait des clés live. Changer d'hébergeur impose de
+  // revoir cette règle, jamais de la contourner par une variable.
+  if (keyEnvironment === "live" && source.VERCEL_ENV !== "production") return { status: "invalid", reason: "Clé GeniusPay live acceptée seulement sur le déploiement Vercel de production (VERCEL_ENV=production)." };
   const rawBase = source.GENIUSPAY_BASE_URL?.trim() || GENIUSPAY_DEFAULT_BASE_URL;
   if (!URL.canParse(rawBase) || new URL(rawBase).protocol !== "https:") return { status: "invalid", reason: "GENIUSPAY_BASE_URL doit être une URL HTTPS." };
   if (!isGeniusPayHost(new URL(rawBase))) return { status: "invalid", reason: "GENIUSPAY_BASE_URL doit pointer vers un domaine GeniusPay (geniuspay.ci ou genius.ci) : les clés y sont envoyées." };

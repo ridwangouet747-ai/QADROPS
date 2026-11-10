@@ -102,15 +102,36 @@ describe("configuration GeniusPay", () => {
     expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "preview", ...base })).status).toBe("ready");
     const live = { GENIUSPAY_API_KEY: "pk_live_test_unitaire", GENIUSPAY_API_SECRET: "sk_live_test_unitaire", GENIUSPAY_WEBHOOK_SECRET: SECRET };
     expect(readGeniusPayConfig(env({ NODE_ENV: "development", ...live })).status).toBe("invalid");
-    expect(readGeniusPayConfig(env({ NODE_ENV: "production", ...live }))).toMatchObject({ status: "ready", config: { environment: "live" } });
+    // Mission 16 : sans VERCEL_ENV (`next start` local, hébergeur non prévu), une clé live est refusée.
+    expect(readGeniusPayConfig(env({ NODE_ENV: "production", ...live }))).toMatchObject({ status: "invalid", reason: expect.stringContaining("VERCEL_ENV=production") });
+    expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "", ...live })).status).toBe("invalid");
+    expect(readGeniusPayConfig(env({ NODE_ENV: "development", VERCEL_ENV: "production", ...live })).status).toBe("invalid");
     // Vercel Preview fixe NODE_ENV=production : une clé live n'y est jamais acceptée (mission 15).
     expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "preview", ...live })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "development", ...live })).status).toBe("invalid");
-    expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "production", ...live })).status).toBe("ready");
+    expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "production", ...live }))).toMatchObject({ status: "ready", config: { environment: "live" } });
+    // Une clé sandbox reste refusée sur la vraie production Vercel.
+    expect(readGeniusPayConfig(env({ NODE_ENV: "production", VERCEL_ENV: "production", ...base })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_API_SECRET: "sk_live_test_unitaire" })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_API_KEY: "cle_inconnue" })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_WEBHOOK_SECRET: "secret-sans-prefixe" })).status).toBe("invalid");
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", ...base, GENIUSPAY_BASE_URL: "http://geniuspay.ci/api/v1/merchant" })).status).toBe("invalid");
+  });
+
+  it("le passage en live ne se déclenche jamais par l'URL : l'environnement vient du préfixe des clés (mission 16)", () => {
+    // Clés sandbox + URL d'un autre hôte GeniusPay admis : toujours sandbox (GeniusPay décide par la clé, Qadr Ops aussi).
+    for (const url of ["https://api.geniuspay.ci/v1/merchant", "https://pay.genius.ci/api/v1/merchant"]) {
+      expect(readGeniusPayConfig(env({ NODE_ENV: "development", ...base, GENIUSPAY_BASE_URL: url }))).toMatchObject({ status: "ready", config: { environment: "sandbox" } });
+    }
+    // Clés live sans la vraie production Vercel : refusées quelle que soit l'URL.
+    const live = { GENIUSPAY_API_KEY: "pk_live_test_unitaire", GENIUSPAY_API_SECRET: "sk_live_test_unitaire", GENIUSPAY_WEBHOOK_SECRET: SECRET };
+    for (const url of ["", "https://geniuspay.ci/api/v1/merchant", "https://api.geniuspay.ci/v1/merchant"]) {
+      for (const vercel of [undefined, "preview", "development"]) {
+        const values: Record<string, string> = { NODE_ENV: "production", ...live, GENIUSPAY_BASE_URL: url };
+        if (vercel) values.VERCEL_ENV = vercel;
+        expect(readGeniusPayConfig(env(values)).status).toBe("invalid");
+      }
+    }
   });
 
   it("n'envoie jamais les clés hors d'un domaine GeniusPay (mission 15 : hôte erroné trouvé dans un .env.local)", () => {
@@ -126,8 +147,8 @@ describe("configuration GeniusPay", () => {
 
   it("refuse une adresse de retour non HTTPS en production", () => {
     const live = { GENIUSPAY_API_KEY: "pk_live_test_unitaire", GENIUSPAY_API_SECRET: "sk_live_test_unitaire", GENIUSPAY_WEBHOOK_SECRET: SECRET };
-    expect(getBillingProvider(env({ NODE_ENV: "production", BETTER_AUTH_URL: "http://qadr.example.ci", ...live }))).toEqual({ available: false, reason: "invalid" });
-    expect(getBillingProvider(env({ NODE_ENV: "production", BETTER_AUTH_URL: "https://qadr.example.ci", ...live }))).toMatchObject({ available: true, appUrl: "https://qadr.example.ci" });
+    expect(getBillingProvider(env({ NODE_ENV: "production", VERCEL_ENV: "production", BETTER_AUTH_URL: "http://qadr.example.ci", ...live }))).toEqual({ available: false, reason: "invalid" });
+    expect(getBillingProvider(env({ NODE_ENV: "production", VERCEL_ENV: "production", BETTER_AUTH_URL: "https://qadr.example.ci", ...live }))).toMatchObject({ available: true, appUrl: "https://qadr.example.ci" });
   });
 });
 
@@ -163,6 +184,20 @@ describe("adaptateur GeniusPay (fetch simulé, aucun appel réseau)", () => {
     await expect(new GeniusPayProvider(config, async () => { throw new TypeError("fetch failed"); }).getPayment("MTX-1")).rejects.toMatchObject({ code: "network" });
   });
 
+  it("délai dépassé (AbortSignal.timeout, 15 s) : erreur « timeout », jamais un succès ni un échec du paiement", async () => {
+    const calls: Call[] = [];
+    const slow: FetchLike = async (url, init) => { calls.push({ url, init }); throw new DOMException("The operation was aborted due to timeout", "TimeoutError"); };
+    const provider = new GeniusPayProvider(config, slow);
+    await expect(provider.getPayment("SANDBOX_ABCDEFGH12345678")).rejects.toMatchObject({ code: "timeout", httpStatus: null });
+    await expect(provider.createCheckout(request)).rejects.toMatchObject({ code: "timeout" });
+    // Chaque appel porte un signal d'abandon et refuse les redirections (les clés ne suivent jamais une redirection).
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect(call.init.signal).toBeInstanceOf(AbortSignal);
+      expect(call.init.redirect).toBe("error");
+    }
+  });
+
   it("refuse un lien de paiement non HTTPS et un montant sous le minimum avant tout appel", async () => {
     await expect(new GeniusPayProvider(config, fakeFetch(201, { success: true, data: { reference: "MTX-1", checkout_url: "javascript:alert(1)" } })).createCheckout(request)).rejects.toMatchObject({ code: "invalid_response" });
     const calls: Call[] = [];
@@ -175,6 +210,8 @@ describe("adaptateur GeniusPay (fetch simulé, aucun appel réseau)", () => {
     expect(await provider.getPayment("MTX-1")).toEqual({ reference: "MTX-1", status: "completed", rawStatus: "completed", amountXof: 15000n, currency: "XOF", environment: "sandbox", metadata: { qadr_attempt: "a", n: "3" }, paymentMethod: "mtn_money" });
     expect(await new GeniusPayProvider(config, fakeFetch(404, { success: false, error: { code: "TRANSACTION_NOT_FOUND", message: "Transaction not found" } })).getPayment("MTX-1")).toBeNull();
     expect(await provider.getPayment("../payments")).toBeNull();
+    // Référence sandbox réelle observée le 2026-11-09 : `SANDBOX_` + 16 caractères, dans l'alphabet accepté.
+    expect((await provider.getPayment("SANDBOX_ABCDEFGH12345678"))?.reference).toBe("MTX-1");
     const odd = new GeniusPayProvider(config, fakeFetch(200, { success: true, data: { reference: "MTX-1", amount: 15000, status: "en_cours" } }));
     expect((await odd.getPayment("MTX-1"))?.status).toBe("unknown");
   });

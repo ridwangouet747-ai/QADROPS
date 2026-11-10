@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { BillingAvailability } from "../billing";
 import { GENIUSPAY_MINIMUM_XOF, subscriptionMethodFromGeniusPay } from "../billing/geniuspay";
@@ -38,6 +38,14 @@ const dayMs = 86_400_000;
 const REUSE_MARGIN_MS = 10 * 60_000;
 /** Lien hébergé valable 24 h (documentation) quand GeniusPay ne renvoie pas `expires_at`. */
 const CHECKOUT_LIFETIME_MS = 24 * 3_600_000;
+/**
+ * Marge après l'expiration du lien hébergé pendant laquelle une tentative est encore tenue pour « en cours » : un
+ * paiement Mobile Money lancé juste avant l'expiration peut encore aboutir. Au-delà, elle ne bloque plus un changement
+ * de formule (mission 16 : en sandbox, des paiements abandonnés restent `pending` chez GeniusPay après 24 h).
+ */
+const LATE_COMPLETION_GRACE_MS = 60 * 60_000;
+/** Le rapprochement planifié ne relit que les tentatives de moins de 7 jours (le lien n'est valable que 24 h). */
+const RECONCILE_WINDOW_MS = 7 * 86_400_000;
 /** Délai minimal entre deux relectures d'une même tentative depuis la page de retour. */
 const REFRESH_INTERVAL_MS = 5_000;
 const METADATA_INVOICE = "qadr_invoice";
@@ -104,6 +112,13 @@ export async function openInvoiceSummary(db: Pick<CommercialDatabase, "select">,
   };
 }
 
+/** Tentative qui peut encore aboutir : en attente, lien non expiré (ou expiré depuis moins de LATE_COMPLETION_GRACE_MS). */
+function mayStillComplete(attempt: Attempt, now: Date) {
+  if (attempt.status !== "pending") return false;
+  const expiresAt = attempt.checkoutExpiresAt ?? new Date(attempt.occurredAt.getTime() + CHECKOUT_LIFETIME_MS);
+  return expiresAt.getTime() + LATE_COMPLETION_GRACE_MS > now.getTime();
+}
+
 function isReusable(attempt: Attempt, now: Date, margin = REUSE_MARGIN_MS) {
   if (attempt.status !== "pending" || !attempt.checkoutUrl || !attempt.providerReference) return false;
   const expiresAt = attempt.checkoutExpiresAt ?? new Date(attempt.occurredAt.getTime() + CHECKOUT_LIFETIME_MS);
@@ -168,9 +183,11 @@ async function prepareCheckout(db: CommercialDatabase, provider: BillingProvider
     if (invoice && (invoice.planId !== plan.id || invoice.amountXof !== pricing.amountXof || invoice.discountXof !== pricing.discountXof
       || invoice.promotionRedemptionId !== pricing.promotionRedemptionId || invoice.durationDays !== plan.durationDays)) {
       // Autre formule (ou prix ou remise modifiés depuis) : la facture ouverte n'est annulée que si aucun paiement n'y est en cours.
-      const live = await tx.select({ id: subscriptionPayment.id }).from(subscriptionPayment)
-        .where(and(eq(subscriptionPayment.businessId, businessId), eq(subscriptionPayment.invoiceId, invoice.id), eq(subscriptionPayment.status, "pending"))).limit(1);
-      if (live.length) throw new CommercialError("Un paiement est déjà en cours pour une autre formule ou un autre montant. Terminez-le ou attendez son expiration.", 409, "payment_in_progress");
+      // Un paiement abandonné dont le lien a expiré ne bloque plus (il resterait `pending` indéfiniment chez GeniusPay) ;
+      // s'il aboutissait malgré tout, il serait enregistré sur la facture annulée et signalé (`payment_on_void_invoice`).
+      const pending = await tx.select().from(subscriptionPayment)
+        .where(and(eq(subscriptionPayment.businessId, businessId), eq(subscriptionPayment.invoiceId, invoice.id), eq(subscriptionPayment.status, "pending")));
+      if (pending.some((row) => mayStillComplete(row, now))) throw new CommercialError("Un paiement est déjà en cours pour une autre formule ou un autre montant. Terminez-le ou attendez son expiration.", 409, "payment_in_progress");
       await tx.update(subscriptionInvoice).set({ status: "void", voidedAt: now, updatedAt: now }).where(eq(subscriptionInvoice.id, invoice.id));
       await audit(tx, { businessId, actorUserId, eventType: "subscription.invoice_voided", entityType: "subscription_invoice", entityId: invoice.id, now,
         metadata: { before: { status: "open", planCode: invoice.planCode }, after: { status: "void" }, reason: "Nouvelle formule choisie", result: "success" } });
@@ -305,9 +322,15 @@ function canMove(from: string, to: string) {
   return false;
 }
 
-/** Relit le paiement chez GeniusPay puis l'applique. Une panne du prestataire ne change rien. */
-export async function verifyAttempt(db: CommercialDatabase, provider: BillingProvider, attempt: Pick<Attempt, "id" | "businessId" | "providerReference">, now = new Date()): Promise<VerificationOutcome> {
+/**
+ * Relit le paiement chez GeniusPay puis l'applique. Une panne du prestataire ne change rien.
+ * Une tentative ouverte dans l'AUTRE environnement (sandbox ↔ live, par exemple si une préproduction partageait la
+ * base de production) n'est jamais relue avec la clé de celui-ci : sa référence n'y existe pas, et l'envoyer serait
+ * inutile. Rien n'est écrit (pas d'anomalie répétée à chaque passage du cron).
+ */
+export async function verifyAttempt(db: CommercialDatabase, provider: BillingProvider, attempt: Pick<Attempt, "id" | "businessId" | "providerReference" | "environment">, now = new Date()): Promise<VerificationOutcome> {
   if (!attempt.providerReference) return "unchanged";
+  if (attempt.environment !== provider.environment) return "environment_mismatch";
   let payment: ProviderPayment | null;
   try { payment = await provider.getPayment(attempt.providerReference); } catch (error) {
     if (error instanceof BillingProviderError) return "provider_error";
@@ -454,7 +477,8 @@ export async function getSubscriptionPaymentStatus(db: CommercialDatabase, billi
     else if (attempt.checkedAt && now.getTime() - attempt.checkedAt.getTime() < REFRESH_INTERVAL_MS) verification = "recent";
     else {
       const outcome = await verifyAttempt(db, billing.provider, attempt, now);
-      verification = outcome === "provider_error" ? "unavailable" : "fresh";
+      // Autre environnement : cette instance ne peut pas vérifier le paiement, elle ne prétend pas l'avoir fait.
+      verification = outcome === "provider_error" || outcome === "environment_mismatch" ? "unavailable" : "fresh";
       attempt = (await load()) ?? attempt;
     }
   }
@@ -560,6 +584,12 @@ export async function handleGeniusPayWebhook(db: CommercialDatabase, billing: Bi
  * Budget de temps (mission 15) : chaque relecture peut attendre GeniusPay jusqu'à 15 s ; au-delà de `budgetMs`
  * (120 s par défaut), les tentatives restantes sont laissées au passage suivant (`deferred`), pour que l'expiration
  * des abonnements, qui suit dans le même cron, tienne dans la durée maximale de la fonction Vercel.
+ *
+ * Ordre (mission 16) : les tentatives jamais relues d'abord, puis la moins récemment relue. Une tentative qui reste
+ * `pending` à chaque passage (anomalie de montant, référence inconnue chez GeniusPay) ne monopolise donc plus les
+ * `limit` places au détriment des paiements plus récents. Seules les tentatives de l'environnement de la clé
+ * configurée et de moins de 7 jours sont relues : au-delà, un paiement abandonné resté `pending` chez GeniusPay
+ * n'est plus interrogé chaque jour (un webhook ou la page de retour l'appliqueraient encore s'il aboutissait).
  */
 export async function reconcilePendingSubscriptionPayments(db: CommercialDatabase, billing: BillingAvailability,
   options: { now?: Date; olderThanMs?: number; limit?: number; budgetMs?: number; clock?: () => number } = {}) {
@@ -570,8 +600,9 @@ export async function reconcilePendingSubscriptionPayments(db: CommercialDatabas
   const budgetMs = options.budgetMs ?? 120_000;
   const cutoff = new Date(now.getTime() - (options.olderThanMs ?? 10 * 60_000));
   const rows = await db.select().from(subscriptionPayment)
-    .where(and(eq(subscriptionPayment.provider, "geniuspay"), eq(subscriptionPayment.status, "pending"), lt(subscriptionPayment.occurredAt, cutoff)))
-    .orderBy(asc(subscriptionPayment.occurredAt)).limit(options.limit ?? 50);
+    .where(and(eq(subscriptionPayment.provider, "geniuspay"), eq(subscriptionPayment.status, "pending"), eq(subscriptionPayment.environment, billing.provider.environment),
+      lt(subscriptionPayment.occurredAt, cutoff), gt(subscriptionPayment.occurredAt, new Date(now.getTime() - RECONCILE_WINDOW_MS))))
+    .orderBy(sql`${subscriptionPayment.checkedAt} asc nulls first`, asc(subscriptionPayment.occurredAt), asc(subscriptionPayment.id)).limit(options.limit ?? 50);
   const totals = { available: true as const, checked: 0, applied: 0, anomalies: 0, errors: 0, abandoned: 0, deferred: 0 };
   for (const [index, row] of rows.entries()) {
     if (clock() - started >= budgetMs) { totals.deferred = rows.length - index; break; }
