@@ -13,35 +13,48 @@
 
 ---
 
+> **MISE À JOUR DU 2026-11-10 : couleurs et polices de ce fichier remplacées.**
+> Ce fichier a été généré le 2026-10-18 avec un bleu `#2563EB`, un bouton orange `#EA580C` et les polices
+> Calistoga / Inter. Ces choix sont **abandonnés**. La source de vérité est :
+> - les jetons `@theme` de `apps/web/src/app/globals.css` (seul endroit où une couleur est écrite) ;
+> - `docs/design/direction-artistique.md` (palette bleu roi, typographie, motifs, mascotte) ;
+> - `docs/design-system.md` (composants `src/components/ui/`).
+>
+> Les sections « Color Palette » et « Typography » ci-dessous sont à jour. Les extraits CSS des sections
+> « Component Specs » gardent des valeurs d'exemple anciennes (`#EA580C`, `#2563EB`, `#F8FAFC`,
+> `#E2E8F0`) : ne pas les recopier, utiliser les composants et les jetons. Les règles d'ergonomie
+> (espacements, états, accessibilité, anti-modèles) restent valables.
+
 ## Global Rules
 
 ### Color Palette
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#2563EB` | `--color-primary` |
-| On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#3B82F6` | `--color-secondary` |
-| On Secondary | `#000000` | `--color-on-secondary` |
-| Accent/CTA | `#EA580C` | `--color-accent` |
-| On Accent/CTA | `#000000` | `--color-on-accent` |
-| Background | `#F8FAFC` | `--color-background` |
-| Foreground | `#1E293B` | `--color-foreground` |
-| Card | `#FFFFFF` | `--color-card` |
-| Card Foreground | `#1E293B` | `--color-card-foreground` |
-| Muted | `#E9EFF8` | `--color-muted` |
-| Muted Foreground | `#475569` | `--color-muted-foreground` |
-| Border | `#E2E8F0` | `--color-border` |
-| Destructive | `#DC2626` | `--color-destructive` |
-| On Destructive | `#FFFFFF` | `--color-on-destructive` |
-| Ring | `#2563EB` | `--color-ring` |
+| Qadr 950 (fonds sombres, console) | `#03108E` | `--color-qadr-950` |
+| Qadr 900 | `#042EB7` | `--color-qadr-900` |
+| Qadr 800 | `#063FCE` | `--color-qadr-800` |
+| Qadr 600 (marque, bouton principal) | `#1853D7` | `--color-qadr-600`, `--color-brand` |
+| Qadr 500 | `#3168DF` | `--color-qadr-500` |
+| Qadr 400 à 50 (teintes claires) | `#5D88E8` → `#F2F6FE` | `--color-qadr-400` … `--color-qadr-50` |
+| Fond de page | `#F5F7FA` | `--color-canvas` |
+| Surface (cartes) | `#FFFFFF` | `--color-surface` |
+| Encre (texte) | `#171B26` | `--color-ink` |
+| Succès | `#15803D` | `--color-ok` |
+| Avertissement | `#92400E` | `--color-warn` |
+| Danger | `#C0262D` | `--color-danger` |
+| Information | `#0B6A8C` | `--color-info` |
 
-**Color Notes:** Trust blue + orange CTA contrast [Accent adjusted from #F97316]
+**Color Notes:** bleu roi intégral depuis le 2026-11-10. Le bouton principal est bleu (`--color-brand`), plus
+jamais orange. Les couleurs d'état (succès, avertissement, danger, information) **ne deviennent pas
+bleues** : elles gardent leur sens. Valeurs recopiées de `globals.css` à cette date ; en cas d'écart,
+`globals.css` fait foi.
 
 ### Typography
 
-- **Heading Font:** Calistoga
-- **Body Font:** Inter
+- **Heading Font:** Rubik (classe `font-display`), chargée par `next/font`
+- **Body Font:** Plus Jakarta Sans (`--font-sans`), police arabe du système en arabe (voir `docs/design/direction-artistique.md` § 3)
+- *Ancien choix abandonné :* Calistoga + Inter ; l'import Google Fonts ci-dessous n'est plus utilisé.
 - **Mood:** saas, boutique, electric, warm, editorial, bold, premium, fintech, business, dual font, human warmth
 - **Google Fonts:** [Calistoga + Inter](https://fonts.googleapis.com/css2?family=Calistoga:ital@0;1&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap)
 

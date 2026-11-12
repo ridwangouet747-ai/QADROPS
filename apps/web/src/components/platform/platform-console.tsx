@@ -10,7 +10,7 @@ import { PlatformSettings } from "./platform-settings";
 import { PlatformShell, type PlatformSection } from "./platform-shell";
 import { PlatformSubscriptions } from "./platform-subscriptions";
 
-const views: Record<PlatformSection, () => React.ReactNode> = {
+const views: Record<PlatformSection, (preview: boolean) => React.ReactNode> = {
   overview: () => <PlatformOverview />,
   businesses: () => <PlatformBusinesses />,
   subscriptions: () => <PlatformSubscriptions />,
@@ -18,7 +18,7 @@ const views: Record<PlatformSection, () => React.ReactNode> = {
   promotions: () => <PlatformPromotions />,
   notifications: () => <PlatformNotifications />,
   audit: () => <PlatformAudit />,
-  settings: () => <PlatformSettings />,
+  settings: (preview) => <PlatformSettings preview={preview} />,
 };
 
 /**
@@ -26,5 +26,5 @@ const views: Record<PlatformSection, () => React.ReactNode> = {
  * Pas de <Suspense> ici : les pages sont dynamiques, et une frontière diffusée en flux restait masquée.
  */
 export function PlatformConsole({ section, preview }: { section: PlatformSection; preview: boolean }) {
-  return <PlatformShell active={section} preview={preview}>{views[section]()}</PlatformShell>;
+  return <PlatformShell active={section} preview={preview}>{views[section](preview)}</PlatformShell>;
 }

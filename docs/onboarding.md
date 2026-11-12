@@ -24,7 +24,21 @@ Depuis le complément de la mission 08, la 3D n'est plus réservée à l'ordinat
 
 ## Scène 3D
 
-Primitives Three.js uniquement (aucun modèle GLB, aucune texture externe, aucune vidéo) : socle, fondations, murs, toit, store rayé, portes vitrées, enseigne dessinée dans un canvas (nom et logo, arabe compris), aménagement par activité (rayonnages et sacs de ciment, présentoirs de téléphones, portants de vêtements, étagères et réfrigérateur), comptoir, suspensions, plantes, réverbère. Ouverture finale : portes qui glissent, lumière chaude, confettis instanciés, caméra qui se rapproche.
+Primitives Three.js uniquement (aucun modèle GLB, aucune texture externe, aucune vidéo) : socle, fondations, murs, enseigne dessinée dans un canvas (nom et logo, arabe compris), aménagement par activité, comptoir, suspensions, plantes, réverbère. Ouverture finale : portes qui glissent, lumière chaude, confettis instanciés, caméra qui se rapproche.
+
+### Boutique ouverte et cadrage (reprise du 2026-11-10)
+
+- **Boutique en coupe.** Le mur du fond et le mur gauche sont pleins ; la façade et le mur droit sont abaissés et la salle n'a pas de toit : l'intérieur se lit depuis la caméra à toutes les étapes. L'enseigne est posée sur le bandeau arrière, au-dessus de la salle.
+- **Un décor par activité** (`activitySets` dans `shop-scene-3d.tsx`), chacun en quatre groupes qui apparaissent en décalé :
+  - quincaillerie : rayonnages de pots et de cartons, râtelier de tuyaux, palette de sacs de ciment, tas de briques, outils au mur, pots de peinture ;
+  - téléphonie : vitrines basses à téléphones inclinés et écrans lumineux, grand téléphone de présentation, borne de recharge ;
+  - vêtements : portant mural de vêtements suspendus, table de piles pliées, cabine d'essayage, miroir et étagères à chaussures ;
+  - boutique générale : étagères de conserves et de bouteilles, réfrigérateur vitré, cageots de produits frais, sacs de riz et bidons.
+  Changer d'activité retire l'ancien décor, fait apparaître le nouveau et donne un léger recul à la caméra (`pull` 1,06 → 1).
+- **Cadrage calculé, pas réglé à la main** (`lib/onboarding/scene-framing.ts`, sans dépendance à Three.js). `scenePoints(stage)` liste les points à garder visibles (le bord du socle, haut et bas, à chaque étape ; puis le bâtiment, l'enseigne, le réverbère et les plantes). `frameCamera` renvoie la distance la plus courte qui garde tous ces points dans la zone utile du cadre, centrés. La zone utile retire les marges réservées (`inset` : en-tête et bandeau du formulaire sur ordinateur, voir `desktopSceneInset` dans `onboarding-wizard.tsx`). Le champ de vision reste à 34°.
+- `scene-framing.test.ts` vérifie, pour cinq formats de cadre et les six étapes, que tous les points tiennent dans la zone utile, que le cadre est rempli sur au moins un axe et que le bas du socle est toujours inclus. **Ajouter un objet haut ou large impose de l'ajouter à `scenePoints`.**
+- Géométries et matériaux partagés (`kit`, libéré au démontage par `disposeKit`).
+- Vérifié en navigateur sans interface (rendu logiciel SwiftShader) à 1366 × 800 et 390 × 844 : socle entier visible, quatre activités distinctes, douze changements d'activité en une seconde sans erreur. **Non vérifié** sur un vrai téléphone ni mesuré de nouveau en images par seconde ; les mesures du tableau ci-dessous datent du 2026-10-31, avant cette reprise.
 
 Performance : `frameloop="demand"` (aucune image au repos), arrêt complet hors écran et onglet masqué (`frameloop="never"`), DPR plafonné (1,75 / 1,25), sans antialiasing ni « high-performance » sur appareil modeste, aucune ombre dynamique (ombre de contact factice), aucun post-traitement. Une seule scène montée à la fois. Cadrage calculé selon le format du cadre. Mesure en navigateur : 78 géométries, 3 textures, 5 programmes, stables après trois allers-retours d'étapes (aucune fuite) ; 45 à 59 appels de dessin.
 

@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { brand } from "@/lib/brand";
 
 /**
  * Manifest de l'application installable (mission 11, phase 2). Statique : le nom de marque est le même
@@ -20,13 +21,13 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#03108e",
     categories: ["business", "finance", "productivity"],
     icons: [
-      { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/icons/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: brand.icons.icon192, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: brand.icons.icon512, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: brand.icons.maskable512, sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
-      { name: "Caisse", short_name: "Caisse", url: "/business/pos", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
-      { name: "Stock", short_name: "Stock", url: "/business/stock", icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }] },
+      { name: "Caisse", short_name: "Caisse", url: "/business/pos", icons: [{ src: brand.icons.icon192, sizes: "192x192", type: "image/png" }] },
+      { name: "Stock", short_name: "Stock", url: "/business/stock", icons: [{ src: brand.icons.icon192, sizes: "192x192", type: "image/png" }] },
     ],
   };
 }

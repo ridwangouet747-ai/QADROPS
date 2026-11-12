@@ -29,7 +29,6 @@ export const platformAuthMessages = {
   refused: { error: "Nom d’utilisateur ou mot de passe incorrect.", code: "invalid_credentials" },
   codeRefused: { error: "Code incorrect ou expiré. Reconnectez-vous si le délai est dépassé.", code: "invalid_second_factor" },
   throttled: { error: "Trop de tentatives. Patientez quelques minutes avant de réessayer.", code: "too_many_attempts" },
-  setupRequired: { error: "Second facteur non configuré pour ce compte : suivez la procédure d’activation (docs/platform-owner-access.md).", code: "platform_2fa_setup_required" },
   origin: { error: "Origine refusée.", code: "invalid_origin" },
 } as const;
 

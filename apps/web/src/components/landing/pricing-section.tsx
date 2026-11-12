@@ -5,28 +5,60 @@ import { getPublicPlans, type PublicPlan } from "@/lib/domain/public-plans";
 import { intlLocale, type Locale } from "@/lib/i18n/config";
 import { formatXof } from "@/lib/i18n/format";
 import type { Translate } from "@/lib/i18n/translate";
+import { readContactChannel, type ContactChannel } from "@/lib/landing/contact";
 
 /*
- * Tarifs lus dans `subscription_plan` (formules actives en XOF), jamais écrits dans le code. Sans formule
- * publiée, la section le dit et renvoie vers l'inscription. Le code Qadr Agency se saisit pendant la création
- * du commerce (assistant d'inscription, `/api/public/campaigns/check`) : la page n'en simule pas la validation.
+ * Tarifs lus dans `subscription_plan` (formules actives en XOF), jamais écrits dans le code : le prix affiché
+ * est celui qui sera facturé. Sans formule publiée, la section le dit et renvoie vers l'inscription. Le code
+ * Qadr Agency se saisit pendant la création du commerce (assistant d'inscription,
+ * `/api/public/campaigns/check`) : la page n'en simule pas la validation.
+ *
+ * L'offre Business (« sur devis ») n'est pas une formule facturée : elle ne vient pas de la base et n'a pas de
+ * prix. Son bouton ouvre le canal de contact de `QADR_CONTACT_URL` ; sans ce canal, l'offre n'est pas montrée
+ * en production (hors production elle reste visible, avec la mention du réglage manquant).
  */
-function PlanCard({ plan, t, locale, featured }: { plan: PublicPlan; t: Translate; locale: Locale; featured: boolean }) {
+function PlanCard({ plan, t, locale }: { plan: PublicPlan; t: Translate; locale: Locale }) {
   const count = (value: number) => new Intl.NumberFormat(intlLocale[locale]).format(value);
   return (
-    <li className={cn("flex min-w-0 flex-col rounded-[1.75rem] border p-6 sm:p-7", featured ? "border-transparent bg-qadr-950 text-white shadow-raised" : "border-line bg-surface text-ink")}>
+    <li className="flex min-w-0 flex-col rounded-[1.75rem] border border-line bg-surface p-6 text-ink sm:p-7">
       <h3 className="m-0 font-display text-[1.35rem] font-bold">{plan.name}</h3>
       <p className="m-0 mt-5 flex flex-wrap items-baseline gap-x-2">
         <span className="font-display text-[2.4rem] leading-none font-bold tracking-tight">{plan.priceXof === "0" ? t("landing.pricing.free") : formatXof(plan.priceXof, locale)}</span>
-        <span className={featured ? "text-qadr-200" : "text-fg-muted"}>{t("landing.pricing.period", { days: count(plan.durationDays) })}</span>
+        <span className="text-fg-muted">{t("landing.pricing.period", { days: count(plan.durationDays) })}</span>
       </p>
-      {plan.description && <p className={cn("m-0 mt-4 leading-relaxed", featured ? "text-qadr-100" : "text-fg-muted")}>{plan.description}</p>}
+      {plan.description && <p className="m-0 mt-4 leading-relaxed text-fg-muted">{plan.description}</p>}
       <ul className="m-0 mt-5 grid list-none gap-2.5 p-0">
-        <li className="flex items-start gap-2"><Icon name="check" className={cn("mt-0.5 size-4 shrink-0", featured ? "text-qadr-300" : "text-ok")} />{plan.productLimit ? t("landing.pricing.products", { count: count(plan.productLimit) }) : t("landing.pricing.unlimitedProducts")}</li>
-        <li className="flex items-start gap-2"><Icon name="check" className={cn("mt-0.5 size-4 shrink-0", featured ? "text-qadr-300" : "text-ok")} />{plan.userLimit ? t("landing.pricing.users", { count: count(plan.userLimit) }) : t("landing.pricing.unlimitedUsers")}</li>
+        <li className="flex items-start gap-2"><Icon name="check" className="mt-0.5 size-4 shrink-0 text-ok" />{plan.productLimit ? t("landing.pricing.products", { count: count(plan.productLimit) }) : t("landing.pricing.unlimitedProducts")}</li>
+        <li className="flex items-start gap-2"><Icon name="check" className="mt-0.5 size-4 shrink-0 text-ok" />{plan.userLimit ? t("landing.pricing.users", { count: count(plan.userLimit) }) : t("landing.pricing.unlimitedUsers")}</li>
       </ul>
       <div className="mt-auto pt-7">
-        <Link href="/register" className={cn("flex min-h-12 items-center justify-center rounded-full px-5 font-semibold no-underline transition-colors", featured ? "bg-white text-qadr-900 hover:bg-qadr-100" : "bg-brand text-white hover:bg-brand-strong")}>{t("landing.pricing.start")}</Link>
+        <Link href="/register" className="flex min-h-12 items-center justify-center rounded-full bg-brand px-5 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.pricing.start")}</Link>
+      </div>
+    </li>
+  );
+}
+
+/** Offre Business : solution personnalisée, sur devis, discutée directement avec Qadr Agency. */
+function BusinessCard({ t, contact }: { t: Translate; contact: ContactChannel | null }) {
+  const external = contact?.kind === "web" || contact?.kind === "whatsapp";
+  return (
+    <li className="flex min-w-0 flex-col rounded-[1.75rem] bg-qadr-950 p-6 text-white shadow-raised sm:p-7">
+      <h3 className="m-0 font-display text-[1.35rem] font-bold">{t("landing.pricing.businessName")}</h3>
+      <p className="m-0 mt-1 font-semibold text-qadr-200">{t("landing.pricing.businessTag")}</p>
+      <p className="m-0 mt-5 font-display text-[2.4rem] leading-none font-bold tracking-tight rtl:leading-snug rtl:tracking-normal">{t("landing.pricing.businessPrice")}</p>
+      <p className="m-0 mt-4 leading-relaxed text-qadr-100">{t("landing.pricing.businessBody")}</p>
+      <ul className="m-0 mt-5 grid list-none gap-2.5 p-0">
+        {(["businessCustom", "businessFit", "businessSupport"] as const).map((key) => (
+          <li key={key} className="flex items-start gap-2"><Icon name="check" className="mt-0.5 size-4 shrink-0 text-qadr-300" />{t(`landing.pricing.${key}`)}</li>
+        ))}
+      </ul>
+      <div className="mt-auto pt-7">
+        {contact ? (
+          <a href={contact.href} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            className="flex min-h-12 items-center justify-center rounded-full bg-white px-5 font-semibold text-qadr-900 no-underline transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.pricing.businessCta")}</a>
+        ) : (
+          <p className="m-0 flex items-start gap-2 rounded-2xl border border-dashed border-qadr-300/60 p-3 text-[0.86rem] leading-relaxed text-qadr-100"><Icon name="info" className="mt-0.5 size-4 shrink-0" />{t("landing.pricing.businessNoContact")}</p>
+        )}
       </div>
     </li>
   );
@@ -35,6 +67,12 @@ function PlanCard({ plan, t, locale, featured }: { plan: PublicPlan; t: Translat
 export async function PricingSection({ t, locale, container }: { t: Translate; locale: Locale; container: string }) {
   const result = await getPublicPlans();
   const plans = result.status === "ok" ? result.plans : [];
+  const contact = readContactChannel();
+  // Sans canal de contact, l'offre Business ne promet rien de joignable : elle est retirée en production.
+  const showBusiness = contact !== null || process.env.NODE_ENV !== "production";
+  const cards = plans.length + (showBusiness ? 1 : 0);
+  // Jusqu'à deux cartes, l'encart du code tient à côté ; au-delà il passe dessous pour laisser leur largeur aux prix.
+  const wide = cards > 2;
   return (
     <section id="pricing" aria-labelledby="pricing-title" className="scroll-mt-20 bg-surface py-20 sm:py-28">
       <div className={container}>
@@ -48,23 +86,25 @@ export async function PricingSection({ t, locale, container }: { t: Translate; l
           )}
         </div>
 
-        <div className="mt-12 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-          {plans.length > 0 ? (
-            <div className="min-w-0">
-              <ul className={cn("m-0 grid list-none gap-5 p-0", plans.length > 1 && "md:grid-cols-2", plans.length > 2 && "xl:grid-cols-3")}>
-                {plans.map((plan, index) => <PlanCard key={plan.code} plan={plan} t={t} locale={locale} featured={plans.length > 1 && index === plans.length - 1} />)}
+        <div className={cn("mt-12 grid gap-5", !wide && "lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]")}>
+          <div className="grid min-w-0 content-start gap-5">
+            {plans.length === 0 && (
+              <div className="relative isolate flex min-w-0 flex-col justify-center overflow-hidden rounded-[1.75rem] bg-qadr-50 p-7 sm:p-10">
+                <span aria-hidden="true" className="qadr-links absolute inset-0 -z-10 text-qadr-200/60" />
+                <h3 className="m-0 font-display text-[1.6rem] leading-tight font-bold text-ink">{result.status === "ok" ? t("landing.pricing.emptyTitle") : t("landing.pricing.unavailable")}</h3>
+                {result.status === "ok" && <p className="m-0 mt-3 max-w-lg leading-relaxed text-fg-muted">{t("landing.pricing.emptyBody")}</p>}
+                <Link href="/register" className="mt-7 inline-flex min-h-12 w-fit items-center justify-center rounded-full bg-brand px-6 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.pricing.start")}</Link>
+              </div>
+            )}
+            {cards > 0 && (
+              <ul className={cn("m-0 grid list-none gap-5 p-0", cards > 1 && "md:grid-cols-2", wide && "lg:grid-cols-3")}>
+                {plans.map((plan) => <PlanCard key={plan.code} plan={plan} t={t} locale={locale} />)}
+                {showBusiness && <BusinessCard t={t} contact={contact} />}
               </ul>
-              <p className="m-0 mt-4 text-[0.9rem] text-fg-subtle">{t("landing.pricing.currency")}</p>
-            </div>
-          ) : (
-            <div className="relative isolate flex min-w-0 flex-col justify-center overflow-hidden rounded-[1.75rem] bg-qadr-50 p-7 sm:p-10">
-              <span aria-hidden="true" className="qadr-links absolute inset-0 -z-10 text-qadr-200/60" />
-              <h3 className="m-0 font-display text-[1.6rem] leading-tight font-bold text-ink">{result.status === "ok" ? t("landing.pricing.emptyTitle") : t("landing.pricing.unavailable")}</h3>
-              {result.status === "ok" && <p className="m-0 mt-3 max-w-lg leading-relaxed text-fg-muted">{t("landing.pricing.emptyBody")}</p>}
-              <Link href="/register" className="mt-7 inline-flex min-h-12 w-fit items-center justify-center rounded-full bg-brand px-6 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.pricing.start")}</Link>
-            </div>
-          )}
-          <aside aria-labelledby="promo-title" className="flex min-w-0 flex-col rounded-[1.75rem] border border-dashed border-qadr-300 bg-surface p-6 sm:p-7">
+            )}
+            {plans.length > 0 && <p className="m-0 text-[0.9rem] text-fg-subtle">{t("landing.pricing.currency")}</p>}
+          </div>
+          <aside aria-labelledby="promo-title" className={cn("flex min-w-0 flex-col rounded-[1.75rem] border border-dashed border-qadr-300 bg-surface p-6 sm:p-7", wide && "lg:max-w-xl")}>
             <span className="grid size-11 place-items-center rounded-2xl bg-brand-soft text-brand"><Icon name="tag" /></span>
             <h3 id="promo-title" className="m-0 mt-5 font-display text-[1.25rem] font-bold text-ink">{t("landing.pricing.promoTitle")}</h3>
             <p className="m-0 mt-2 leading-relaxed text-fg-muted">{t("landing.pricing.promoBody")}</p>

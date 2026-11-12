@@ -458,7 +458,7 @@ export async function applyImportBatch(db: CommercialDatabase, context: Context,
       if (current?.status === "applied") return null;
       throw error;
     });
-    if (!locked) return { status: "applied", summary: (await tx.select({ summary: importBatch.summary }).from(importBatch).where(eq(importBatch.id, batch.id)).limit(1))[0]?.summary ?? null };
+    if (!locked) return { status: "applied", summary: (await tx.select({ summary: importBatch.summary }).from(importBatch).where(and(eq(importBatch.businessId, context.businessId), eq(importBatch.id, batch.id))).limit(1))[0]?.summary ?? null };
     const final = await tx.select({ status: importRow.status, decision: importRow.decision, stockNote: importRow.stockNote, rowNumber: importRow.rowNumber }).from(importRow)
       .where(and(eq(importRow.businessId, context.businessId), eq(importRow.batchId, batch.id)));
     const data = final.filter((row) => row.rowNumber !== locked.headerRowNumber);

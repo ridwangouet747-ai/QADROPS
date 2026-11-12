@@ -6,7 +6,7 @@ import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { cn } from "@/components/ui/cn";
 import { Icon } from "@/components/ui/icon";
-import { BrandMark } from "./mascot";
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 const sections = ["features", "day", "sectors", "pricing", "faq"] as const;
 
@@ -42,7 +42,7 @@ export function LandingHeader() {
     <header className={cn("fixed inset-x-0 top-0 z-40 transition-[background-color,box-shadow,color] duration-300", light ? "bg-surface/92 text-ink shadow-[0_1px_0_var(--color-line)] backdrop-blur-md" : "bg-transparent text-white")}>
       <div className="mx-auto flex min-h-[4.5rem] w-full max-w-[76rem] items-center gap-3 px-5 sm:px-8">
         <Link href="/" aria-label={t("landing.home")} className="inline-flex min-h-11 items-center rounded-full text-current no-underline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">
-          <BrandMark textClassName="max-[359px]:sr-only" />
+          <BrandLogo priority casing="title" variant="compact" markClassName="h-9 w-auto shrink-0" nameClassName="font-display text-[1.2rem] font-bold tracking-[-0.02em] whitespace-nowrap max-[359px]:sr-only" />
         </Link>
         <nav aria-label={t("landing.nav.label")} className="ms-4 hidden xl:block">
           <ul className="m-0 flex list-none gap-0.5 p-0">

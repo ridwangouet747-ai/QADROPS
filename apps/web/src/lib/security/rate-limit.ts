@@ -26,6 +26,10 @@ export const rateRules = {
   platformSignInGlobal: { name: "platform.sign_in.global", limit: 30, windowMs: 15 * MINUTE },
   platformVerifyClient: { name: "platform.verify.client", limit: 5, windowMs: 15 * MINUTE },
   platformVerifyGlobal: { name: "platform.verify.global", limit: 30, windowMs: 15 * MINUTE },
+  /** Changement du nom ou du mot de passe du propriétaire : le mot de passe actuel n'est pas devinable par essais. */
+  platformAccountChange: { name: "platform.account_change", limit: 5, windowMs: 15 * MINUTE },
+  /** Vérification publique d'un code de campagne (sans session) : même seuil que la barrière en mémoire, mais partagé entre instances. */
+  publicCampaignCheckIp: { name: "public.campaign_check.ip", limit: 20, windowMs: 10 * MINUTE },
   /**
    * Comptes des commerces (routes Better Auth). Les limites par adresse IP restent larges : en Côte d'Ivoire,
    * beaucoup de clients mobiles partagent une même adresse publique (CGNAT). Le compte visé, lui, est
@@ -39,6 +43,12 @@ export const rateRules = {
   passwordResetIp: { name: "auth.reset.ip", limit: 20, windowMs: 15 * MINUTE },
   verificationEmailIp: { name: "auth.verification_email.ip", limit: 10, windowMs: 60 * MINUTE },
   socialSignInIp: { name: "auth.social.ip", limit: 60, windowMs: 15 * MINUTE },
+  /**
+   * Changement du mot de passe d'un commerçant (`/change-password`, mot de passe actuel exigé). Le compte est
+   * celui de la session, jamais une valeur du corps : une session volée ne devine pas le mot de passe actuel.
+   */
+  passwordChangeAccount: { name: "auth.change_password.account", limit: 5, windowMs: 15 * MINUTE },
+  passwordChangeIp: { name: "auth.change_password.ip", limit: 20, windowMs: 15 * MINUTE },
 } as const satisfies Record<string, RateRule>;
 
 export type RateDecision = { allowed: boolean; hits: number; retryAfterSeconds: number; key: string };

@@ -66,7 +66,7 @@ Légende :
 - **Secret** : oui = à cocher *Sensitive* dans Vercel. « Public » = copié dans le JavaScript du navigateur au build (`NEXT_PUBLIC_*`), donc un redéploiement est nécessaire après chaque changement.
 - **Dev** = environnement *Development* de Vercel (`vercel env pull`, `vercel dev`). En local, le projet utilise `apps/web/.env.local` ou `npm run preview`.
 
-### 3.1 Variables lues par l'application (46)
+### 3.1 Variables lues par l'application (48)
 
 | Variable | Service | Lue dans | Dev | Preview | Production | Secret ? | Si absente |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -114,6 +114,8 @@ Légende :
 | `GENIUSPAY_API_SECRET` | GeniusPay | `geniuspay.ts:52,57` | `sk_sandbox_…` | **`sk_sandbox_…` uniquement** | `sk_live_…` | Oui | idem ; préfixes discordants refusés (`geniuspay.ts:58-59`) |
 | `GENIUSPAY_WEBHOOK_SECRET` | GeniusPay | `geniuspay.ts:53,60` | `whsec_…` sandbox | `whsec_…` sandbox | `whsec_…` live | Oui | idem |
 | `GENIUSPAY_BASE_URL` | GeniusPay | `geniuspay.ts:65-66` | Facultative | Facultative | Facultative (défaut `https://geniuspay.ci/api/v1/merchant`) | Non | Défaut. Non HTTPS ou hôte hors `geniuspay.ci`/`genius.ci` : refus (mission 15). |
+| `QADR_DEMO_VIDEO_URL` | Page publique | `lib/landing/demo-video.ts` | Vide (emplacement vide affiché) | Adresse de la vidéo (facultative) | Adresse de la vidéo (facultative) | Non | Section vidéo absente de la page |
+| `QADR_CONTACT_URL` | Page publique | `lib/landing/contact.ts` | Vide (carte Business avec mention du réglage manquant) | Canal de contact réel (facultatif) | Canal de contact réel (`mailto:`, `tel:`, `https://wa.me/…`, page `https://`) | Non | Offre Business absente de la page |
 | `QADR_PREVIEW_MODE` | Aperçu local | `next.config.ts:7`, `preview/mode.ts:6`, `preview/database.ts:23`, `auth/server.ts:83,303`, `proxy.ts:11`, `storage/config.ts:84`, 15 pages | `false` (le lanceur la met lui-même) | **Ne pas définir** | **Ne pas définir** | Non | Sans effet hors `NODE_ENV=development` |
 | `PORT` | Aperçu local | `auth/server.ts:305`, `scripts/preview.mjs:12` | Facultative | Ne pas définir | Ne pas définir | Non | 3001 en aperçu |
 
@@ -122,8 +124,8 @@ Légende :
 | Variable | Lue dans | Rôle | Secret ? |
 | --- | --- | --- | --- |
 | `QADR_DB_TARGET` | `scripts/migrate.ts:11` (doit valoir `development`), `platform-admin.ts:29-34`, `platform-owner.ts:58-73` (`development` ou `production`) | Garde-fou de cible, posé dans le terminal | Non |
-| `QADR_OWNER_USERNAME`, `QADR_OWNER_EMAIL`, `QADR_OWNER_NAME` | `scripts/platform-owner.ts:66,76` | Compte propriétaire de la plateforme | Non |
-| `QADR_OWNER_PASSWORD` | `scripts/platform-owner.ts:76-86` | Mot de passe du propriétaire, saisi dans le terminal puis effacé | **Oui** |
+| `QADR_OWNER_USERNAME`, `QADR_OWNER_EMAIL`, `QADR_OWNER_NAME` | `scripts/platform-owner.ts:66,76` ; `src/lib/domain/platform-owner.ts` (`readOwnerSeed`) | Compte propriétaire de la plateforme. **Exception à « jamais dans Vercel » (D-05)** : `QADR_OWNER_USERNAME` et `QADR_OWNER_PASSWORD` peuvent être posées dans Vercel le temps de la première connexion (compte de départ), puis retirées | Non |
+| `QADR_OWNER_PASSWORD` | `scripts/platform-owner.ts:76-86` ; `src/lib/domain/platform-owner.ts` (`readOwnerSeed`, `isSeedPassword`) | Mot de passe du propriétaire : saisi dans le terminal puis effacé (script), ou mot de passe **de départ** posé dans Vercel (12 caractères au moins), à changer dans Paramètres puis à retirer | **Oui** |
 | `QADR_PREVIEW_HOSTNAME` | `scripts/preview.mjs:16` | Restreint l'aperçu à `127.0.0.1` pendant un tunnel | Non |
 | `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY_PATH` | `scripts/apple-client-secret.mjs:39-42` (avec `APPLE_CLIENT_ID`) | Fabrication du JWT Apple ; la clé `.p8` reste sur le poste | Chemin seulement |
 | `BENCH_RUNS` | `scripts/bench-pglite.ts:31` | Mesures locales | Non |

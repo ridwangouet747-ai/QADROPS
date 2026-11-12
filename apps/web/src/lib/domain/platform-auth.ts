@@ -6,9 +6,15 @@ import type { QadrAuth } from "../auth/server";
 import { consumeRateLimits, rateRules, refundRateLimit } from "../security/rate-limit";
 import type { CommercialDatabase } from "./commercial";
 import { writePlatformAudit } from "./platform";
+import { ensureSeededPlatformOwner, isSeedPassword } from "./platform-owner";
 
 /**
- * Connexion du propriétaire de la plateforme : mot de passe PUIS second facteur (missions 13 et 14).
+ * Connexion du propriétaire de la plateforme : nom d'utilisateur et mot de passe ; second facteur seulement
+ * si le propriétaire l'a activé (missions 13 et 14, rendu facultatif le 2026-11-12 à sa demande).
+ *
+ * Sans second facteur : l'étape 1 ouvre directement la session Better Auth et la session plateforme, après
+ * contrôle du droit. Si aucun propriétaire n'existe, le compte de départ est d'abord créé à partir des
+ * variables du serveur (`ensureSeededPlatformOwner`). Avec second facteur, les deux étapes ci-dessous :
  *
  * 1. `POST /api/platform/auth/sign-in` appelle `signInUsername` de Better Auth côté serveur (la route HTTP
  *    `/sign-in/username` est fermée). Le compte du propriétaire ayant le second facteur activé, le plugin
@@ -21,8 +27,6 @@ import { writePlatformAudit } from "./platform";
  * - Les routes HTTP `/api/auth/two-factor/*` sont fermées : impossible d'obtenir une session par elles.
  * - Les cookies reçus ne sont jamais transmis à l'étape 1 (pas de cookie « appareil de confiance », pas de
  *   session existante) ; à l'étape 2, seuls les cookies du défi sont transmis.
- * - Un propriétaire sans second facteur configuré est refusé (403 `platform_2fa_setup_required`) : il doit
- *   passer par `scripts/platform-owner.ts enroll-2fa`. Ce refus n'est donné qu'après mot de passe correct.
  * - Réponse identique (401) pour un nom inconnu, un mauvais mot de passe ou un compte sans droit.
  * - Limitation partagée entre instances (`lib/security/rate-limit.ts`), réservée avant toute vérification,
  *   rendue en cas de succès : par client (empreinte HMAC de l'adresse IP) et au total.
@@ -45,8 +49,12 @@ const verifySchema = z.union([
   z.object({ backupCode: z.string().trim().min(8).max(40).regex(/^[A-Za-z0-9-]+$/) }).strict(),
 ]);
 
-type Refusal = { ok: false; status: 401 | 429; retryAfterSeconds?: number } | { ok: false; status: 403; code: "platform_2fa_setup_required" };
-export type PlatformSignInResult = { ok: true; step: "two_factor"; headers: Headers } | Refusal;
+type Refusal = { ok: false; status: 401 | 429; retryAfterSeconds?: number };
+export type PlatformSignInResult =
+  | { ok: true; step: "two_factor"; headers: Headers }
+  /** Sans second facteur : session ouverte. `defaultPassword` : le mot de passe est encore celui de départ. */
+  | { ok: true; step: "done"; userId: string; defaultPassword: boolean; headers: Headers }
+  | Refusal;
 export type PlatformVerifyResult = { ok: true; userId: string; headers: Headers } | { ok: false; status: 401 | 429; retryAfterSeconds?: number };
 
 /** Empreinte non réversible du client, pour compter les échecs sans conserver d'adresse IP. */
@@ -54,7 +62,7 @@ export function platformClientKey(ip: string | null | undefined, secret: string)
   return createHmac("sha256", secret).update(`platform-login:${ip?.trim() || "inconnu"}`).digest("hex").slice(0, 32);
 }
 
-type FailureCause = "invalid_input" | "invalid_credentials" | "not_platform_owner" | "second_factor_missing" | "invalid_second_factor" | "second_factor_locked";
+type FailureCause = "invalid_input" | "invalid_credentials" | "not_platform_owner" | "invalid_second_factor" | "second_factor_locked";
 async function recordFailure(db: CommercialDatabase, clientKey: string, cause: FailureCause) {
   // Ni nom d'utilisateur, ni mot de passe, ni code, ni adresse IP : seulement l'empreinte du client et le motif.
   await writePlatformAudit(db as never, {
@@ -81,7 +89,7 @@ function keepCookies(headers: Headers, keep: (name: string) => boolean) {
 }
 
 export async function signInPlatformOwner(auth: QadrAuth, db: CommercialDatabase, input: {
-  body: unknown; headers: Headers; clientKey: string; secret: string; now?: Date;
+  body: unknown; headers: Headers; clientKey: string; secret: string; now?: Date; environment?: Readonly<Record<string, string | undefined>>;
 }): Promise<PlatformSignInResult> {
   const now = input.now ?? new Date();
   const limits = await consumeRateLimits(db, [
@@ -94,6 +102,9 @@ export async function signInPlatformOwner(auth: QadrAuth, db: CommercialDatabase
     await recordFailure(db, input.clientKey, "invalid_input");
     return { ok: false, status: 401 };
   }
+
+  // Première connexion : s'il n'y a aucun propriétaire, le compte de départ est créé (valeurs du serveur seulement).
+  await ensureSeededPlatformOwner(auth, db, input.environment);
 
   type Signed = { headers: Headers; response: { twoFactorRedirect?: boolean; token?: string; user?: { id: string } } };
   let signedIn: Signed;
@@ -109,11 +120,25 @@ export async function signInPlatformOwner(auth: QadrAuth, db: CommercialDatabase
   }
 
   if (!signedIn.response.twoFactorRedirect) {
-    // Mot de passe correct mais aucun second facteur : la session ordinaire créée est supprimée aussitôt.
-    if (signedIn.response.token) await db.delete(sessionTable).where(eq(sessionTable.token, signedIn.response.token));
-    const owner = signedIn.response.user?.id ? await activeGrant(db, signedIn.response.user.id) : false;
-    await recordFailure(db, input.clientKey, owner ? "second_factor_missing" : "not_platform_owner");
-    return owner ? { ok: false, status: 403, code: "platform_2fa_setup_required" } : { ok: false, status: 401 };
+    // Mot de passe correct, compte sans second facteur : Better Auth vient de créer une session ordinaire.
+    const token = signedIn.response.token;
+    const userId = signedIn.response.user?.id;
+    const [created] = token ? await db.select({ id: sessionTable.id }).from(sessionTable).where(eq(sessionTable.token, token)).limit(1) : [];
+    if (!userId || !created || !(await activeGrant(db, userId))) {
+      // Compte de commerce (ou droit retiré) : la session ordinaire est supprimée aussitôt, refus générique.
+      if (token) await db.delete(sessionTable).where(eq(sessionTable.token, token));
+      await recordFailure(db, input.clientKey, "not_platform_owner");
+      return { ok: false, status: 401 };
+    }
+    await db.transaction(async (tx) => {
+      await tx.insert(platformSession).values({ sessionId: created.id, userId, createdAt: now });
+      await writePlatformAudit(tx as never, {
+        actorUserId: userId, eventType: "platform.login_succeeded", entityType: "platform_login", entityId: "owner",
+        metadata: { client: input.clientKey, factor: "password" },
+      });
+    });
+    await refundRateLimit(db, limits.decisions);
+    return { ok: true, step: "done", userId, defaultPassword: isSeedPassword(parsed.data.password, input.environment), headers: signedIn.headers };
   }
 
   // Défi ouvert : vérifier que ce compte est bien le propriétaire actif, sans attendre le code.

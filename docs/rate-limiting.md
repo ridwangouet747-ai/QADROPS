@@ -36,6 +36,12 @@ prestataire (pas de Redis, aucune dépense).
 | `POST /api/auth/reset-password` | adresse IP | 20 par 15 min |
 | `POST /api/auth/send-verification-email` | adresse IP | 10 par heure |
 | `POST /api/auth/sign-in/social` | adresse IP | 60 par 15 min |
+| `POST /api/public/campaigns/check` (mission 18, `public.campaign_check.ip`) | adresse IP | 20 par 10 min, compté **après** un Turnstile réussi |
+| `POST /api/auth/change-password` (2026-11-12, `auth.change_password.ip` / `auth.change_password.account`) | adresse IP / **compte de la session** (jamais une valeur du corps) | 20 / 5 par 15 min ; le 6e essai d'un compte reçoit 429 même avec le bon mot de passe actuel |
+
+La vérification publique d'un code de campagne garde aussi sa barrière en mémoire (`publicCampaignCheckLimiter`), qui
+coupe une rafale sur une même instance sans écrire en base ni appeler Siteverify ; le compteur partagé fait tenir la
+limite sur toutes les instances (test « mission 18 : la limite tient sur plusieurs instances »).
 
 **Ordre (mission 15)** : les limites par adresse sont comptées avant le défi Turnstile, les limites par compte
 seulement après un défi réussi. Sinon, dix requêtes sans défi suffisaient à bloquer pendant 15 min le compte d'un

@@ -18,7 +18,9 @@ Jakarta Sans). Elle est remplacée le 2026-11-10 par la version « cahier de la 
 | `components/landing/landing-header.tsx` | En-tête fixe, menu sur téléphone et tablette (client) |
 | `components/landing/landing-motion.tsx` | GSAP + ScrollTrigger pour la journée seulement (client) |
 | `components/landing/receipt*.ts(x)` | Ticket d'exemple : HTML (rendu serveur, repli) et 3D Three.js facultative |
-| `components/landing/mascot.tsx` | Mascotte SVG **provisoire** et marque « Qadr Ops » |
+| `components/brand/brand-logo.tsx`, `lib/brand.ts`, `public/brand/` | Marque et mascotte **provisoires**, source unique (voir `docs/design/direction-artistique.md` § 5) |
+| `components/video/video-embed.tsx`, `lib/video/source.ts` | Lecteur vidéo réutilisable (YouTube, Vimeo, fichier MP4/WebM) |
+| `lib/landing/demo-video.ts`, `lib/landing/contact.ts` | Lecture de `QADR_DEMO_VIDEO_URL` et de `QADR_CONTACT_URL` |
 | `components/landing/landing.css`, `fonts.ts` | Styles propres à la page (motifs, entrée du hero), police Rubik |
 | `lib/domain/public-plans.ts` | Lecture des formules publiées (`subscription_plan`), cache 10 min |
 | `lib/i18n/messages/landing.ts` | Textes fr/en/ar, typés par `Shape` (parité vérifiée par `messages.test.ts`) |
@@ -71,6 +73,62 @@ vide), nombre de clients, logos de partenaires, notes, contact, conditions gén�
 - Le code Qadr Agency se saisit pendant la création du commerce (`/api/public/campaigns/check`). La page ne
   le simule pas : elle explique où le saisir et renvoie vers `/register`.
 - Au 2026-11-10, **aucun prix réel** n'est publié en staging ni en production.
+
+### 3.1 Tarif officiel et offre Business (reprise du 2026-11-10)
+
+- **Offre Standard : 5 000 FCFA pour 30 jours** (décision D-04 du propriétaire, durée confirmée le
+  2026-11-10). Elle n'est écrite nulle part dans le code : elle existe quand une ligne
+  `subscription_plan` active la porte. La page affiche alors ce montant et sa durée
+  (`duration_days`), et GeniusPay facture ce même montant pour cette même durée : prix affiché et prix
+  facturé ont une seule source (`public-plans.integration.test.ts`, bloc « offre Standard »). La page
+  écrit « pour 30 jours », pas « par mois » : la période facturée est de 30 jours exactement. Les
+  formules « Essentiel » et « Équipe » de l'aperçu local restent fictives (badge affiché).
+- **Créer la formule** (propriétaire de la plateforme, `/platform/plans`, une fois la base cible migrée
+  et le compte propriétaire créé) :
+
+  | Champ | Valeur |
+  | --- | --- |
+  | Code | `STANDARD` |
+  | Nom | `Standard` |
+  | Prix (XOF) | `5000` |
+  | Durée (jours) | `30` |
+  | Active | oui |
+  | Fonctions (caisse, rapports, stock, achats) | **toutes activées** (confirmé par le propriétaire le 2026-11-10) |
+  | Articles max, utilisateurs max | **laisser vides** : sans limite (confirmé par le propriétaire le 2026-11-10). La page affichera « Articles sans limite » et « Membres d'équipe sans limite » |
+
+  La formule apparaît sur la page publique au plus tard 10 minutes après (cache). Elle n'est créée dans
+  aucune base à ce jour : la production n'est pas migrée, et l'écrire en préproduction demande votre
+  accord (écriture dans une base distante).
+- **Qadr Ops Business** (« Solution personnalisée », « Sur devis ») : carte ajoutée à la suite des
+  formules. Ce n'est pas une formule facturée : elle ne vient pas de la base et n'a pas de prix. Son
+  bouton « Discuter de mon projet » ouvre `QADR_CONTACT_URL` (`mailto:`, `tel:`, `https://wa.me/…` ou
+  page `https://` ; toute autre forme est refusée, voir `contact.test.ts`). Aucun numéro ni adresse
+  n'est écrit dans le code. **Sans cette variable, l'offre n'est pas affichée en production** ; hors
+  production la carte reste visible avec la mention du réglage manquant.
+- Avec trois cartes ou plus, l'encart du code Qadr Agency passe sous les cartes pour leur laisser la
+  largeur ; avec une ou deux cartes il reste à côté.
+- Le système promotionnel n'a pas été touché (aucun fichier de `lib/domain` modifié).
+
+### 3.2 Vidéo de démonstration (reprise du 2026-11-10)
+
+- Section `#demo`, après les bénéfices. L'adresse vient de `QADR_DEMO_VIDEO_URL` : lien YouTube, lien
+  Vimeo, ou fichier `.mp4` / `.webm` (HTTPS ou chemin du site).
+- **Sans adresse valide, la section n'existe pas en production** : aucune vidéo fictive. Hors production,
+  un emplacement vide marqué comme tel garde la mise en page vérifiable.
+- `VideoEmbed` ne charge rien avant le clic : ni lecteur tiers, ni fichier, ni cookie. La page ne paie
+  qu'une image de couverture en chargement différé, donc le hero et le LCP ne changent pas. La lecture ne
+  démarre jamais seule ; elle suit un clic ou la touche Entrée, puis le lecteur reçoit le focus.
+- Lecteurs tiers en mode respectueux : `youtube-nocookie.com`, Vimeo avec `dnt=1`, iframe en bac à
+  sable ; une ligne nomme l'hébergeur avant la lecture. Fichier illisible : message, bouton
+  « Réessayer » et lien direct.
+- Formats `16/9`, `9/16`, `1/1`, `4/3` ; le composant sert aussi aux tutoriels et à l'aide.
+- Vérifié en navigateur sans interface avec un fichier WebM d'essai (retiré ensuite) : aucun lecteur ni
+  requête avant l'action, lecture après Entrée, repli sur fichier absent. **Non vérifié** : un vrai lien
+  YouTube ou Vimeo (aucune vidéo officielle n'est publiée), et la lecture MP4 (le navigateur d'essai n'a
+  pas le codec H.264).
+- Le film « Reprenez le contrôle » existe dans `production-video/out/video/` (70 à 217 Mo par fichier) :
+  trop lourd pour le dépôt et pour `public/`. Il doit être publié chez un hébergeur vidéo ou dans un
+  stockage objet, puis son adresse mise dans la variable.
 
 ## 4. Données d'exemple
 
@@ -138,15 +196,19 @@ Build de production local (`npm run build`, puis `next start` sur le port 3005, 
 - Lecteur d'écran (NVDA, TalkBack, VoiceOver).
 - Image Open Graph dédiée (absente).
 - Logo officiel : la mascotte reste provisoire tant que le fichier source n'est pas fourni.
-- Prix réels : aucune formule publiée en staging ni en production.
+- Prix réels : aucune formule publiée en staging ni en production (Standard, 5 000 FCFA pour 30 jours, toutes fonctions incluses, sans limite d'articles ni d'utilisateurs : décidé ; formule à créer).
+- Vidéo de démonstration réelle et canal de contact Business : variables non renseignées.
 - Blender n'est pas installé : aucun modèle 3D n'a été produit avec lui.
 
 ## 9. Hypothèses en attente de décision
 
 | Sujet | Hypothèse appliquée | Pour changer |
 | --- | --- | --- |
-| Logo | Mascotte SVG provisoire dessinée d'après l'image fournie (118 × 205 px, inutilisable telle quelle) ; favicon et icônes de l'application inchangés | fournir le fichier source (SVG ou PNG ≥ 1024 px) |
+| Logo | Mascotte SVG provisoire dessinée d'après l'image fournie (118 × 205 px, inutilisable telle quelle) ; favicon et icônes de l'application générés à partir d'elle depuis le 2026-11-10 | fournir le fichier source (SVG ou PNG ≥ 1024 px), puis suivre `lib/brand.ts` |
+| Tarif Standard | 5 000 FCFA pour 30 jours (D-04) ; formule pas encore créée en base ; toutes fonctions incluses, sans limite d'articles ni d'utilisateurs (confirmé) | créer la formule dans `/platform/plans` (fiche au § 3.1) |
+| Offre Business | Carte masquée en production sans `QADR_CONTACT_URL` | fournir le canal de contact réel |
+| Vidéo | Section masquée en production sans `QADR_DEMO_VIDEO_URL` | publier la vidéo et fournir son adresse |
 | Langue | Cookie `qadr-locale`, une seule URL | routes `/en`, `/ar` avec `hreflang` possibles |
-| Contact, mentions légales | Absents ; le pied de page renvoie seulement vers `/privacy` | à fournir par le propriétaire |
+| Contact, mentions légales | Mentions légales absentes ; le pied de page renvoie seulement vers `/privacy` ; le seul contact est celui de l'offre Business | à fournir par le propriétaire |
 | `sitemap`, URL canonique | Absents (domaine non choisi) | à ajouter avec le domaine |
 | Image de partage | Aucune image Open Graph dédiée | à produire |

@@ -57,7 +57,11 @@ describe("mission 12 : campagnes publiques d’acquisition", () => {
     merchant = await h.signUp("Commerçant inscrit", "inscrit@campagnes.test");
     merchantBusiness = await h.createBusiness(merchant, "Commerce déjà inscrit");
   });
-  beforeEach(() => publicCampaignCheckLimiter.reset());
+  // Les deux compteurs (mémoire de l'instance et compteur partagé en base) repartent de zéro à chaque test.
+  beforeEach(async () => {
+    publicCampaignCheckLimiter.reset();
+    await h.client.query("delete from rate_limit_bucket where true");
+  });
   afterAll(async () => { await h?.close(); });
 
   it("vérification : un code valide affiche l’offre sans rien consommer", async () => {
@@ -213,6 +217,22 @@ describe("mission 12 : campagnes publiques d’acquisition", () => {
     expect(blocked.body).toMatchObject({ code: "rate_limited" });
     expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
     expect((await check({ code: "ESSAI-21" }, "192.0.2.51")).status).toBe(200);
+  });
+
+  it("mission 18 : la limite tient sur plusieurs instances (compteur partagé en base, pas seulement en mémoire)", async () => {
+    // Chaque vérification « arrive sur une nouvelle instance » : le compteur en mémoire repart de zéro à chaque fois.
+    for (let index = 0; index < 20; index++) {
+      publicCampaignCheckLimiter.reset();
+      expect((await check({ code: `INSTANCE-${index}` }, "192.0.2.60")).status).toBe(200);
+    }
+    publicCampaignCheckLimiter.reset();
+    const blocked = await check({ code: "INSTANCE-21" }, "192.0.2.60");
+    expect(blocked.status).toBe(429);
+    expect(blocked.body).toMatchObject({ code: "rate_limited" });
+    // Le compteur ne garde qu'une empreinte HMAC : ni l'adresse IP ni le code essayé ne sont écrits en base.
+    const stored = await h.client.query<{ key: string }>("select key from rate_limit_bucket");
+    expect(JSON.stringify(stored.rows)).not.toContain("192.0.2.60");
+    expect(JSON.stringify(stored.rows)).not.toContain("INSTANCE");
   });
 
   it("administration : création, modification, compteur, réclamations, désactivation, tout est audité", async () => {

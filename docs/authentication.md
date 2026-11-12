@@ -245,3 +245,19 @@ Détail et commandes : `docs/engineering/mission-16-securite.md`. Tests : `src/t
 | Rôles | `src/lib/auth/permissions.ts`, vérifiés côté serveur sur chaque route (tests `roles-and-status.http.test.ts`) |
 | Limitation | `docs/rate-limiting.md` ; règles de récupération revues (tableau « Récupération de compte ») |
 | Écart restant | inscription : voir la limite du § 11.1 ; Resend non opérationnel (§ 7) ; adresse IP derrière Cloudflare + Vercel non vérifiée |
+
+### 11.5 Changement de mot de passe et identifiants du compte (2026-11-12)
+
+- `POST /api/auth/change-password` modifie **toujours le compte de la session** : une valeur `userId`, `email` ou
+  `user.id` glissée dans le corps est ignorée (test `password-change.http.test.ts`). Sans session : 401 ; mot de
+  passe actuel faux : 400 `INVALID_PASSWORD`, rien n'est modifié.
+- Le hook `before` impose `revokeOtherSessions: true`, quoi qu'envoie le client. Better Auth 1.7.7 supprime alors
+  **toutes** les sessions du compte, y compris la courante, et en ouvre une nouvelle (nouveau cookie). Cette
+  nouvelle session **n'a pas de commerce actif** : un futur écran de changement de mot de passe devra ramener
+  l'utilisateur vers `/select-business`. Aucun écran n'existe aujourd'hui pour les commerçants.
+- Limitation partagée par adresse et par compte : `docs/rate-limiting.md`.
+- Propriétaire actif de la plateforme : `/change-password`, `/change-email`, `/delete-user`, `/link-social` et
+  `/unlink-account` répondent 404 (même forme qu'une route fermée), quelle que soit sa session. Il change ses
+  identifiants dans la console ou par `scripts/platform-owner.ts` (`docs/platform-owner-access.md`).
+- Connexion : une adresse inconnue et un mauvais mot de passe donnent la même réponse, 401
+  `INVALID_EMAIL_OR_PASSWORD`, sans cookie (test dans `auth-security.http.test.ts`).

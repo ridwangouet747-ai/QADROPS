@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { memo, useEffect, useState } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { cn } from "@/components/ui/cn";
+import type { SceneFrame } from "@/lib/onboarding/scene-framing";
 import { chooseSceneMode, samePlan, type SceneMode, type ScenePlan, type SceneStage, type SceneTier } from "@/lib/onboarding/wizard";
 import { ShopStatic } from "./shop-static";
 
@@ -40,13 +41,15 @@ function detectMode(): { mode: SceneMode; tier: SceneTier } {
  * formulaire), puis montée en gamme après le premier affichage selon l'appareil. Toute erreur de
  * chargement ou perte de contexte WebGL redescend vers un rendu plus léger, jamais vers un blocage.
  */
-type SceneProps = { plan: ScenePlan; stage: SceneStage; logo: string; className?: string };
+/** `inset` : zones du cadre couvertes par l'interface (pixels), que la boutique 3D doit éviter. Passer une constante. */
+type SceneProps = { plan: ScenePlan; stage: SceneStage; logo: string; className?: string; inset?: SceneFrame["inset"] };
+const noInset: SceneFrame["inset"] = { top: 6, bottom: 6, side: 8 };
 
 /* Le formulaire se redessine à chaque frappe ; la scène seulement quand ce qu'elle montre change. */
 export const OnboardingScene = memo(OnboardingSceneView, (a: SceneProps, b: SceneProps) =>
-  a.stage === b.stage && a.logo === b.logo && a.className === b.className && samePlan(a.plan, b.plan));
+  a.stage === b.stage && a.logo === b.logo && a.className === b.className && a.inset === b.inset && samePlan(a.plan, b.plan));
 
-function OnboardingSceneView({ plan, stage, logo, className }: SceneProps) {
+function OnboardingSceneView({ plan, stage, logo, className, inset = noInset }: SceneProps) {
   const { t } = useI18n();
   const [mode, setMode] = useState<SceneMode>("static");
   const [tier, setTier] = useState<SceneTier>("low");
@@ -67,7 +70,7 @@ function OnboardingSceneView({ plan, stage, logo, className }: SceneProps) {
   return (
     <div className={cn("isolate overflow-hidden", className)} data-scene-mode={mode}>
       <div aria-hidden="true" className="absolute inset-0">
-        {mode === "3d" ? <ShopScene3D plan={plan} stage={stage} tier={tier} logo={logo} onContextLost={() => setMode("lottie")} />
+        {mode === "3d" ? <ShopScene3D plan={plan} stage={stage} tier={tier} logo={logo} inset={inset} onContextLost={() => setMode("lottie")} />
           : mode === "lottie" ? <ShopLottie plan={plan} stage={stage} logo={logo} onFailure={() => setMode("static")} />
           : <ShopStatic plan={plan} logo={logo} />}
       </div>

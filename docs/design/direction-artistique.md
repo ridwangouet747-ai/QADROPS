@@ -78,12 +78,25 @@ dans les SVG.
 
 - Le logo officiel (IMAGE 3) n'est disponible qu'en capture de 118 × 205 px. Il est **inutilisable** pour
   une icône ou une impression.
-- `components/landing/mascot.tsx` est une **interprétation vectorielle provisoire** : pieuvre bleue, clin
-  d'œil, sac blanc marqué du maillon, quatre tentacules visibles.
-  - Elle sert dans la page et pour la marque du menu.
-  - Elle ne remplace pas le logo officiel.
-  - L'icône de l'application (`public/icons/`) n'est pas modifiée tant que le fichier source n'est pas
-    fourni.
+- Le dessin en place est une **interprétation vectorielle provisoire** : pieuvre bleue, clin d'œil, sac
+  blanc marqué du maillon, quatre tentacules visibles. Il ne remplace pas le logo officiel.
+- **Une seule source** depuis le 2026-11-10 :
+  - fichiers dans `apps/web/public/brand/` : `qadr-mark.svg` (couleur), `qadr-mark-mono.svg` (une
+    teinte, console de la plateforme), `qadr-app-icon.svg` (carré 512, source des icônes) ;
+  - `lib/brand.ts` est le seul fichier qui connaît ces chemins (`brand.provisional` vaut `true` tant que
+    le logo officiel n'est pas posé) ;
+  - `components/brand/brand-logo.tsx` : `BrandLogo` (variantes `full`, `compact`, `icon` ; tons
+    `color`, `mono`) et `BrandMascot` (le dessin seul). Tous les écrans passent par eux : page publique,
+    connexion, inscription, espace du commerce, console de la plateforme ;
+  - `scripts/generate-pwa-icons.mjs` produit favicons 32 et 48, icônes 192 et 512, icône masquable et
+    Apple Touch Icon à partir de `qadr-app-icon` ; `layout.tsx` et `manifest.ts` lisent `brand.icons`.
+  - `brand.test.ts` échoue si un chemin `/brand/` est écrit ailleurs ou si un pavé « Q » revient dans
+    un composant.
+- **Poser le logo officiel** (aucun composant à modifier) : remplacer les trois fichiers de
+  `public/brand/` en gardant leurs noms, ajuster `width`/`height` dans `lib/brand.ts`, passer
+  `provisional` à `false`, lancer `node scripts/generate-pwa-icons.mjs` depuis `apps/web`.
+- **Reste hors de cette architecture** : l'en-tête des e-mails (`lib/auth/email-templates.ts`) garde un
+  « Q », car un e-mail exige une image PNG servie depuis le domaine public, qui n'existe pas encore.
 - **À fournir par le propriétaire** : le logo en SVG, ou en PNG d'au moins 1024 px, ainsi que la version
   simplifiée pour l'icône de l'application.
 

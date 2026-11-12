@@ -1,11 +1,11 @@
 import { betterAuth } from "better-auth";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { organization, twoFactor, username } from "better-auth/plugins";
 import { after } from "next/server";
 import { getDatabase } from "@/lib/db/client";
-import { authSchema, businessProfile, receiptSettings, user } from "@/lib/db/schema";
+import { authSchema, businessProfile, platformAdmin, receiptSettings, user } from "@/lib/db/schema";
 import { assertProductionAuthUrl, readEnvironment, socialProviders as configuredSocialProviders } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { claimPublicCampaignSafely, signupCampaignScope } from "@/lib/domain/public-campaigns";
@@ -46,9 +46,10 @@ function requestLocale(request?: Request): Locale {
 /**
  * Limites partagées (PostgreSQL) des routes HTTP sensibles de Better Auth (mission 14). Elles s'ajoutent à la
  * limitation en mémoire de Better Auth, qui ne vaut que pour une instance. Adresse IP inconnue : sujet commun
- * « inconnu » (plus strict, jamais une exemption).
+ * « inconnu » (plus strict, jamais une exemption). `sessionUserId` : compte de la session (jamais du corps),
+ * seul sujet légitime d'une route qui modifie le compte connecté (`/change-password`).
  */
-export function authRateChecks(path: string, body: unknown, ip: string | null | undefined): Array<{ rule: RateRule; subject: string }> {
+export function authRateChecks(path: string, body: unknown, ip: string | null | undefined, sessionUserId?: string | null): Array<{ rule: RateRule; subject: string }> {
   const address = ip?.trim() && ip.trim() !== "unknown" ? ip.trim() : "inconnu";
   const email = typeof (body as { email?: unknown } | undefined)?.email === "string" ? (body as { email: string }).email.trim().toLowerCase() : "";
   switch (path) {
@@ -58,6 +59,7 @@ export function authRateChecks(path: string, body: unknown, ip: string | null | 
     case "/reset-password": return [{ rule: rateRules.passwordResetIp, subject: address }];
     case "/send-verification-email": return [{ rule: rateRules.verificationEmailIp, subject: address }];
     case "/sign-in/social": return [{ rule: rateRules.socialSignInIp, subject: address }];
+    case "/change-password": return [{ rule: rateRules.passwordChangeIp, subject: address }, ...(sessionUserId ? [{ rule: rateRules.passwordChangeAccount, subject: sessionUserId }] : [])];
     default: return [];
   }
 }
@@ -73,7 +75,20 @@ function apiErrorCode(value: unknown) {
 }
 
 /** Règles qui protègent un compte précis : comptées seulement après le défi Turnstile. */
-const accountRateRules = new Set<RateRule>([rateRules.signInAccount, rateRules.passwordResetRequestAccount]);
+const accountRateRules = new Set<RateRule>([rateRules.signInAccount, rateRules.passwordResetRequestAccount, rateRules.passwordChangeAccount]);
+
+/**
+ * V-5 : routes Better Auth qui modifient les identifiants du compte connecté. Le propriétaire de la plateforme
+ * change les siens uniquement dans la console (`/api/platform/account/*` : mot de passe actuel, audit, règle
+ * `platformAccountChange`) ou par `scripts/platform-owner.ts` ; pour lui, ces routes répondent comme une route
+ * fermée (404), quelle que soit sa session (console ou connexion ordinaire). État en 1.7.7 pour les autres
+ * comptes : `/change-email` est désactivée par la configuration (400 CHANGE_EMAIL_DISABLED), `/delete-user`
+ * aussi (404) ; `/link-social` et `/unlink-account` ajouteraient ou retireraient une façon de se connecter.
+ * Elles restent listées pour le jour où l'une serait activée. `/set-password` est réservée au serveur (aucune
+ * route HTTP) ; `/update-user` ne change que le nom et l'image (nom d'utilisateur refusé plus bas, adresse
+ * refusée par Better Auth).
+ */
+const ownerClosedCredentialPaths = new Set(["/change-password", "/change-email", "/delete-user", "/link-social", "/unlink-account"]);
 
 /**
  * Accepter (ou refuser) une invitation exige une adresse vérifiée dès que les e-mails fonctionnent, et
@@ -154,6 +169,12 @@ export function createQadrAuth(options: AuthOptions) {
         // lien public ; son mot de passe se change par scripts/platform-owner.ts. Réponse HTTP inchangée (rien
         // n'est révélé), aucun e-mail : une boîte de réception compromise ne suffit pas à couper ses sessions.
         if ((account as { twoFactorEnabled?: boolean | null }).twoFactorEnabled) return;
+        // 2026-11-12 : le second facteur du propriétaire est devenu facultatif. La règle vaut donc pour tout
+        // propriétaire actif, avec ou sans facteur : son mot de passe se change dans la console (mot de passe
+        // actuel exigé) ou par le script, jamais par un lien reçu par e-mail.
+        const [owner] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin)
+          .where(and(eq(platformAdmin.userId, account.id), isNull(platformAdmin.revokedAt))).limit(1);
+        if (owner) return;
         await deliver(renderPasswordResetEmail({ locale: requestLocale(request), to: account.email, url, token }));
       } : undefined,
     },
@@ -275,13 +296,23 @@ export function createQadrAuth(options: AuthOptions) {
         if (context.request && context.path.startsWith("/two-factor/")) {
           throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
         }
+        // Routes qui modifient les identifiants : le compte visé est TOUJOURS celui de la session (relue en base,
+        // sans cache de cookie), jamais une valeur du corps. Sans session, Better Auth répond 401 plus loin.
+        const credentialSession = context.request && ownerClosedCredentialPaths.has(context.path)
+          ? await getSessionFromCtx(context, { disableCookieCache: true }) : null;
         // Limites par adresse avant Turnstile ; limites par compte seulement APRÈS un défi Turnstile réussi
         // (mission 15) : sinon dix requêtes sans défi suffiraient à bloquer le compte d'un commerçant.
         const allChecks = context.request
           // Mêmes en-têtes de confiance que la limitation de Better Auth : cf-connecting-ip serait falsifiable hors Workers.
-          ? authRateChecks(context.path, context.body, clientIpFrom(context.headers ?? context.request.headers)) : [];
+          ? authRateChecks(context.path, context.body, clientIpFrom(context.headers ?? context.request.headers), credentialSession?.user.id) : [];
         const accountChecks = allChecks.filter((check) => accountRateRules.has(check.rule));
         await enforceRateLimits(allChecks.filter((check) => !accountRateRules.has(check.rule)));
+        // V-5 : propriétaire actif de la plateforme → même réponse qu'une route fermée, rien n'est modifié.
+        if (credentialSession) {
+          const [owner] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin)
+            .where(and(eq(platformAdmin.userId, credentialSession.user.id), isNull(platformAdmin.revokedAt))).limit(1);
+          if (owner) throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
+        }
         if (context.request && (context.path === "/sign-up/email" || context.path === "/update-user")) {
           const body = context.body as Record<string, unknown> | undefined;
           if (body && ("username" in body || "displayUsername" in body)) {
@@ -317,6 +348,15 @@ export function createQadrAuth(options: AuthOptions) {
               .where(eq(user.email, email.trim().toLowerCase())).limit(1);
             if (account?.twoFactorEnabled) throw new APIError("UNAUTHORIZED", { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" });
           }
+        }
+        // V-6 : un changement de mot de passe ferme TOUJOURS les autres sessions du compte, quoi qu'envoie le
+        // client (`revokeOtherSessions: false` est remplacé). Better Auth 1.7.7 supprime alors toutes les sessions
+        // du compte, y compris la courante, puis en ouvre une nouvelle (nouveau cookie dans la réponse, sans
+        // commerce actif). Les autres champs du corps sont laissés à la validation de Better Auth (schéma qui
+        // ignore toute clé inconnue, comme `userId` ou `email`).
+        if (context.path === "/change-password") {
+          const body = context.body as Record<string, unknown> | undefined;
+          if (body && typeof body === "object" && !Array.isArray(body)) return { context: { body: { ...body, revokeOtherSessions: true } } };
         }
       }),
       after: createAuthMiddleware(async (context) => {

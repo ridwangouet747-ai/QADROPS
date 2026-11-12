@@ -11,6 +11,11 @@
 > nouvelle branche (§ 6.3 bis). **Toujours rien d'exécuté** : ni `pg_dump`, ni instantané, ni branche, ni base
 > créée. Plan de mise en production de la base : `neon-production-plan.md` ; audit : `mission-16-neon.md`.
 >
+> **Mise à jour du 2026-11-12 (mandat global de release).** Premier essai **réel** de restauration sur une
+> branche dédiée (§ 6.6) : copie de la branche de staging, contrôle de structure identique. Toujours **aucun**
+> `pg_dump`, **aucun** instantané (l'unique instantané manuel de l'offre Free est réservé au point « avant
+> première migration de production ») et **aucune** sauvegarde planifiée (réservée aux offres payantes).
+>
 > Règle absolue : **une restauration de test se fait uniquement sur une branche dédiée, jamais sur la branche
 > principale.** Une restauration de la branche principale est une opération de production, réservée au
 > plan de reprise (§ 9), avec l'accord écrit du propriétaire.
@@ -472,6 +477,33 @@ instant passé, ou copie faite application arrêtée).
 
 Date, opérateur, variante, instant ou instantané, durée de chaque étape, résultats a–d, écarts, décision.
 Classé dans le registre (§ 8). Ensuite : suppression de la branche de test et de tout fichier déchiffré.
+
+### 6.6 Essai réel du 2026-11-12 : copie de la branche de staging
+
+Ce qui a été fait (outil SQL et API Neon, aucune chaîne de connexion lue) :
+
+| Étape | Résultat |
+| --- | --- |
+| Relevé sur l'original `qadr_staging` (branche `mission-14-staging`) à 16:54:47 UTC | 26 migrations, dernière empreinte `82bd6fab…d614e` (fichier 0025), 63 tables, 44 politiques RLS, empreinte de structure `a27cd3869554bc9d4bc6ec08c7dd5e6c` (md5 des colonnes de `public`), 1 compte, 0 commerce, 0 formule, 6 événements d'audit |
+| Création de la branche `restore-test-2026-11-12` (`br-crimson-unit-bcva1mus`, enfant de staging, LSN `0/232F6240`) à 16:55:07 UTC | prête en quelques secondes ; aucune modification de l'original |
+| Même relevé sur la copie à 16:55:18 UTC | **identique** sur tous les points ; 3 déclencheurs (dont l'audit en ajout seul) et le rôle `qadr_tenant` présents |
+
+Durée de bout en bout : environ 30 s pour la copie et la vérification. Ce n'est **pas** un RTO de production :
+la base est presque vide.
+
+Ce que l'essai prouve : une branche Neon reproduit fidèlement schéma, journal des migrations, politiques RLS,
+rôles et déclencheurs, ce qui valide la variante A (§ 6.1) comme moyen d'inspecter un état sans toucher
+l'original.
+
+Ce qu'il **ne** prouve **pas** :
+- la restauration à un **instant passé** : l'outil disponible crée une branche depuis l'état actuel du
+  parent ; la PITR (branche à un instant passé, ou *Restore* d'une branche racine) n'a pas été exercée ;
+- une copie **hors Neon** (`pg_dump` puis `pg_restore` dans une base vide) : ni `pg_dump` ni Docker
+  fonctionnel sur le poste ; c'est pourtant la seule protection contre la perte du projet ;
+- la restauration d'un instantané (aucun instantané pris).
+
+Branche laissée en place (3 branches sur 10 autorisées) : sa suppression est une **décision du propriétaire**
+(console Neon, *Branches*). Elle ne doit jamais être branchée sur Vercel.
 
 ## 7. Objets hors base
 

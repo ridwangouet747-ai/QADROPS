@@ -25,10 +25,14 @@ import {
   accountSchema, activities, businessSchema, draftStorageKey, emptyBusiness, newCreationKey, parseDraft, scenePlan, serializeDraft,
   storeFormats, toCreateBusinessPayload, wizardSteps, type AccountValues, type BusinessValues, type SceneStage, type SignupPromotion, type WizardStep,
 } from "@/lib/onboarding/wizard";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { OnboardingScene } from "./onboarding-scene";
 import { PromoCodeBox, PromotionOutcome, type SignupOutcome } from "./promo-code-box";
 
 gsap.registerPlugin(useGSAP);
+
+/* Colonne de la scène sur ordinateur : pastilles en haut (24 + 36 px), légende sur deux lignes en bas (24 + 76 px). */
+const desktopSceneInset = { top: 76, bottom: 116, side: 30 };
 
 const stepFields: Record<Exclude<WizardStep, "account" | "review">, (keyof BusinessValues)[]> = {
   identity: ["businessName", "activity", "storeFormat"], details: ["phone", "address"], branding: ["logo", "displayName"],
@@ -244,9 +248,8 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
       {/* Zone formulaire */}
       <div className="flex min-h-dvh min-w-0 flex-col px-4 pt-4 pb-6 sm:px-8 lg:h-dvh lg:min-h-0 lg:overflow-y-auto lg:px-12 lg:pt-7">
         <header className="flex items-center justify-between gap-3">
-          <Link href="/" dir="ltr" aria-label="QADR OPS" className="flex items-center gap-2.5 text-ink no-underline">
-            <span className="grid size-10 place-items-center rounded-[13px] bg-brand-gradient text-lg font-extrabold text-white shadow-brand">Q</span>
-            <strong className="text-[1.05rem] font-extrabold tracking-[-0.02em]">QADR OPS</strong>
+          <Link href="/" aria-label="Qadr Ops" className="flex items-center text-ink no-underline">
+            <BrandLogo priority />
           </Link>
           <LanguageSwitcher />
         </header>
@@ -406,7 +409,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
       {/* Zone scène (ordinateur) */}
       <aside className="relative hidden p-5 lg:block" aria-label={t("wizard.scene.label")}>
         <div className="relative h-full overflow-hidden rounded-[32px] bg-[radial-gradient(120%_90%_at_50%_0%,#ffffff_0%,#e6edfc_55%,#cfdcf8_100%)] shadow-raised">
-          {desktop && <OnboardingScene plan={plan} stage={stage} logo={values.logo ?? ""} className="absolute inset-0" />}
+          {desktop && <OnboardingScene plan={plan} stage={stage} logo={values.logo ?? ""} className="absolute inset-0" inset={desktopSceneInset} />}
           <div className="pointer-events-none absolute inset-x-6 top-6 flex items-center justify-between gap-3">
             <span className="rounded-full bg-white/80 px-4 py-2 text-[0.8rem] font-semibold text-ink shadow-card backdrop-blur-sm">{t("wizard.tagline")}</span>
             <span className="numeric rounded-full bg-night px-3 py-1.5 text-[0.78rem] font-semibold text-white">{Math.min(index + 1, 5)}/5</span>

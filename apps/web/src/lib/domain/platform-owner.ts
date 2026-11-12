@@ -1,16 +1,20 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { count, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { account, platformAdmin, session as sessionTable, twoFactor, user } from "../db/schema";
 import type { QadrAuth } from "../auth/server";
+import { consumeRateLimits, rateRules, refundRateLimit } from "../security/rate-limit";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { writePlatformAudit } from "./platform";
 
 /**
- * Compte propriétaire de la plateforme (mission 13), créé et géré uniquement par
- * `scripts/platform-owner.ts` : jamais au démarrage, jamais par une route HTTP.
+ * Compte propriétaire de la plateforme (mission 13). Créé par `scripts/platform-owner.ts` ou, depuis le
+ * 2026-11-12, à la première connexion à partir de deux variables du serveur (`ensureSeededPlatformOwner`).
+ * Jamais à partir d'une valeur envoyée par le navigateur, jamais d'une valeur écrite dans le code.
  *
  * - Mot de passe haché par Better Auth (`ctx.password.hash`, scrypt), jamais écrit ni journalisé.
- * - Nom d'utilisateur en minuscules, unique et immuable (plugin Username, `immutableUsername`).
+ * - Nom d'utilisateur en minuscules et unique. Les routes Better Auth ne peuvent pas le modifier
+ *   (`immutableUsername`) ; seul le propriétaire connecté le change, avec son mot de passe (`changeOwnerUsername`).
  * - Un seul propriétaire actif : l'initialisation est refusée dès qu'un droit `platform_admin` actif existe.
  */
 export const OWNER_MIN_PASSWORD_LENGTH = 12;
@@ -24,7 +28,7 @@ const bootstrapSchema = z.object({
 }).strict();
 const resetSchema = z.object({ username: usernameSchema, password: passwordSchema }).strict();
 
-export async function bootstrapPlatformOwner(auth: QadrAuth, db: CommercialDatabase, raw: unknown) {
+export async function bootstrapPlatformOwner(auth: QadrAuth, db: CommercialDatabase, raw: unknown, reason = "Initialisation du propriétaire (scripts/platform-owner.ts)") {
   const input = bootstrapSchema.parse(raw);
   const [active] = await db.select({ total: count() }).from(platformAdmin).where(isNull(platformAdmin.revokedAt));
   if (Number(active?.total ?? 0) > 0) throw new CommercialError("Un propriétaire de la plateforme est déjà actif : initialisation refusée.", 409);
@@ -43,7 +47,7 @@ export async function bootstrapPlatformOwner(auth: QadrAuth, db: CommercialDatab
     await tx.insert(platformAdmin).values({ userId: created.id, grantedByUserId: null });
     await writePlatformAudit(tx as never, {
       actorUserId: null, eventType: "platform.owner_bootstrapped", entityType: "user", entityId: created.id,
-      before: { admin: false }, after: { admin: true }, reason: "Initialisation du propriétaire (scripts/platform-owner.ts)",
+      before: { admin: false }, after: { admin: true }, reason,
     });
   });
   return { userId: created.id, username: input.username };
@@ -69,6 +73,119 @@ export async function resetPlatformOwnerPassword(auth: QadrAuth, db: CommercialD
     reason: "Renouvellement du mot de passe (scripts/platform-owner.ts)", metadata: { sessionsClosed: closed.length },
   });
   return { userId: owner.id, sessionsClosed: closed.length };
+}
+
+/**
+ * Compte de départ (2026-11-12) : `QADR_OWNER_USERNAME` et `QADR_OWNER_PASSWORD`, posés dans l'hébergement,
+ * créent le propriétaire à la première tentative de connexion, quand aucun propriétaire actif n'existe.
+ *
+ * - Les valeurs ne viennent que de l'environnement du serveur, jamais de la requête ni du code (dépôt public).
+ * - Elles ne servent qu'une fois : dès qu'un propriétaire existe, elles sont ignorées. Le nom et le mot de
+ *   passe se changent ensuite dans la console (Paramètres), et ces deux variables peuvent être retirées.
+ * - Mêmes règles que `bootstrap` : mot de passe d'au moins 12 caractères, haché, aucun compte de commerce promu.
+ * - L'adresse du compte est facultative (`QADR_OWNER_EMAIL`) ; à défaut, une adresse du domaine réservé
+ *   `.invalid` (RFC 2606), qui ne peut recevoir aucun message : ce compte ne se récupère pas par e-mail.
+ */
+export type OwnerSeed = { username: string; password: string; email: string; name: string };
+const optionalText = (value: string | undefined) => value?.trim() || undefined;
+
+export function readOwnerSeed(source: Readonly<Record<string, string | undefined>> = process.env): OwnerSeed | null | "invalid" {
+  const username = optionalText(source.QADR_OWNER_USERNAME);
+  const password = source.QADR_OWNER_PASSWORD || undefined;
+  if (!username && !password) return null;
+  const parsed = bootstrapSchema.safeParse({
+    username: username ?? "", password: password ?? "",
+    email: optionalText(source.QADR_OWNER_EMAIL) ?? `${(username ?? "proprietaire").toLowerCase()}@console.qadr-ops.invalid`,
+    name: optionalText(source.QADR_OWNER_NAME) ?? "Propriétaire Qadr Ops",
+  });
+  return parsed.success ? parsed.data : "invalid";
+}
+
+export type OwnerSeedOutcome = "exists" | "absent" | "invalid" | "created" | "refused";
+/** Crée le propriétaire de départ s'il n'y en a aucun. N'échoue jamais : la connexion répond ensuite 401 ou 200. */
+export async function ensureSeededPlatformOwner(auth: QadrAuth, db: CommercialDatabase, source: Readonly<Record<string, string | undefined>> = process.env): Promise<OwnerSeedOutcome> {
+  const seed = readOwnerSeed(source);
+  if (seed === null) return "absent";
+  const [active] = await db.select({ total: count() }).from(platformAdmin).where(isNull(platformAdmin.revokedAt));
+  if (Number(active?.total ?? 0) > 0) return "exists";
+  if (seed === "invalid") {
+    console.error("[plateforme] Compte de départ non créé : QADR_OWNER_USERNAME (3 à 30 caractères a-z, 0-9, point, tiret bas) ou QADR_OWNER_PASSWORD (12 caractères au moins) est invalide.");
+    return "invalid";
+  }
+  try {
+    await bootstrapPlatformOwner(auth, db, seed, "Compte de départ (QADR_OWNER_USERNAME, première connexion)");
+    return "created";
+  } catch (error) {
+    // Nom ou adresse déjà pris, ou création simultanée : rien n'est modifié, le message ne contient aucun secret.
+    console.error(`[plateforme] Compte de départ non créé : ${error instanceof CommercialError ? error.message : "erreur inattendue"}`);
+    return "refused";
+  }
+}
+
+/** Le mot de passe saisi est-il encore celui de départ ? Comparaison à durée constante, après connexion réussie seulement. */
+export function isSeedPassword(password: string, source: Readonly<Record<string, string | undefined>> = process.env) {
+  const seed = source.QADR_OWNER_PASSWORD;
+  if (!seed) return false;
+  const digest = (value: string) => createHash("sha256").update(value).digest();
+  return timingSafeEqual(digest(password), digest(seed));
+}
+
+const ACCOUNT_REFUSED = "Mot de passe actuel incorrect.";
+const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: passwordSchema }).strict();
+const changeUsernameSchema = z.object({ currentPassword: z.string().min(1).max(128), username: usernameSchema }).strict();
+type OwnerSelf = { userId: string; sessionId: string; secret: string; now?: Date };
+
+/**
+ * Contrôle commun aux deux changements : quota réservé avant toute vérification (une session volée ne permet
+ * pas de deviner le mot de passe actuel par essais), droit actif, puis mot de passe actuel.
+ */
+async function confirmOwnerPassword(auth: QadrAuth, db: CommercialDatabase, self: OwnerSelf, currentPassword: string) {
+  const limits = await consumeRateLimits(db, [{ rule: rateRules.platformAccountChange, subject: self.userId }], self.secret, self.now ?? new Date());
+  if (!limits.allowed) throw new CommercialError("Trop de tentatives. Patientez quelques minutes avant de réessayer.", 429, "too_many_attempts");
+  const [credential] = await db.select({ id: account.id, hash: account.password }).from(account).innerJoin(platformAdmin, eq(platformAdmin.userId, account.userId))
+    .where(sql`${account.userId} = ${self.userId} and ${account.providerId} = 'credential' and ${platformAdmin.revokedAt} is null`).limit(1);
+  const context = await auth.$context;
+  if (!credential?.hash || !(await context.password.verify({ hash: credential.hash, password: currentPassword }))) {
+    await writePlatformAudit(db as never, {
+      actorUserId: self.userId, eventType: "platform.owner_account_change_refused", entityType: "user", entityId: self.userId, result: "failure",
+    });
+    throw new CommercialError(ACCOUNT_REFUSED, 400, "invalid_current_password");
+  }
+  return { credentialId: credential.id, context, release: () => refundRateLimit(db, limits.decisions) };
+}
+
+/** Changement du mot de passe par le propriétaire connecté. Les autres sessions du compte sont fermées. */
+export async function changeOwnerPassword(auth: QadrAuth, db: CommercialDatabase, self: OwnerSelf, raw: unknown) {
+  const input = changePasswordSchema.parse(raw);
+  if (input.newPassword === input.currentPassword) throw new CommercialError("Le nouveau mot de passe doit être différent de l’actuel.", 400, "same_password");
+  const confirmed = await confirmOwnerPassword(auth, db, self, input.currentPassword);
+  const hash = await confirmed.context.password.hash(input.newPassword);
+  const sessionsClosed = await db.transaction(async (tx) => {
+    await tx.update(account).set({ password: hash, updatedAt: new Date() }).where(eq(account.id, confirmed.credentialId));
+    const closed = await tx.delete(sessionTable).where(sql`${sessionTable.userId} = ${self.userId} and ${sessionTable.id} <> ${self.sessionId}`).returning({ id: sessionTable.id });
+    await writePlatformAudit(tx as never, {
+      actorUserId: self.userId, eventType: "platform.owner_password_changed", entityType: "user", entityId: self.userId,
+      metadata: { sessionsClosed: closed.length },
+    });
+    return closed.length;
+  });
+  await confirmed.release();
+  return { sessionsClosed };
+}
+
+/** Changement du nom d'utilisateur par le propriétaire connecté (le nom sert seulement à la connexion). */
+export async function changeOwnerUsername(auth: QadrAuth, db: CommercialDatabase, self: OwnerSelf, raw: unknown) {
+  const input = changeUsernameSchema.parse(raw);
+  const confirmed = await confirmOwnerPassword(auth, db, self, input.currentPassword);
+  const [taken] = await db.select({ id: user.id }).from(user).where(sql`${user.username} = ${input.username} and ${user.id} <> ${self.userId}`).limit(1);
+  if (taken) throw new CommercialError("Ce nom d’utilisateur est déjà pris.", 409, "username_taken");
+  await db.transaction(async (tx) => {
+    await tx.update(user).set({ username: input.username, displayUsername: input.username, updatedAt: new Date() }).where(eq(user.id, self.userId));
+    // Le nom n'est pas écrit dans le journal : seulement le fait du changement.
+    await writePlatformAudit(tx as never, { actorUserId: self.userId, eventType: "platform.owner_username_changed", entityType: "user", entityId: self.userId });
+  });
+  await confirmed.release();
+  return { username: input.username };
 }
 
 type OwnerRow = { id: string; twoFactorEnabled: boolean };
@@ -135,8 +252,8 @@ export async function beginOwnerTwoFactorEnrollment(auth: QadrAuth, db: Commerci
 
 /**
  * Récupération (téléphone perdu, codes de secours épuisés) par un opérateur ayant accès à la base :
- * le second facteur est retiré, toutes les sessions fermées, puis il faut relancer enroll-2fa. La console
- * reste fermée entre-temps (403 platform_2fa_setup_required).
+ * le second facteur est retiré et toutes les sessions fermées. La console s'ouvre alors avec le seul mot de
+ * passe (second facteur facultatif depuis le 2026-11-12) ; relancer enroll-2fa pour le rétablir.
  */
 export async function resetOwnerTwoFactor(db: CommercialDatabase, raw: { username: unknown }) {
   const owner = await activeOwnerByUsername(db, raw.username);

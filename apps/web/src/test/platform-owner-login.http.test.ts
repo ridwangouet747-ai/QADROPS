@@ -14,8 +14,8 @@ vi.mock("@/lib/db/client", () => import("@/test/harness-database"));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
 /*
- * Missions 13 et 14 : accès privé du propriétaire à la console Super Admin, mot de passe PUIS second facteur
- * (TOTP ou code de secours). Vraie instance Better Auth (plugins Username et twoFactor), vraies routes, base
+ * Missions 13 et 14 : accès privé du propriétaire à la console Super Admin. Sans second facteur, le mot de
+ * passe suffit (2026-11-12) ; une fois le facteur activé, mot de passe PUIS code (TOTP ou code de secours). Vraie instance Better Auth (plugins Username et twoFactor), vraies routes, base
  * migrée (PGlite, ou Neon de staging avec QADR_TEST_POSTGRES_URL). Identifiants de test évidents.
  */
 const OWNER = { username: "qadr.owner", email: "owner@qadr.test", name: "Propriétaire Qadr", password: "mot-de-passe-proprio-test-2026" };
@@ -68,14 +68,31 @@ describe("connexion du propriétaire de la plateforme (mot de passe + second fac
     await expect(bootstrapPlatformOwner(await getAuth(), h.db, { ...OWNER, password: "court" })).rejects.toThrow();
   });
 
-  it("sans second facteur configuré : console fermée même avec le bon mot de passe, aucune session laissée", async () => {
+  it("sans second facteur : le mot de passe ouvre la console, session plateforme et trace d'audit", async () => {
     const result = await signIn({ username: OWNER.username, password: OWNER.password }, "10.0.0.5");
-    expect(result.status).toBe(403);
-    expect(result.body.code).toBe("platform_2fa_setup_required");
-    expect(result.headers.getSetCookie().some((value) => /session_token=[^;]/.test(value))).toBe(false);
-    expect(await ownerSessions()).toBe(0);
-    // Un mauvais mot de passe ne révèle pas cet état : refus générique.
-    expect((await signIn({ username: OWNER.username, password: "pas-le-bon-mot-de-passe" }, "10.0.0.6")).status).toBe(401);
+    expect(result.status, result.text).toBe(200);
+    // Aucune variable de compte de départ ici : ce mot de passe n'est pas signalé comme « de départ ».
+    expect(result.body).toEqual({ ok: true, step: "done", defaultPassword: false });
+    expect(result.text).not.toContain(OWNER.password);
+    const cookie = cookieOf(result.headers);
+    expect(cookie).toContain("better-auth.session_token=");
+    expect((await overview(cookie)).status).toBe(200);
+    expect(await h.count("select count(*) as n from platform_session where user_id = $1", [ownerUserId])).toBe(1);
+    const [audit] = (await h.client.query<{ metadata: Record<string, unknown> }>("select metadata from audit_event where event_type = 'platform.login_succeeded' and actor_user_id = $1", [ownerUserId])).rows;
+    expect(audit!.metadata.factor).toBe("password");
+    expect(JSON.stringify(audit!.metadata)).not.toMatch(/qadr\.owner|10\.0\.0\.5|mot-de-passe/);
+    // Mauvais mot de passe : refus générique, aucune session de plus.
+    const wrong = await signIn({ username: OWNER.username, password: "pas-le-bon-mot-de-passe" }, "10.0.0.6");
+    expect(wrong.status).toBe(401);
+    expect(wrong.headers.getSetCookie()).toEqual([]);
+    expect(await ownerSessions()).toBe(1);
+    // Une session ordinaire du même compte (connexion par e-mail) n'ouvre pas la console.
+    const ordinary = await post("/sign-in/email", { email: OWNER.email, password: OWNER.password });
+    expect(ordinary.status).toBe(200);
+    const ordinaryCookie = cookieOf(ordinary.headers);
+    const refused = await overview(ordinaryCookie);
+    expect(refused.status).toBe(401);
+    expect(refused.body.code).toBe("platform_reauth_required");
   });
 
   it("activation : un code faux n'active rien ; un premier code valide rend le facteur obligatoire", async () => {
@@ -124,7 +141,7 @@ describe("connexion du propriétaire de la plateforme (mot de passe + second fac
     expect((await overview(cookie)).status).toBe(200);
     // Le défi est consommé : il ne rouvre pas une seconde session.
     expect((await verify({ code: totpCode(secret) }, "10.0.0.1", challenge)).status).toBe(401);
-    const [audit] = (await h.client.query<{ metadata: Record<string, unknown> }>("select metadata from audit_event where event_type = 'platform.login_succeeded' and actor_user_id = $1", [ownerUserId])).rows;
+    const [audit] = (await h.client.query<{ metadata: Record<string, unknown> }>("select metadata from audit_event where event_type = 'platform.login_succeeded' and actor_user_id = $1 and metadata->>'factor' = 'totp'", [ownerUserId])).rows;
     expect(audit!.metadata.factor).toBe("totp");
     expect(JSON.stringify(audit!.metadata)).not.toMatch(/qadr\.owner|10\.0\.0\.1|mot-de-passe/);
   });
@@ -249,12 +266,14 @@ describe("connexion du propriétaire de la plateforme (mot de passe + second fac
     await expect(resetPlatformOwnerPassword(await getAuth(), h.db, { username: "awa", password: NEW_PASSWORD })).rejects.toMatchObject({ status: 404 });
   });
 
-  it("récupération : retrait du facteur par l'opérateur, sessions fermées, console fermée jusqu'à la réactivation", async () => {
+  it("récupération : retrait du facteur par l'opérateur, sessions fermées, le mot de passe seul rouvre la console", async () => {
     const cookie = await login("10.0.7.1");
     const result = await resetOwnerTwoFactor(h.db, { username: OWNER.username });
     expect(result.sessionsClosed).toBeGreaterThanOrEqual(1);
     expect((await overview(cookie)).status).toBe(401);
-    expect((await signIn({ username: OWNER.username, password }, "10.0.7.2")).status).toBe(403);
+    const withoutFactor = await signIn({ username: OWNER.username, password }, "10.0.7.2");
+    expect(withoutFactor.body).toEqual({ ok: true, step: "done", defaultPassword: false });
+    expect((await overview(cookieOf(withoutFactor.headers))).status).toBe(200);
     expect(await h.count("select count(*) as n from audit_event where event_type = 'platform.owner_2fa_reset'")).toBe(1);
     const enrollment = await beginOwnerTwoFactorEnrollment(await getAuth(), h.db, { username: OWNER.username, password });
     secret = totpSecretFromUri(enrollment.totpURI);

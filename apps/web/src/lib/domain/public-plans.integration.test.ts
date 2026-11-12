@@ -4,7 +4,10 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { databaseSchema } from "../db/schema";
+import { formatXof } from "../i18n/format";
+import { createTranslator } from "../i18n/translate";
 import { readPublicPlans } from "./public-plans";
+import { listPayablePlans } from "./subscription-billing";
 
 /* Formules de la page publique : seules les formules actives sont lues, triées par prix puis par code, avec un
    prix entier sérialisé sans passer par un nombre flottant et des limites illisibles ramenées à « sans limite ». */
@@ -41,5 +44,40 @@ describe("formules affichées sur la page publique (PGlite isolé)", () => {
     // Limites non entières, nulles ou textuelles : affichées « sans limite », jamais devinées.
     expect(plans[1]).toMatchObject({ code: "BASIC-A", productLimit: null, userLimit: null });
     expect(plans[3]).toMatchObject({ code: "TEAM", description: "Pour plusieurs caisses", productLimit: null, userLimit: null });
+  });
+});
+
+/* Offre officielle (décision D-04 du 2026-11-10) : Standard, 5 000 FCFA pour 30 jours. Le montant n'est écrit
+   nulle part dans l'application ; ce test vérifie qu'une formule portant ces valeurs est lue à l'identique par
+   la page publique et par la facturation, et affichée « 5 000 F CFA pour 30 jours ». */
+describe("offre Standard : le prix affiché est le prix facturé (PGlite isolé)", () => {
+  const client = new PGlite();
+  const db = drizzle(client, { schema: databaseSchema });
+
+  beforeAll(async () => {
+    await migrate(db, { migrationsFolder: resolve(process.cwd(), "drizzle") });
+    await client.query(`insert into subscription_plan (id, code, name, price_xof, duration_days, active, features)
+      values ('plan-standard', 'STANDARD', 'Standard', 5000, 30, true, '{"productLimit": null, "userLimit": null}')`);
+  });
+  afterAll(async () => { await client.close(); });
+
+  it("donne le même montant et la même durée à la page publique et à la facturation", async () => {
+    const [shown] = await readPublicPlans(db);
+    const [billed] = await listPayablePlans(db);
+
+    expect(shown).toMatchObject({ code: "STANDARD", name: "Standard", priceXof: "5000", durationDays: 30 });
+    expect(billed).toMatchObject({ code: "STANDARD", priceXof: "5000", durationDays: 30 });
+    expect(billed!.priceXof).toBe(shown!.priceXof);
+    expect(billed!.durationDays).toBe(shown!.durationDays);
+  });
+
+  it("s'affiche « 5 000 F CFA pour 30 jours » en français", async () => {
+    const [shown] = await readPublicPlans(db);
+    const t = createTranslator("fr");
+    // Espaces insécables et marques d'isolation retirés : seule la lecture compte ici.
+    const readable = (text: string) => text.replace(/\p{Cf}/gu, "").replace(/\s/g, " ");
+
+    expect(readable(formatXof(shown!.priceXof, "fr"))).toBe("5 000 F CFA");
+    expect(t("landing.pricing.period", { days: String(shown!.durationDays) })).toBe("pour 30 jours");
   });
 });

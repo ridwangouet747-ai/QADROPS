@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { Icon, type IconName } from "@/components/ui/icon";
@@ -17,9 +18,8 @@ export function AuthShell({ title, intro, children, footer, wide = false }: { ti
     <div className="min-h-dvh bg-canvas lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <aside className="relative hidden overflow-hidden bg-night-gradient p-10 text-white lg:flex lg:flex-col">
         <div aria-hidden="true" className="absolute -end-24 -top-24 size-80 rounded-full bg-brand/30 blur-3xl" />
-        <Link href="/" dir="ltr" className="relative flex items-center gap-3 text-white no-underline">
-          <span className="grid size-11 place-items-center rounded-[14px] bg-brand-gradient text-xl font-extrabold shadow-brand">Q</span>
-          <strong className="text-xl font-extrabold tracking-[-0.02em]">QADR OPS</strong>
+        <Link href="/" className="relative flex w-fit items-center text-white no-underline">
+          <BrandLogo markClassName="h-12 w-auto shrink-0" nameClassName="text-xl font-extrabold tracking-[-0.02em] whitespace-nowrap" />
         </Link>
         <div className="relative mt-auto max-w-md">
           <p className="m-0 text-[2.1rem] leading-tight font-bold tracking-[-0.03em]">{t("auth.tagline")}</p>
@@ -35,9 +35,8 @@ export function AuthShell({ title, intro, children, footer, wide = false }: { ti
       </aside>
       <main className="flex min-h-dvh flex-col px-4 py-5 sm:px-8 lg:min-h-0 lg:px-12">
         <div className="flex items-center justify-between gap-3">
-          <Link href="/" dir="ltr" aria-label="QADR OPS" className="flex items-center gap-2.5 text-ink no-underline lg:invisible">
-            <span className="grid size-10 place-items-center rounded-[13px] bg-brand-gradient text-lg font-extrabold text-white shadow-brand">Q</span>
-            <strong className="text-[1.05rem] font-extrabold tracking-[-0.02em]">QADR OPS</strong>
+          <Link href="/" aria-label="Qadr Ops" className="flex items-center text-ink no-underline lg:invisible">
+            <BrandLogo priority />
           </Link>
           <LanguageSwitcher />
         </div>

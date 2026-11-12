@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOutAndResetAnalytics } from "@/lib/auth/logout";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -59,13 +60,10 @@ export const useBusinessRole = () => useContext(BusinessRoleContext);
 function Brand() {
   const { t } = useI18n();
   return (
-    <Link href="/business/dashboard" aria-label={t("shell.homeLink")} dir="ltr" className="flex shrink-0 items-center gap-2.5 text-ink no-underline">
-      <span aria-hidden="true" className="grid size-10 place-items-center rounded-[13px] bg-brand-gradient text-lg font-extrabold text-white shadow-brand">Q</span>
+    <Link href="/business/dashboard" aria-label={t("shell.homeLink")} className="flex shrink-0 items-center text-ink no-underline">
       {/* Entre lg et xl, la barre des modules occupe la place du nom (sinon débordement, surtout en arabe). */}
-      <span className="hidden leading-none min-[400px]:grid lg:hidden xl:grid">
-        <strong className="text-[1.05rem] font-extrabold tracking-[-0.02em]">QADR OPS</strong>
-        <small className="mt-1 hidden text-[0.68rem] font-medium text-fg-subtle 2xl:block">{t("shell.tagline")}</small>
-      </span>
+      <BrandLogo priority labelClassName="hidden leading-none min-[400px]:grid lg:hidden xl:grid"
+        tagline={<small className="mt-1 hidden text-[0.68rem] font-medium text-fg-subtle 2xl:block">{t("shell.tagline")}</small>} />
     </Link>
   );
 }

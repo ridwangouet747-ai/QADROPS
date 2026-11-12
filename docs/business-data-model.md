@@ -8,6 +8,10 @@ Les clés étrangères composées `(business_id, id)` empêchent la plupart des 
 
 Rôles statiques fournis : `owner`, `admin`, `member`, `cashier`, `stock_manager`, `accountant`. Les autorisations précises sont centralisées dans `apps/web/src/lib/auth/permissions.ts`. L'édition dynamique de rôles, les équipes et la suppression d'organisation sont désactivées.
 
+### Seconde barrière : RLS PostgreSQL (mission 18, migration 0025)
+
+Sur Neon, le rôle de connexion appartient à `neon_superuser`, qui contourne la RLS (BYPASSRLS). La migration 0025 crée donc un rôle `qadr_tenant` (NOLOGIN, NOBYPASSRLS) et, sur chaque table qui porte `business_id`, la politique `qadr_tenant_isolation` (`business_id = qadr_current_business_id()` en lecture et en écriture). Le code y entre par `withTenantScope(db, businessId, work)` ou `enterTenantScope(tx, businessId)` (`apps/web/src/lib/db/tenant-scope.ts`) : `SET LOCAL ROLE` + `set_config('qadr.business_id', …, true)`, limités à la transaction, donc sûrs avec un pool. Sans `FORCE`, le rôle propriétaire (migrations, crons, webhooks, console) n'est pas concerné. Seul l'export complet est branché pour l'instant ; les tables de facturation et de promotion sont en lecture seule pour `qadr_tenant`, les tables globales lui sont fermées. **Toute nouvelle table qui porte `business_id` doit recevoir la politique et les droits** (sinon `tenant-rls.http.test.ts` échoue). Migration appliquée nulle part à distance : voir `docs/security/production-security-audit.md` § 4.
+
 ## Tables et liens
 
 | Domaine | Tables | Principales relations |

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/components/ui/cn";
@@ -13,11 +14,11 @@ type Step = "password" | "code";
 type Factor = "totp" | "backup";
 
 /**
- * Connexion du propriétaire de la plateforme, en deux étapes (missions 13 et 14) :
- * 1. nom d'utilisateur et mot de passe → `POST /api/platform/auth/sign-in`, qui ne pose qu'un cookie de défi
- *    (5 minutes), jamais une session ;
- * 2. code de l'application d'authentification ou code de secours → `POST /api/platform/auth/verify`, seule
- *    route qui ouvre la session plateforme.
+ * Connexion du propriétaire de la plateforme (missions 13 et 14, second facteur facultatif depuis le 2026-11-12) :
+ * 1. nom d'utilisateur et mot de passe → `POST /api/platform/auth/sign-in`. Sans second facteur, la console
+ *    s'ouvre aussitôt (`step: "done"`) ; si le mot de passe est encore celui de départ, on arrive sur Paramètres ;
+ * 2. seulement si le second facteur est activé (`step: "two_factor"`, cookie de défi de 5 minutes) : code de
+ *    l'application d'authentification ou code de secours → `POST /api/platform/auth/verify`.
  * Aucun secret côté navigateur ; erreurs génériques (aucune indication sur l'existence du compte).
  */
 export function PlatformLoginForm() {
@@ -46,9 +47,17 @@ export function PlatformLoginForm() {
     setBusy(true); setError("");
     try {
       const response = await post("/api/platform/auth/sign-in", { username: username.trim(), password });
-      if (response.ok) { setStep("code"); setCode(""); }
+      if (response.ok) {
+        const result = await response.json().catch(() => ({})) as { step?: string; defaultPassword?: boolean };
+        if (result.step === "done") {
+          setPassword("");
+          router.replace(result.defaultPassword ? "/platform/settings?password=default" : next);
+          router.refresh();
+          return;
+        }
+        setStep("code"); setCode("");
+      }
       else if (response.status === 429) setError(t("platform.login.throttled"));
-      else if (response.status === 403) setError(t("platform.login.setupRequired"));
       else setError(t("platform.login.failed"));
     } catch {
       setError(t("platform.login.network"));
@@ -73,10 +82,7 @@ export function PlatformLoginForm() {
   return (
     <main className="grid min-h-dvh place-items-center bg-pf-backdrop px-4 py-8 font-sans text-pf-fg">
       <div className="w-full max-w-[420px] rounded-[28px] border border-white bg-pf-canvas p-6 shadow-pf-frame sm:p-8">
-        <div className="flex items-center gap-2.5" dir="ltr">
-          <span className="grid size-10 place-items-center rounded-full bg-pf-ink text-lg font-bold text-white">Q</span>
-          <span className="leading-tight"><strong className="block text-[0.95rem] tracking-[-0.02em] text-pf-ink">QADR OPS</strong><span className="text-[0.72rem] text-pf-muted">{t("platform.brand")}</span></span>
-        </div>
+        <BrandLogo tone="mono" labelClassName="leading-tight" nameClassName="block text-[0.95rem] tracking-[-0.02em] text-pf-ink" tagline={<span className="text-[0.72rem] text-pf-muted">{t("platform.brand")}</span>} />
         {step === "password" ? (
           <>
             <h1 className="mt-6 mb-1 text-[1.6rem] leading-tight font-bold tracking-[-0.03em] text-pf-ink">{t("platform.login.title")}</h1>

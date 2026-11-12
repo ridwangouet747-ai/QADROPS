@@ -270,7 +270,7 @@ export async function startSubscriptionCheckout(db: CommercialDatabase, billing:
     // Paiement déjà ouvert pour cette facture : on le relit d'abord (il a peut-être abouti) et on renvoie le même
     // lien plutôt que d'ouvrir un second paiement que le commerçant pourrait régler deux fois.
     const outcome = await verifyAttempt(db, provider, prepared.attempt, now);
-    const [fresh] = await db.select().from(subscriptionPayment).where(eq(subscriptionPayment.id, prepared.attempt.id)).limit(1);
+    const [fresh] = await db.select().from(subscriptionPayment).where(and(eq(subscriptionPayment.businessId, input.businessId), eq(subscriptionPayment.id, prepared.attempt.id))).limit(1);
     if (fresh?.status === "confirmed") return attemptView(db, fresh, { reused: true });
     if (fresh?.status === "pending" && isReusable(fresh, now) && (outcome === "unchanged" || outcome === "provider_error")) return attemptView(db, fresh, { reused: true });
     prepared = await prepare(false);

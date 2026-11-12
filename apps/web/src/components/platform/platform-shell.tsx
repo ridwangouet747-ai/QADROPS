@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BrandLogo } from "@/components/brand/brand-logo";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { cn } from "@/components/ui/cn";
 import { Icon, type IconName } from "@/components/ui/icon";
@@ -88,9 +89,8 @@ export function PlatformShell({ active, preview, children }: { active: PlatformS
       <a href="#platform-main" className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-pf-ink focus:px-4 focus:py-2 focus:text-white">{t("platform.common.skip")}</a>
       <div className="mx-auto flex min-h-dvh max-w-[1560px] gap-5 border-white/70 bg-pf-canvas lg:min-h-[calc(100dvh-40px)] lg:rounded-[36px] lg:border lg:p-4 lg:shadow-pf-frame">
         <aside className="sticky top-4 hidden h-[calc(100dvh-72px)] w-[232px] shrink-0 flex-col rounded-[28px] border border-white bg-pf-glass p-3 shadow-pf-card backdrop-blur-md lg:flex">
-          <Link href="/platform" dir="ltr" className={cn("mb-6 flex items-center gap-2.5 rounded-full px-2 pt-2 text-pf-ink no-underline", pfFocus)}>
-            <span className="grid size-10 place-items-center rounded-full bg-pf-ink text-lg font-bold text-white">Q</span>
-            <span className="leading-tight"><strong className="block text-[0.95rem] tracking-[-0.02em]">QADR OPS</strong><span className="text-[0.72rem] text-pf-muted">{t("platform.brand")}</span></span>
+          <Link href="/platform" className={cn("mb-6 flex items-center rounded-full px-2 pt-2 text-pf-ink no-underline", pfFocus)}>
+            <BrandLogo tone="mono" labelClassName="leading-tight" nameClassName="block text-[0.95rem] tracking-[-0.02em]" tagline={<span className="text-[0.72rem] text-pf-muted">{t("platform.brand")}</span>} />
           </Link>
           <nav aria-label={t("platform.nav.label")}><NavList active={active} /></nav>
           <div className="mt-auto rounded-[24px] bg-pf-card p-4 text-center shadow-pf-card">
@@ -107,9 +107,8 @@ export function PlatformShell({ active, preview, children }: { active: PlatformS
           <NetworkStatus />
           {preview ? null : <PushDeviceSync />}
           <header className="flex items-center justify-between gap-3 px-4 pt-4 lg:px-2 lg:pt-1">
-            <Link href="/platform" dir="ltr" className={cn("flex items-center gap-2 text-pf-ink no-underline lg:hidden", pfFocus)}>
-              <span className="grid size-10 place-items-center rounded-full bg-pf-ink text-lg font-bold text-white">Q</span>
-              <strong className="text-[0.95rem] tracking-[-0.02em]">QADR OPS</strong>
+            <Link href="/platform" className={cn("flex items-center text-pf-ink no-underline lg:hidden", pfFocus)}>
+              <BrandLogo tone="mono" variant="compact" nameClassName="text-[0.95rem] tracking-[-0.02em]" />
             </Link>
             <span className="hidden items-center gap-2 rounded-full border border-white bg-pf-card px-4 py-2 text-[0.78rem] font-semibold text-pf-muted shadow-pf-card lg:inline-flex">
               <Icon name="shield" className="size-4 text-pf-ink" />{t("platform.console")}

@@ -340,7 +340,7 @@ export function PfStackBar({ items, label }: { items: { key: string; label: stri
 /* ------------------------------------------------------------------ Utilitaires */
 
 export class PfRequestError extends Error {
-  constructor(public status: number | null, message?: string) { super(message); }
+  constructor(public status: number | null, message?: string, public code?: string) { super(message); }
 }
 
 /** Appel JSON vers /api/platform/* ; l'erreur garde le statut pour un message adapté. */
@@ -349,8 +349,8 @@ export async function pfRequest<T>(url: string, init?: { method?: string; body?:
   try {
     response = await fetch(url, { method: init?.method ?? "GET", cache: "no-store", headers: init?.body ? { "content-type": "application/json" } : undefined, body: init?.body ? JSON.stringify(init.body) : undefined });
   } catch { throw new PfRequestError(null); }
-  const payload = await response.json().catch(() => ({})) as T & { error?: string };
-  if (!response.ok) throw new PfRequestError(response.status, (payload as { error?: string }).error);
+  const payload = await response.json().catch(() => ({})) as T & { error?: string; code?: string };
+  if (!response.ok) throw new PfRequestError(response.status, payload.error, payload.code);
   return payload;
 }
 

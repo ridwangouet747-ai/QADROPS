@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { auditEvent, member, organization, user } from "../db/schema";
 import { csvCell } from "../exports/csv";
 import { createZip } from "../exports/zip";
+import { enterTenantScope } from "@/lib/db/tenant-scope";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 
 /*
@@ -172,7 +173,13 @@ async function readSnapshot(db: CommercialDatabase, businessId: string, limits: 
   const files: { name: string; content: string }[] = [];
   const tables: { table: string; rows: number; redactedColumns: string[]; sha256: { json: string; csv: string } }[] = [];
   let rawBytes = 0;
-  for (const shape of await exportableTables(db)) {
+  // Liste des tables lue avec le rôle de l'application, PUIS lecture des lignes sous le rôle qadr_tenant (RLS,
+  // migration 0025) : PostgreSQL lui-même ne rend que les lignes de ce commerce, même si une requête de cette
+  // boucle perdait son filtre business_id. Une table à business_id sans droit pour qadr_tenant fait échouer
+  // l'export (permission refusée) au lieu d'être lue sans protection.
+  const shapes = await exportableTables(db);
+  await enterTenantScope(db, businessId);
+  for (const shape of shapes) {
     const expected = await tableCount(db, shape.table, businessId);
     if (expected > limits.rowsPerTable) throw new ExportRefused("rows_per_table", { table: shape.table, rows: expected });
     const json: string[] = [];

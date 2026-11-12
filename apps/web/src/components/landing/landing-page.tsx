@@ -10,11 +10,17 @@ import { DaySection } from "./day-section";
 import { displayFont } from "./fonts";
 import { LandingHeader } from "./landing-header";
 import { LandingMotion } from "./landing-motion";
-import { BrandMark, Mascot } from "./mascot";
+import { BrandLogo, BrandMascot } from "@/components/brand/brand-logo";
+import { VideoEmbed } from "@/components/video/video-embed";
+import { readDemoVideo } from "@/lib/landing/demo-video";
+import { providerName } from "@/lib/video/source";
 import { PricingSection } from "./pricing-section";
 import type { ReceiptData } from "./receipt";
 import { ReceiptStage } from "./receipt-stage";
 import "./landing.css";
+
+/* Nom de la marque dans la page publique : police des titres (Rubik), casse de titre. */
+const landingName = "font-display text-[1.2rem] font-bold tracking-[-0.02em] whitespace-nowrap";
 
 /*
  * Page publique officielle (2026-11-10). Direction artistique : docs/design/direction-artistique.md ;
@@ -85,7 +91,7 @@ function Hero({ t, locale }: { t: Translate; locale: Locale }) {
             <ReceiptStage data={receiptData(t, locale)} label={t("landing.hero.receiptLabel")} />
           </div>
           <div data-hero-device style={delay(450)} className="absolute start-[-4%] bottom-[-3%] w-[40%] sm:start-[-2%]">
-            <Mascot className="w-full drop-shadow-[0_22px_24px_rgb(0_0_0/0.35)]" />
+            <BrandMascot priority className="h-auto w-full drop-shadow-[0_22px_24px_rgb(0_0_0/0.35)]" />
           </div>
           <p aria-hidden="true" data-bubble style={delay(950)} className="hero-bubble end-[0%] top-[4%]">{t("landing.hero.bubbles.stock")}</p>
           <p aria-hidden="true" data-bubble style={delay(1150)} className="hero-bubble start-[-2%] top-[30%] hidden sm:block">{t("landing.hero.bubbles.credit")}</p>
@@ -113,6 +119,34 @@ function Benefits({ t }: { t: Translate }) {
             </li>
           ))}
         </ul>
+      </div>
+    </section>
+  );
+}
+
+/*
+ * Démonstration vidéo. L'adresse vient de QADR_DEMO_VIDEO_URL ; sans elle, la section n'existe pas en production
+ * (aucune vidéo fictive) et montre un emplacement vide marqué comme tel hors production. Le lecteur n'est chargé
+ * qu'au clic : la section ne coûte qu'une image de couverture, elle-même différée.
+ */
+function Demo({ t, locale }: { t: Translate; locale: Locale }) {
+  const demo = readDemoVideo();
+  if (demo.status === "hidden") return null;
+  const source = demo.status === "ready" ? demo.source : null;
+  const provider = source && source.kind !== "file" ? providerName[source.kind] : null;
+  return (
+    <section id="demo" aria-labelledby="demo-title" className="scroll-mt-20 bg-canvas py-20 sm:py-28">
+      <div className={cn(container, "grid gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)] lg:items-center")}>
+        <div className="min-w-0">
+          <h2 id="demo-title" className="landing-h2">{t("landing.video.title")}</h2>
+          <p className="m-0 mt-4 max-w-md text-[1.05rem] leading-relaxed text-fg-muted">{t("landing.video.intro")}</p>
+          {!source && <p className="m-0 mt-5 flex max-w-md items-start gap-2 rounded-2xl border border-warn-line bg-warn-soft p-3 text-[0.86rem] leading-relaxed text-warn"><Icon name="info" className="mt-0.5 size-4 shrink-0" />{t("landing.video.placeholderNote")}</p>}
+        </div>
+        <VideoEmbed source={source} title={t("landing.video.videoTitle")} poster={`/landing/dashboard-desktop-${locale}.png`} className="min-w-0"
+          labels={{
+            play: t("landing.video.play"), placeholder: t("landing.video.placeholder"), error: t("landing.video.error"), retry: t("landing.video.retry"),
+            openExternal: t("landing.video.openExternal"), privacy: provider ? t("landing.video.privacy", { provider }) : undefined,
+          }} />
       </div>
     </section>
   );
@@ -240,7 +274,7 @@ function Faq({ t }: { t: Translate }) {
       <div className={cn(container, "grid gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-16")}>
         <div className="lg:sticky lg:top-28 lg:self-start">
           <h2 id="faq-title" className="landing-h2">{t("landing.faq.title")}</h2>
-          <Mascot className="mt-10 hidden w-36 lg:block" />
+          <BrandMascot className="mt-10 hidden h-auto w-36 lg:block" />
         </div>
         <div className="min-w-0 divide-y divide-line border-y border-line">
           {items.map((key) => (
@@ -273,11 +307,11 @@ function Closing({ t }: { t: Translate }) {
             <Link href="/login" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/35 px-7 font-semibold text-white no-underline transition-colors hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.cta.secondary")}</Link>
           </div>
         </div>
-        <Mascot className="mx-auto w-44 md:w-60" />
+        <BrandMascot className="mx-auto h-auto w-44 md:w-60" />
       </section>
       <div className={cn(container, "grid gap-10 border-t border-white/15 py-12 text-[0.95rem] sm:grid-cols-3 md:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]")}>
         <div className="min-w-0 sm:col-span-3 md:col-span-1">
-          <BrandMark />
+          <BrandLogo casing="title" variant="compact" markClassName="h-9 w-auto shrink-0" nameClassName={landingName} />
           <p className="m-0 mt-3 max-w-xs leading-relaxed text-night-fg">{t("landing.footer.tagline")}</p>
         </div>
         <nav aria-labelledby="footer-product"><h2 id="footer-product" className="m-0 text-[0.95rem] font-semibold text-white">{t("landing.footer.product")}</h2>
@@ -306,6 +340,7 @@ export function LandingPage({ t, locale }: { t: Translate; locale: Locale }) {
       <main id="contenu" tabIndex={-1} className="outline-none">
         <Hero t={t} locale={locale} />
         <Benefits t={t} />
+        <Demo t={t} locale={locale} />
         <Sectors t={t} />
         <DaySection t={t} locale={locale} container={container} />
         <Features t={t} locale={locale} />

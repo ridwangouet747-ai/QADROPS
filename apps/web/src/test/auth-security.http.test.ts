@@ -84,6 +84,22 @@ describe("mission 16 : sécurité des comptes et des routes", () => {
     });
   });
 
+  describe("connexion : un refus ne dit pas si l'adresse existe", () => {
+    it("adresse inconnue et mauvais mot de passe d'une adresse inscrite : même statut, même corps, aucun cookie", async () => {
+      await h.signUp("Aminata Connexion", "aminata.connexion@boutique.test");
+      const unknown = await authPost("/sign-in/email", { email: "personne.inconnue@boutique.test", password: PASSWORD });
+      const wrong = await authPost("/sign-in/email", { email: "aminata.connexion@boutique.test", password: "pas-le-bon-mot-de-passe" });
+      expect(unknown.status).toBe(401);
+      expect(wrong.status).toBe(401);
+      const body = await unknown.json();
+      expect(await wrong.json()).toEqual(body);
+      expect(body).toEqual({ code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
+      for (const response of [unknown, wrong]) {
+        expect(response.headers.getSetCookie().some((value) => /session_token=[^;]/.test(value))).toBe(false);
+      }
+    });
+  });
+
   describe("mot de passe oublié, de bout en bout", () => {
     const outbox: EmailMessage[] = [];
     const background: Promise<unknown>[] = [];
@@ -194,6 +210,22 @@ describe("mission 16 : sécurité des comptes et des routes", () => {
       expect(await response.json()).toEqual({ status: true, message: "If this email exists in our system, check your email for the reset link" });
       await Promise.all(background);
       expect(outbox.length).toBe(before);
+    });
+
+    it("propriétaire de la plateforme sans second facteur : même réponse, aucun e-mail ; droit retiré : e-mail envoyé", async () => {
+      const owner = await h.signUp("Propriétaire Simple", "proprietaire.simple@qadr.test");
+      await h.client.query("insert into platform_admin (user_id) values ($1)", [owner.userId]);
+      const before = outbox.length;
+      const response = await request("proprietaire.simple@qadr.test");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: true, message: "If this email exists in our system, check your email for the reset link" });
+      await Promise.all(background);
+      expect(outbox.length).toBe(before);
+      // Une fois le droit retiré, c'est un compte ordinaire : le lien part de nouveau.
+      await h.client.query("update platform_admin set revoked_at = $2 where user_id = $1", [owner.userId, new Date()]);
+      expect((await request("proprietaire.simple@qadr.test")).status).toBe(200);
+      await Promise.all(background);
+      expect(outbox.length).toBe(before + 1);
     });
   });
 

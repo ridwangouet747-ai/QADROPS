@@ -680,7 +680,7 @@ export async function listPlatformAudit(db: PlatformDb, actorUserId: string, raw
 /** Administrateurs de la plateforme (lecture seule ici : l'attribution passe par scripts/platform-admin.ts). */
 export async function getPlatformSettings(db: PlatformDb, actorUserId: string) {
   await requirePlatformAdmin(db, actorUserId);
-  const admins = await db.select({ userId: platformAdmin.userId, name: user.name, email: user.email, grantedAt: platformAdmin.createdAt, revokedAt: platformAdmin.revokedAt, grantedByUserId: platformAdmin.grantedByUserId })
+  const admins = await db.select({ userId: platformAdmin.userId, name: user.name, email: user.email, username: user.username, grantedAt: platformAdmin.createdAt, revokedAt: platformAdmin.revokedAt, grantedByUserId: platformAdmin.grantedByUserId })
     .from(platformAdmin).innerJoin(user, eq(user.id, platformAdmin.userId)).orderBy(asc(platformAdmin.createdAt));
   const self = admins.find((admin) => admin.userId === actorUserId) ?? null;
   return { self, admins };

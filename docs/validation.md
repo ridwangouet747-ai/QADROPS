@@ -408,3 +408,17 @@ sans session, 200 pour le Super Admin sur les lectures. TI et RS testent en plus
 - **Concurrence.** Les rejeux d'idempotence du harnais sont séquentiels. Deux envois simultanés
   de la même clé ne sont couverts que pour une dépense, au niveau du service
   (`operation-integrity.integration.test.ts`), et sur PGlite, qui sérialise les connexions.
+
+## 7. Mission 18 : RLS et cookies (2026-11-12)
+
+| Fichier | Tests | Objet |
+| --- | --- | --- |
+| `src/test/tenant-rls.http.test.ts` | 8 | Refus **par PostgreSQL** sous le rôle `qadr_tenant` : catalogue des politiques, lectures et écritures croisées, absence de contexte, tables globales, contexte limité à la transaction |
+| `src/test/session-cookies.http.test.ts` | 3 | Cookie de session (dev et production `__Secure-`), durée de 7 jours, révocation à la déconnexion |
+
+Écrire un test qui doit prouver un refus de PostgreSQL : Drizzle enveloppe l'erreur (« Failed query… »), le message
+de PostgreSQL est dans `error.cause.message` (voir `refusedByPostgres` dans `tenant-rls.http.test.ts`).
+
+Ces tests tournent sur PGlite. Leur exécution sur Neon staging (`QADR_TEST_POSTGRES_URL` +
+`QADR_TEST_POSTGRES_TARGET=staging`) exige d'abord d'appliquer la migration 0025 sur `qadr_staging`, ce qui n'est pas
+fait (autorisation du propriétaire requise). Statuts détaillés : `docs/security/production-security-audit.md`.

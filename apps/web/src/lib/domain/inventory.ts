@@ -154,7 +154,7 @@ export async function recordInventoryCount(db: CommercialDatabase, raw: unknown)
     if (countedMicros !== theoretical && !reason) throw new CommercialError("Indiquez le motif de chaque écart de stock.");
     if (existing) {
       await tx.update(inventoryLine).set({ countedQty: quantityString(countedMicros), countedByUserId: input.actorUserId, adjustmentReason: countedMicros === theoretical ? null : reason })
-        .where(eq(inventoryLine.id, existing.id));
+        .where(and(eq(inventoryLine.businessId, input.businessId), eq(inventoryLine.id, existing.id)));
     } else {
       await tx.insert(inventoryLine).values({ id: randomUUID(), businessId: input.businessId, sessionId: input.sessionId, variantId: input.variantId,
         countedAt: new Date(), theoreticalQty: variant.onHand, countedQty: quantityString(countedMicros), expectedStockRevision: variant.revision,
@@ -180,7 +180,7 @@ export async function submitInventory(db: CommercialDatabase, raw: unknown) {
       throw new CommercialError("Chaque écart doit avoir un motif avant validation.", 422);
     }
     const submittedAt = new Date();
-    await tx.update(inventorySession).set({ status: "submitted", submittedAt, countedAt: submittedAt }).where(eq(inventorySession.id, input.sessionId));
+    await tx.update(inventorySession).set({ status: "submitted", submittedAt, countedAt: submittedAt }).where(and(eq(inventorySession.businessId, input.businessId), eq(inventorySession.id, input.sessionId)));
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
       eventType: "inventory.submitted", entityType: "inventory_session", entityId: input.sessionId, metadata: { lineCount: lines.length } });
     return { id: input.sessionId, status: "submitted", lineCount: lines.length };
@@ -229,7 +229,7 @@ export async function validateInventory(db: CommercialDatabase, raw: unknown) {
     }
     const adjustedCount = adjustments.length;
     const validatedAt = new Date();
-    await tx.update(inventorySession).set({ status: "validated", validatedByUserId: input.actorUserId, validatedAt }).where(eq(inventorySession.id, input.sessionId));
+    await tx.update(inventorySession).set({ status: "validated", validatedByUserId: input.actorUserId, validatedAt }).where(and(eq(inventorySession.businessId, input.businessId), eq(inventorySession.id, input.sessionId)));
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
       eventType: "inventory.validated", entityType: "inventory_session", entityId: input.sessionId,
       metadata: { adjustedCount, lineCount: lines.length } });

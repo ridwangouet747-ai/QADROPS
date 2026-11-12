@@ -1,34 +1,62 @@
 /*
- * Génère les icônes PNG de l'application installable (mission 11, phase 2) à partir d'un dessin SVG :
- * la tuile « Q » de l'en-tête (dégradé de la marque). Les PNG produits sont versionnés dans public/icons ;
- * relancer ce script seulement si le dessin change : `node scripts/generate-pwa-icons.mjs`.
+ * Génère toutes les icônes de l'application (onglet du navigateur, écran d'accueil, manifest) à partir
+ * d'UNE source : `public/brand/qadr-app-icon.svg` (ou `qadr-app-icon.png`, au moins 1024 px, si le logo
+ * officiel est fourni en image). Remplacer ce fichier puis relancer `node scripts/generate-pwa-icons.mjs`
+ * depuis `apps/web` suffit à changer l'icône partout. Les PNG produits sont versionnés dans public/icons.
  * `sharp` est déjà présent comme dépendance facultative de Next.js : aucune dépendance ajoutée.
+ *
+ * Source SVG attendue : un fond plein cadre de 512 × 512 (`<rect width="512" height="512" …>`) et le dessin
+ * dans `<g id="mascotte" …>`, ce qui permet d'arrondir la tuile et de réduire le dessin dans la zone sûre
+ * des icônes « maskable ». Une source PNG est simplement redimensionnée (fond plein cadre exigé).
  */
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import sharp from "sharp";
 
-const gradient = `<linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-  <stop offset="0" stop-color="#7366f6"/><stop offset="0.48" stop-color="#5b4df2"/><stop offset="1" stop-color="#4535d8"/></linearGradient>`;
-// « Q » dessiné en traits (anneau + queue) : aucun rendu de police, donc identique sur toutes les machines.
-const glyph = (scale) => `<g transform="translate(256 256) scale(${scale}) translate(-256 -256)" fill="none" stroke="#fff" stroke-width="58" stroke-linecap="round">
-  <circle cx="246" cy="242" r="128"/><path d="M286 284 398 396"/></g>`;
-
-const tile = (scale, radius) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs>${gradient}</defs>
-  <rect width="512" height="512" rx="${radius}" fill="url(#g)"/>${glyph(scale)}</svg>`;
-
+const brandDir = resolve(process.cwd(), "public/brand");
+const svgPath = resolve(brandDir, "qadr-app-icon.svg");
+const pngPath = resolve(brandDir, "qadr-app-icon.png");
 const outDir = resolve(process.cwd(), "public/icons");
 mkdirSync(outDir, { recursive: true });
+
 const jobs = [
-  // « any » : tuile arrondie, comme dans l'en-tête.
-  { file: "icon-192.png", size: 192, svg: tile(1, 112) },
-  { file: "icon-512.png", size: 512, svg: tile(1, 112) },
+  // « any » : tuile arrondie.
+  { file: "icon-192.png", size: 192, radius: 112, scale: 1 },
+  { file: "icon-512.png", size: 512, radius: 112, scale: 1 },
+  // Onglet du navigateur.
+  { file: "favicon-32.png", size: 32, radius: 112, scale: 1.12 },
+  { file: "favicon-48.png", size: 48, radius: 112, scale: 1.12 },
   // « maskable » : fond plein bord à bord, dessin réduit dans la zone sûre (cercle de 80 %).
-  { file: "icon-maskable-512.png", size: 512, svg: tile(0.72, 0) },
+  { file: "icon-maskable-512.png", size: 512, radius: 0, scale: 0.74 },
   // Écran d'accueil iOS : fond plein (iOS arrondit lui-même), pas de transparence.
-  { file: "apple-touch-icon.png", size: 180, svg: tile(0.86, 0) },
+  { file: "apple-touch-icon.png", size: 180, radius: 0, scale: 0.9 },
 ];
+
+const roundedMask = (radius) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="${radius}"/></svg>`);
+
+async function fromSvg(job) {
+  const source = readFileSync(svgPath, "utf8");
+  const background = '<rect width="512" height="512"';
+  const drawing = '<g id="mascotte"';
+  if (!source.includes(background) || !source.includes(drawing)) throw new Error("qadr-app-icon.svg : fond 512 × 512 ou groupe « mascotte » introuvable (voir l'en-tête de ce script).");
+  const svg = source
+    .replace(background, `${background} rx="${job.radius}"`)
+    .replace(drawing, `<g transform="translate(256 256) scale(${job.scale}) translate(-256 -256)">${drawing}`)
+    .replace("</svg>", "</g></svg>");
+  return sharp(Buffer.from(svg), { density: 300 }).resize(job.size, job.size);
+}
+
+async function fromPng(job) {
+  // Image fournie : pas de réduction du dessin possible, la zone sûre doit déjà être respectée par le fichier.
+  const base = sharp(pngPath).resize(512, 512, { fit: "cover" });
+  const image = job.radius > 0 ? sharp(await base.composite([{ input: roundedMask(job.radius), blend: "dest-in" }]).png().toBuffer()) : base.flatten({ background: "#03108e" });
+  return image.resize(job.size, job.size);
+}
+
+const usePng = existsSync(pngPath);
+if (!usePng && !existsSync(svgPath)) throw new Error("Aucune source : public/brand/qadr-app-icon.svg ou qadr-app-icon.png.");
 for (const job of jobs) {
-  await sharp(Buffer.from(job.svg)).resize(job.size, job.size).png({ compressionLevel: 9 }).toFile(resolve(outDir, job.file));
-  console.log(`public/icons/${job.file} (${job.size}×${job.size})`);
+  const image = await (usePng ? fromPng(job) : fromSvg(job));
+  await image.png({ compressionLevel: 9 }).toFile(resolve(outDir, job.file));
+  console.log(`public/icons/${job.file} (${job.size}×${job.size}) depuis ${usePng ? "qadr-app-icon.png" : "qadr-app-icon.svg"}`);
 }

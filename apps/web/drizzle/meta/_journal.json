@@ -176,6 +176,13 @@
       "when": 1794177883275,
       "tag": "0024_owner_two_factor_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794483933837,
+      "tag": "0025_tenant_row_level_security",
+      "breakpoints": true
     }
   ]
 }
