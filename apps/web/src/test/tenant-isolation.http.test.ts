@@ -484,6 +484,10 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
       expectSameAsUnknown(
         await h.call(subscriptionPaymentRoute.GET, { path: `/api/business/subscription/payments/${b.subscriptionAttempt}`, actor: ownerA, params: { attemptId: b.subscriptionAttempt! } }),
         await h.call(subscriptionPaymentRoute.GET, { path: `/api/business/subscription/payments/${UNKNOWN_ID}`, actor: ownerA, params: { attemptId: UNKNOWN_ID } }));
+      // Relance (POST : relecture chez GeniusPay puis application) de la tentative de B par A : comme un identifiant inconnu.
+      expectSameAsUnknown(
+        await h.call(subscriptionPaymentRoute.POST, { method: "POST", path: `/api/business/subscription/payments/${b.subscriptionAttempt}`, actor: ownerA, params: { attemptId: b.subscriptionAttempt! } }),
+        await h.call(subscriptionPaymentRoute.POST, { method: "POST", path: `/api/business/subscription/payments/${UNKNOWN_ID}`, actor: ownerA, params: { attemptId: UNKNOWN_ID } }));
       // Le paiement de A ne vise que la facture de A, quoi que contiennent le corps et les en-têtes.
       const paid = await h.call(subscriptionCheckoutRoute.POST, { path: "/api/business/subscription/checkout", actor: ownerA, headers: { "x-business-id": businessB },
         body: { planCode: "ISOLATION", idempotencyKey: newKey("abo"), businessId: businessB, attemptId: b.subscriptionAttempt } });

@@ -138,6 +138,42 @@ Neon (§ 4).
 
 ## 4. Copie logique chiffrée hors Neon (`pg_dump`)
 
+### 4.0 Sauvegarde automatique par GitHub Actions (2026-11-12, **jamais exécutée**)
+
+`.github/workflows/neon-backup.yml` fait, chaque jour à 02:30 UTC et à la demande (onglet *Actions*,
+« Sauvegarde Neon », *Run workflow*) :
+
+1. `pg_dump` 18 au format personnalisé des schémas `public` et `drizzle` (le schéma `neon_auth` de l'intégration
+   Vercel, inutilisé, est exclu) ;
+2. contrôle d'intégrité (`pg_restore --list`, présence de données) ;
+3. restauration dans un PostgreSQL 18 jetable du runner (rôle `qadr_tenant` recréé, `--no-owner --no-privileges`) ;
+4. comparaison source / restauration : tables, nombre de lignes de chacune, empreinte md5 du catalogue (colonnes,
+   contraintes, index, politiques RLS, activation de la RLS). Tout écart fait échouer le travail ;
+5. chiffrement AES-256 (`gpg --symmetric`) puis artefact **privé** conservé 14 jours, avec son empreinte SHA-256.
+
+Le journal ne contient que des noms de tables, des comptes et des empreintes, jamais de données. Coût : compris
+dans l'allocation gratuite d'un dépôt privé (relevé le 2026-11-12 sur docs.github.com : 12 USD de calcul par mois,
+soit environ 2 000 minutes Linux ; 500 Mo de stockage d'artefacts). Une exécution dure quelques minutes ; vérifier la
+taille des archives au fil de la croissance de la base, car 14 archives quotidiennes doivent tenir dans 500 Mo.
+Vérifier dans GitHub (*Settings* → *Billing*) qu'aucun budget payant n'est ouvert pour Actions, afin qu'un
+dépassement bloque les exécutions au lieu d'être facturé (non vérifié par l'agent : pas d'accès à la facturation). **À ne jamais lancer si le dépôt redevient public** : les artefacts seraient téléchargeables par tout
+compte GitHub, même chiffrés.
+
+Secrets à créer par le propriétaire (GitHub → dépôt → *Settings* → *Secrets and variables* → *Actions*) :
+
+| Secret | Valeur |
+| --- | --- |
+| `NEON_BACKUP_DATABASE_URL` | Chaîne **directe** (sans `-pooler`) de la base `neondb` de la branche `main`, console Neon → *Connect* |
+| `BACKUP_PASSPHRASE` | Phrase de passe d'au moins 32 caractères, **conservée hors de GitHub** (gestionnaire de mots de passe) : sans elle, l'archive est illisible |
+
+Sans ces deux secrets, le travail s'arrête avec un avertissement, sans erreur. Tant qu'une exécution réelle n'a
+pas réussi, **aucune sauvegarde automatique n'existe**.
+
+Restaurer une archive : la télécharger depuis l'exécution, vérifier `sha256sum -c`, puis
+`gpg --decrypt qadr-….dump.gpg > qadr.dump` et `pg_restore --no-owner --no-privileges --dbname=<cible> qadr.dump`
+vers une **branche Neon dédiée** (§ 6), jamais directement vers `main` ; créer d'abord le rôle `qadr_tenant`
+(`NOLOGIN NOBYPASSRLS`) s'il n'existe pas sur la cible.
+
 ### 4.1 Principe
 
 - Format personnalisé `-Fc`, chaîne **directe**, client `pg_dump` de la **même version majeure** que le

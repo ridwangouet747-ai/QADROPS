@@ -261,3 +261,12 @@ Détail et commandes : `docs/engineering/mission-16-securite.md`. Tests : `src/t
   identifiants dans la console ou par `scripts/platform-owner.ts` (`docs/platform-owner-access.md`).
 - Connexion : une adresse inconnue et un mauvais mot de passe donnent la même réponse, 401
   `INVALID_EMAIL_OR_PASSWORD`, sans cookie (test dans `auth-security.http.test.ts`).
+- Propriétaire actif de la plateforme (avec ou sans second facteur) et tout compte à second facteur :
+  `/sign-in/email` répond exactement comme un mauvais mot de passe (401 `INVALID_EMAIL_OR_PASSWORD`, même corps,
+  aucun cookie, mot de passe haché pour une durée comparable), même avec le bon mot de passe ; une requête mal
+  formée garde son 400 habituel. Il ne se connecte que par `/platform/login`. En seconde barrière, les
+  `databaseHooks` de `server.ts` refusent toute session créée pour lui par une requête HTTP de Better Auth
+  (connexion sociale comprise) et tout rattachement d'un fournisseur social ; les appels serveur de la console
+  (`auth.api.*`, sans `request`) ne sont pas concernés. Une session ordinaire ouverte avant ce correctif
+  n'ouvre pas la console (401 `platform_reauth_required`). Tests : `platform-owner-login.http.test.ts` ;
+  détails dans `docs/platform-owner-access.md`.

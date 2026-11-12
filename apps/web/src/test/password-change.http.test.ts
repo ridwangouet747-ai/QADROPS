@@ -140,8 +140,10 @@ describe("changement de mot de passe par /api/auth/change-password", () => {
 
   it("propriétaire de la plateforme : routes d'identifiants fermées (404), empreinte et sessions inchangées", async () => {
     const owner = await h.signUp("Propriétaire Console", "proprietaire.console@qadr.test");
-    await h.grantPlatformAdmin(owner);
+    // Session ordinaire ouverte avant l'attribution du droit : depuis le 2026-11-12, /sign-in/email refuse le
+    // propriétaire actif ; une telle session ne peut donc venir que d'avant (droit accordé ensuite, ou ancien code).
     const ordinary = await h.signIn(owner);
+    await h.grantPlatformAdmin(owner);
     const before = await hashOf(owner.userId);
     const closed = { code: "NOT_FOUND", message: "NOT_FOUND" };
 

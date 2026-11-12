@@ -57,14 +57,28 @@ voulez (`enroll-2fa`), sans rien changer d'autre.
 - **Session plateforme** : la console exige une ligne `platform_session` pour la session courante,
   valable **8 heures**, cookie de session (non persistant). Une session ordinaire du même compte reçoit
   401 `platform_reauth_required`.
-- **Connexion par e-mail du propriétaire** (`/api/auth/sign-in/email`) : sans second facteur, elle n'ouvre
-  qu'une session ordinaire, que la console refuse (401 `platform_reauth_required`, pas de session plateforme).
-  Elle est refusée (mission 15) pour tout compte à
-  second facteur, avec la même réponse 401 qu'un mauvais mot de passe, sans session ni cookie de défi. Auparavant,
-  ce chemin posait un cookie de défi utilisable par `/api/platform/auth/verify` : il contournait les limites et
-  l'audit de l'étape 1 de la console, et sa réponse 200 révélait la justesse du mot de passe. **Effet voulu** :
-  le compte propriétaire ne sert qu'à la console. La page `/platform/login` est exclue de la redirection du proxy
-  (`src/proxy.ts`), qui la rendait injoignable sans session.
+- **Connexion par e-mail du propriétaire** (`/api/auth/sign-in/email`) : **refusée pour tout propriétaire
+  actif, avec ou sans second facteur** (2026-11-12), et pour tout compte à second facteur (mission 15). La
+  réponse est celle d'un mauvais mot de passe : 401 `INVALID_EMAIL_OR_PASSWORD`, même corps, aucun cookie (ni
+  session, ni défi). Le mot de passe reçu est haché pour que la durée rejoigne celle d'un refus ordinaire, et une
+  requête mal formée (adresse invalide, mot de passe de plus de 128 caractères) reçoit le 400 habituel de Better
+  Auth : la réponse ne dit pas que l'adresse est celle du propriétaire. Auparavant, sans second facteur, ce
+  chemin ouvrait une session ordinaire hors des limites et de l'audit de la console ; avec second facteur, il
+  posait un cookie de défi utilisable par `/api/platform/auth/verify`. **Effet voulu** : le compte propriétaire
+  ne sert qu'à la console. La page `/platform/login` est exclue de la redirection du proxy (`src/proxy.ts`),
+  qui la rendait injoignable sans session.
+- **Seconde barrière** (`databaseHooks` de `server.ts`) : aucune requête HTTP reçue par Better Auth ne peut
+  créer de session pour le propriétaire actif (retour Google ou Apple, toute route ajoutée plus tard), ni
+  rattacher un fournisseur social à son compte. Les sessions de la console sont créées par des appels serveur
+  (`auth.api.signInUsername`, `verifyTOTP`, `verifyBackupCode` dans `platform-auth.ts`), qui n'ont pas de
+  `request` : ce critère ne dépend d'aucun en-tête fourni par le client. `/sign-in/username` et
+  `/two-factor/*` restent fermées en HTTP (404) ; aucun plugin magic link, OTP par e-mail, passkey ou anonyme
+  n'est installé.
+- **Session ordinaire antérieure** (ouverte avant ce correctif, ou avant l'attribution du droit) : elle reste
+  valable jusqu'à son expiration (7 jours) mais n'ouvre rien de la console (401 `platform_reauth_required` sur
+  `/api/platform/*` et `/platform/*`) ni ses routes d'identifiants Better Auth (404). Elle reste un compte
+  ordinaire pour `/api/account/*` (créer un commerce, accepter une invitation) : voir « Limites ». La fermer :
+  `reset-password` du script, ou un changement de mot de passe dans la console (ferme les autres sessions).
 - **Comptes des commerces** : inchangés (aucun second facteur, connexion habituelle) ; 404 sur la console.
 - **Aucun identifiant dans le code** : le compte est créé par un opérateur (script ci-dessous) ou à la
   première connexion à partir des variables du serveur (« Connexion simple »).
@@ -155,7 +169,7 @@ la demande du propriétaire.
 | Mot de passe volé | **Seulement si le second facteur est activé** (TOTP ou code de secours). Sans lui (réglage par défaut, D-05), un mot de passe volé ouvre la console : mot de passe long et unique, changement depuis Paramètres |
 | Boîte e-mail compromise | Le lien public « mot de passe oublié » n'est jamais envoyé à un propriétaire actif, avec ou sans second facteur (`sendResetPassword`, réponse HTTP inchangée) |
 | Session volée | Changer le nom ou le mot de passe exige le mot de passe actuel, 5 essais par 15 min (`platform.account_change`) ; le changement ferme les autres sessions |
-| Contournement de la console par Better Auth (2026-11-12) | Pour un propriétaire actif, les routes `/api/auth/change-password`, `/change-email`, `/delete-user`, `/link-social` et `/unlink-account` répondent 404, que sa session vienne de la console ou d'une connexion ordinaire (`password-change.http.test.ts`). Reste ouvert : sans second facteur, `/sign-in/email` lui ouvre une session ordinaire, hors limites et audit de la console (décision du propriétaire) |
+| Contournement de la console par Better Auth (2026-11-12) | Pour un propriétaire actif, les routes `/api/auth/change-password`, `/change-email`, `/delete-user`, `/link-social` et `/unlink-account` répondent 404, que sa session vienne de la console ou d'une connexion ordinaire (`password-change.http.test.ts`). `/sign-in/email` le refuse comme un mauvais mot de passe, avec ou sans second facteur, et aucune requête HTTP ne lui crée de session (`platform-owner-login.http.test.ts`) |
 | Force brute du mot de passe | 5 échecs par client (empreinte HMAC de l'IP) et 30 au total en 15 min → 429 avec `retry-after` (secondes restantes de la fenêtre), même avec le bon mot de passe. Compteurs **dans PostgreSQL**, partagés par toutes les instances (`docs/rate-limiting.md`) |
 | Force brute du code | 5 essais par client et 30 au total en 15 min (429) ; en plus, le plugin limite chaque défi à 5 essais et verrouille le compte 15 min après 10 échecs consécutifs |
 | Rejeu | Un défi utilisé ne rouvre pas de session ; un code de secours ne sert qu'une fois |
@@ -179,5 +193,14 @@ la demande du propriétaire.
 - **Rien n'a été fait en production.** Essai réel du script sur la branche Neon de staging (2026-11-09) :
   `reset-password`, `enroll-2fa` (code faux refusé sans rien activer, bon code calculé depuis l'adresse
   otpauth), refus d'une seconde activation, `reset-2fa`.
-- Tests : `src/test/platform-owner-login.http.test.ts` (16 cas : deux étapes, codes de secours, contournements,
-  limitations concurrentes, récupération), `src/test/rate-limit.http.test.ts`, `platform-console.integration.test.ts`.
+- **Session ordinaire déjà ouverte** : le correctif du 2026-11-12 n'en ferme aucune. Une telle session n'a
+  aucun accès à la console, mais `/api/account/*` la traite comme un compte ordinaire (création d'un commerce,
+  acceptation d'une invitation) et les routes Better Auth non fermées lui restent ouvertes (`/sign-out`,
+  `/update-user` pour le nom et l'image, `/list-sessions`, `/revoke-sessions`). Avant le lancement, fermer les
+  sessions existantes du propriétaire (`reset-password`) si une connexion par e-mail a pu avoir lieu.
+- **Durée du refus** : comparable à celle d'un mauvais mot de passe (un hachage scrypt de chaque côté, plus une
+  requête SQL d'écart), non mesurée statistiquement.
+- Tests : `src/test/platform-owner-login.http.test.ts` (refus de `/sign-in/email` avec et sans second facteur,
+  seconde barrière, session ordinaire antérieure, droit retiré, deux étapes, codes de secours, contournements,
+  limitations concurrentes, expiration, déconnexion, récupération), `src/test/rate-limit.http.test.ts`,
+  `platform-console.integration.test.ts`.

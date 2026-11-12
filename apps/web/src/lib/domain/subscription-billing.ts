@@ -458,20 +458,49 @@ async function confirmAttempt(tx: CommercialTransaction, attempt: Attempt, metho
 /* ------------------------------------------------------------------ Page de retour */
 
 /**
- * `GET /api/business/subscription/payments/[attemptId]` : état d'une tentative du commerce de la session.
- * Une tentative encore ouverte est relue chez GeniusPay (au plus toutes les 5 s). Une tentative d'un autre
- * commerce répond exactement comme une tentative inconnue.
+ * `stored` : état enregistré, pas relu chez GeniusPay pendant cette requête (lecture `GET`).
+ * `fresh` : relu à l'instant ; `recent` : relu il y a moins de 5 s ; `unavailable` : relecture impossible
+ * (GeniusPay injoignable, non configuré ou autre environnement) ; `final` : état définitif, plus rien à relire.
  */
-export async function getSubscriptionPaymentStatus(db: CommercialDatabase, billing: BillingAvailability, input: { actorUserId: string; businessId: string; attemptId: string; now?: Date }) {
-  const now = input.now ?? new Date();
+export type PaymentVerification = "stored" | "fresh" | "recent" | "unavailable" | "final";
+
+type AttemptAccess = { actorUserId: string; businessId: string; attemptId: string };
+
+/** Propriétaire seulement ; une tentative d'un autre commerce répond exactement comme une tentative inconnue. */
+async function ownAttemptLoader(db: CommercialDatabase, input: AttemptAccess) {
   await assertOwner(db, input.businessId, input.actorUserId);
   const notFound = () => new CommercialError("Paiement introuvable.", 404, "not_found");
   if (!z.uuid().safeParse(input.attemptId).success) throw notFound();
   const load = async () => (await db.select().from(subscriptionPayment)
     .where(and(eq(subscriptionPayment.businessId, input.businessId), eq(subscriptionPayment.id, input.attemptId), eq(subscriptionPayment.provider, "geniuspay"))).limit(1))[0];
-  let attempt = await load();
+  const attempt = await load();
   if (!attempt) throw notFound();
-  let verification: "fresh" | "recent" | "unavailable" | "final" = "final";
+  return { attempt, load };
+}
+
+/**
+ * `GET /api/business/subscription/payments/[attemptId]` : état ENREGISTRÉ d'une tentative du commerce de la
+ * session. Lecture seule (règle « une route GET n'écrit jamais », mission 11 phase 6) : aucun appel à GeniusPay,
+ * aucune écriture. Pour relire le paiement chez le prestataire, le client appelle `POST` sur la même adresse.
+ */
+export async function getSubscriptionPaymentStatus(db: CommercialDatabase, input: AttemptAccess) {
+  const { attempt } = await ownAttemptLoader(db, input);
+  const verification: PaymentVerification = attempt.status === "pending" ? "stored" : "final";
+  return { ...(await attemptView(db, attempt)), verification };
+}
+
+/**
+ * `POST /api/business/subscription/payments/[attemptId]` : relit une tentative encore ouverte chez GeniusPay
+ * (`GET /payments/{reference}`, au plus une fois toutes les 5 s par tentative) puis applique le résultat
+ * (`verifyAttempt`, idempotent : la facture ne passe `open → paid` qu'une fois). La redirection du navigateur ne
+ * prouve rien : seule la relecture chez le prestataire fait foi. Pas d'`assertBusinessOperational` : un commerce
+ * expiré doit pouvoir constater son paiement et reprendre (même règle que `startSubscriptionCheckout`).
+ */
+export async function refreshSubscriptionPayment(db: CommercialDatabase, billing: BillingAvailability, input: AttemptAccess & { now?: Date }) {
+  const now = input.now ?? new Date();
+  const loaded = await ownAttemptLoader(db, input);
+  let attempt = loaded.attempt;
+  let verification: PaymentVerification = "final";
   if (attempt.status === "pending") {
     if (!billing.available || !attempt.providerReference) verification = "unavailable";
     else if (attempt.checkedAt && now.getTime() - attempt.checkedAt.getTime() < REFRESH_INTERVAL_MS) verification = "recent";
@@ -479,7 +508,7 @@ export async function getSubscriptionPaymentStatus(db: CommercialDatabase, billi
       const outcome = await verifyAttempt(db, billing.provider, attempt, now);
       // Autre environnement : cette instance ne peut pas vérifier le paiement, elle ne prétend pas l'avoir fait.
       verification = outcome === "provider_error" || outcome === "environment_mismatch" ? "unavailable" : "fresh";
-      attempt = (await load()) ?? attempt;
+      attempt = (await loaded.load()) ?? attempt;
     }
   }
   return { ...(await attemptView(db, attempt)), verification };

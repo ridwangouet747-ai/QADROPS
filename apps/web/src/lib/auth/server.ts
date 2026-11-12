@@ -4,6 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { organization, twoFactor, username } from "better-auth/plugins";
 import { after } from "next/server";
+import { z } from "zod";
 import { getDatabase } from "@/lib/db/client";
 import { authSchema, businessProfile, platformAdmin, receiptSettings, user } from "@/lib/db/schema";
 import { assertProductionAuthUrl, readEnvironment, socialProviders as configuredSocialProviders } from "@/lib/env";
@@ -72,6 +73,16 @@ export const signUpRefusal = { code: "SIGN_UP_FAILED", message: "SIGN_UP_FAILED"
 function apiErrorCode(value: unknown) {
   const body = (value as { body?: { code?: unknown } } | null | undefined)?.body;
   return typeof body?.code === "string" ? body.code : undefined;
+}
+
+/** Longueur maximale d'un mot de passe : la même valeur sert à la configuration et au refus du propriétaire. */
+const maxPasswordLength = 128;
+
+/** Droit actif de propriétaire de la plateforme (ligne `platform_admin` non révoquée). */
+async function isActivePlatformOwner(db: CommercialDatabase, userId: string) {
+  const [owner] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin)
+    .where(and(eq(platformAdmin.userId, userId), isNull(platformAdmin.revokedAt))).limit(1);
+  return !!owner;
 }
 
 /** Règles qui protègent un compte précis : comptées seulement après le défi Turnstile. */
@@ -159,7 +170,7 @@ export function createQadrAuth(options: AuthOptions) {
       enabled: true,
       requireEmailVerification: false,
       minPasswordLength: 8,
-      maxPasswordLength: 128,
+      maxPasswordLength,
       revokeSessionsOnPasswordReset: true,
       resetPasswordTokenExpiresIn: authDurations.passwordResetSeconds,
       // Sans fournisseur d'e-mail, le lien n'est ni envoyé ni journalisé : la réponse reste neutre.
@@ -172,9 +183,7 @@ export function createQadrAuth(options: AuthOptions) {
         // 2026-11-12 : le second facteur du propriétaire est devenu facultatif. La règle vaut donc pour tout
         // propriétaire actif, avec ou sans facteur : son mot de passe se change dans la console (mot de passe
         // actuel exigé) ou par le script, jamais par un lien reçu par e-mail.
-        const [owner] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin)
-          .where(and(eq(platformAdmin.userId, account.id), isNull(platformAdmin.revokedAt))).limit(1);
-        if (owner) return;
+        if (await isActivePlatformOwner(db, account.id)) return;
         await deliver(renderPasswordResetEmail({ locale: requestLocale(request), to: account.email, url, token }));
       } : undefined,
     },
@@ -260,6 +269,20 @@ export function createQadrAuth(options: AuthOptions) {
         },
       },
     })],
+    // Seconde barrière (2026-11-12) : aucune requête HTTP de Better Auth n'ouvre une session ordinaire au
+    // propriétaire actif de la plateforme ni ne rattache un fournisseur social à son compte, quelle que soit la
+    // route (connexion par e-mail, retour Google ou Apple, ou toute route ajoutée plus tard). Seuls les appels
+    // serveur de la console (`auth.api.*` sans `request`, dans platform-auth.ts) ouvrent ses sessions, qui
+    // reçoivent aussitôt leur session plateforme. `context.request` n'existe que pour une requête reçue par le
+    // gestionnaire HTTP : aucun en-tête envoyé par le client ne peut le fabriquer.
+    databaseHooks: {
+      session: { create: { before: async (created, context) => {
+        if (context?.request && await isActivePlatformOwner(db, created.userId)) return false;
+      } } },
+      account: { create: { before: async (created, context) => {
+        if (context?.request && created.providerId !== "credential" && await isActivePlatformOwner(db, created.userId)) return false;
+      } } },
+    },
     advanced: {
       useSecureCookies: options.isProduction,
       // Better Auth désactive par défaut ses contrôles d'origine et de liens de retour quand NODE_ENV=test :
@@ -308,10 +331,8 @@ export function createQadrAuth(options: AuthOptions) {
         const accountChecks = allChecks.filter((check) => accountRateRules.has(check.rule));
         await enforceRateLimits(allChecks.filter((check) => !accountRateRules.has(check.rule)));
         // V-5 : propriétaire actif de la plateforme → même réponse qu'une route fermée, rien n'est modifié.
-        if (credentialSession) {
-          const [owner] = await db.select({ userId: platformAdmin.userId }).from(platformAdmin)
-            .where(and(eq(platformAdmin.userId, credentialSession.user.id), isNull(platformAdmin.revokedAt))).limit(1);
-          if (owner) throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
+        if (credentialSession && await isActivePlatformOwner(db, credentialSession.user.id)) {
+          throw new APIError("NOT_FOUND", { message: "NOT_FOUND", code: "NOT_FOUND" });
         }
         if (context.request && (context.path === "/sign-up/email" || context.path === "/update-user")) {
           const body = context.body as Record<string, unknown> | undefined;
@@ -338,15 +359,23 @@ export function createQadrAuth(options: AuthOptions) {
           }
         }
         await enforceRateLimits(accountChecks);
-        // Un compte à second facteur (le propriétaire de la plateforme) ne se connecte que par /platform/login
-        // (limites de la console, audit, session plateforme). Par /sign-in/email, il reçoit le même refus
-        // qu'un mauvais mot de passe, sans cookie de défi ni indice sur la justesse du mot de passe (mission 15).
+        // Le propriétaire actif de la plateforme (avec OU sans second facteur, D-05) et tout compte à second
+        // facteur ne se connectent que par /platform/login (limites de la console, audit, session plateforme).
+        // Par /sign-in/email, même refus qu'un mauvais mot de passe : même statut, même corps, aucun cookie
+        // (ni session, ni défi), et un hachage du mot de passe reçu pour une durée comparable (Better Auth
+        // vérifie l'empreinte d'un compte existant, ou hache le mot de passe d'une adresse inconnue). Les
+        // préconditions de Better Auth (adresse valide, mot de passe de 128 caractères au plus) sont reprises :
+        // une requête mal formée reçoit son 400 habituel, quel que soit le compte visé. Mission 15, étendue le
+        // 2026-11-12. Les appels serveur (`auth.api.*`, sans `request`) ne passent pas ici.
         if (context.request && context.path === "/sign-in/email") {
-          const email = (context.body as { email?: unknown } | undefined)?.email;
-          if (typeof email === "string" && email.trim()) {
-            const [account] = await db.select({ twoFactorEnabled: user.twoFactorEnabled }).from(user)
-              .where(eq(user.email, email.trim().toLowerCase())).limit(1);
-            if (account?.twoFactorEnabled) throw new APIError("UNAUTHORIZED", { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" });
+          const { email, password } = (context.body ?? {}) as { email?: unknown; password?: unknown };
+          if (typeof email === "string" && typeof password === "string" && password.length <= maxPasswordLength && z.email().safeParse(email).success) {
+            const [account] = await db.select({ id: user.id, twoFactorEnabled: user.twoFactorEnabled }).from(user)
+              .where(eq(user.email, email.toLowerCase())).limit(1);
+            if (account && (account.twoFactorEnabled || await isActivePlatformOwner(db, account.id))) {
+              await context.context.password.hash(password);
+              throw new APIError("UNAUTHORIZED", { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" });
+            }
           }
         }
         // V-6 : un changement de mot de passe ferme TOUJOURS les autres sessions du compte, quoi qu'envoie le

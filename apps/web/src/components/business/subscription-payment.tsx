@@ -14,7 +14,8 @@ import { formatXof } from "@/lib/i18n/format";
 /*
  * Paiement de l'abonnement par GeniusPay (mission 12, lot L1b). Le navigateur n'envoie qu'un code de formule et
  * une clé d'idempotence : le montant vient du serveur. Il ne conclut JAMAIS lui-même qu'un paiement a réussi :
- * la page de retour interroge le serveur, qui relit le paiement chez GeniusPay.
+ * la page de retour demande au serveur (`POST /api/business/subscription/payments/[attemptId]`) de relire le paiement
+ * chez GeniusPay ; le `GET` de la même adresse ne fait que lire l'état enregistré.
  */
 
 type Plan = { code: string; name: string; priceXof: string; durationDays: number; description: string | null };
@@ -134,36 +135,52 @@ export function PayCard({ overview }: { overview: PayOverview | null }) {
 /* ------------------------------------------------------------------ Page de retour */
 
 type PaymentStatus = {
-  attemptId: string; status: "pending" | "confirmed" | "failed" | "canceled" | "expired" | "refunded"; verification: "fresh" | "recent" | "unavailable" | "final";
+  attemptId: string; status: "pending" | "confirmed" | "failed" | "canceled" | "expired" | "refunded";
+  verification: "stored" | "fresh" | "recent" | "unavailable" | "final";
   plan: { name: string } | null; subscription: { status: string; endsAt: string } | null;
 };
-const POLL_DELAYS_MS = [2_000, 3_000, 5_000, 5_000, 10_000, 15_000, 30_000];
+/**
+ * Relectures automatiques (chacune est une écriture côté serveur, limitée à une relecture GeniusPay toutes les 5 s
+ * par tentative) : environ 2 min 40 en tout. Ensuite la page s'arrête ; le webhook et le rapprochement planifié
+ * prennent le relais, et le bouton « Vérifier à nouveau » relance un cycle.
+ */
+const POLL_DELAYS_MS = [2_000, 3_000, 5_000, 5_000, 10_000, 15_000, 30_000, 30_000, 30_000, 30_000];
 
 export function SubscriptionPaymentReturn({ attemptId }: { attemptId: string | null }) {
   const { t, locale } = useI18n();
   const [state, setState] = useState<PaymentStatus | null>(null);
   const [problem, setProblem] = useState<"notFound" | "unverifiable" | null>(attemptId ? null : "notFound");
   const round = useRef(0);
+  const inFlight = useRef(false);
   const [waitedLong, setWaitedLong] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const check = useCallback(async () => {
-    if (!attemptId) return;
+  const check = useCallback(async (restart = false) => {
+    if (!attemptId || inFlight.current) return;
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    if (restart) { round.current = 0; setStopped(false); }
+    const scheduleNext = () => {
+      const delay = POLL_DELAYS_MS[round.current];
+      if (delay === undefined) { setStopped(true); return; }
+      round.current += 1;
+      if (round.current >= 4) setWaitedLong(true);
+      timer.current = setTimeout(() => void check(), delay);
+    };
+    inFlight.current = true;
     try {
-      const response = await fetch(`/api/business/subscription/payments/${encodeURIComponent(attemptId)}`, { cache: "no-store" });
+      // POST : le serveur relit le paiement chez GeniusPay et applique le résultat ; la redirection ne prouve rien.
+      const response = await fetch(`/api/business/subscription/payments/${encodeURIComponent(attemptId)}`, { method: "POST", cache: "no-store" });
       if (response.status === 404 || response.status === 403) { setProblem("notFound"); return; }
       if (!response.ok) throw new Error(String(response.status));
       const body = await response.json() as PaymentStatus;
       setState(body); setProblem(body.verification === "unavailable" ? "unverifiable" : null);
-      if (body.status === "pending") {
-        const delay = POLL_DELAYS_MS[Math.min(round.current, POLL_DELAYS_MS.length - 1)]!;
-        round.current += 1;
-        if (round.current >= 4) setWaitedLong(true);
-        timer.current = setTimeout(() => void check(), delay);
-      }
+      if (body.status === "pending") scheduleNext();
     } catch {
       setProblem("unverifiable");
-      timer.current = setTimeout(() => void check(), 15_000);
+      scheduleNext();
+    } finally {
+      inFlight.current = false;
     }
   }, [attemptId]);
 
@@ -179,7 +196,7 @@ export function SubscriptionPaymentReturn({ attemptId }: { attemptId: string | n
   const title = !state && problem === "notFound" ? t("subscription.paymentReturn.notFound") : status === "pending" ? t("subscription.paymentReturn.checking") : t(`subscription.paymentReturn.${status}`);
   const body = status === "confirmed" && state?.subscription
     ? t("subscription.paymentReturn.confirmedBody", { plan: state.plan?.name ?? "", date: date(state.subscription.endsAt) })
-    : status === "pending" ? (waitedLong ? t("subscription.paymentReturn.stillPending") : t("subscription.paymentReturn.checkingBody"))
+    : status === "pending" ? (stopped ? t("subscription.paymentReturn.autoCheckStopped") : waitedLong ? t("subscription.paymentReturn.stillPending") : t("subscription.paymentReturn.checkingBody"))
       : t(`subscription.paymentReturn.${status}Body` as "subscription.paymentReturn.failedBody");
 
   return (
@@ -203,7 +220,7 @@ export function SubscriptionPaymentReturn({ attemptId }: { attemptId: string | n
           <div className="grid gap-2 sm:grid-cols-2">
             <Link href="/business/subscription" className={buttonClasses({ variant: status === "confirmed" ? "primary" : "secondary", size: "lg", className: "no-underline" })}>{t("subscription.paymentReturn.back")}</Link>
             {status === "pending" ? (
-              <Button variant="secondary" size="lg" onClick={() => { if (timer.current) clearTimeout(timer.current); void check(); }} icon={<Icon name="activity" />}>{t("subscription.paymentReturn.refresh")}</Button>
+              <Button variant="secondary" size="lg" onClick={() => void check(true)} icon={<Icon name="activity" />}>{t("subscription.paymentReturn.refresh")}</Button>
             ) : status !== "confirmed" && status !== "refunded" ? (
               <Link href="/business/subscription" className={buttonClasses({ variant: "cta", size: "lg", className: "no-underline" })}>{t("subscription.paymentReturn.retry")}</Link>
             ) : null}

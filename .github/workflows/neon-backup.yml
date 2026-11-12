@@ -1,0 +1,141 @@
+# Sauvegarde logique de la base de production Neon (branche `main`) et essai de restauration.
+#
+# - `pg_dump` (format personnalisé, schémas `public` et `drizzle` ; `neon_auth`, propre à l'intégration
+#   Vercel et inutilisé, est exclu) de la base désignée par le secret NEON_BACKUP_DATABASE_URL
+#   (chaîne DIRECTE, sans `-pooler`, saisie par le propriétaire dans GitHub, jamais dans le dépôt) ;
+# - contrôle d'intégrité (`pg_restore --list`), restauration dans un PostgreSQL 18 jetable du runner,
+#   comparaison des tables, des comptes de lignes et du catalogue (contraintes, index, politiques RLS) ;
+# - chiffrement AES-256 (gpg, phrase secrète BACKUP_PASSPHRASE) puis artefact privé conservé 14 jours.
+#
+# Aucune donnée n'est écrite dans le journal : seulement des noms de tables, des comptes et des empreintes.
+# Sans les deux secrets, le travail s'arrête sans erreur. Procédure : docs/engineering/backup-restore.md § 7.
+name: Sauvegarde Neon
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-backup
+  cancel-in-progress: false
+
+jobs:
+  sauvegarde:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      restauration:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: restauration-jetable
+          POSTGRES_DB: restauration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      SOURCE_URL: ${{ secrets.NEON_BACKUP_DATABASE_URL }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+      RESTORE_URL: postgresql://postgres:restauration-jetable@localhost:5432/restauration
+    steps:
+      - name: Vérifier la configuration
+        id: config
+        run: |
+          if [ -z "$SOURCE_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::warning::Secrets NEON_BACKUP_DATABASE_URL et BACKUP_PASSPHRASE absents : aucune sauvegarde."
+            echo "pret=non" >> "$GITHUB_OUTPUT"
+          elif [ "${#BACKUP_PASSPHRASE}" -lt 32 ]; then
+            echo "::error::BACKUP_PASSPHRASE doit compter au moins 32 caractères."
+            exit 1
+          else
+            case "$SOURCE_URL" in *-pooler*) echo "::error::Utiliser la chaîne directe (sans -pooler)."; exit 1;; esac
+            echo "pret=oui" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Installer le client PostgreSQL 18
+        if: steps.config.outputs.pret == 'oui'
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18 > /dev/null
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
+      - name: Exporter (pg_dump)
+        if: steps.config.outputs.pret == 'oui'
+        run: |
+          umask 077
+          pg_dump --version
+          pg_dump "$SOURCE_URL" --format=custom --compress=9 --no-password --schema=public --schema=drizzle --file=qadr.dump
+          echo "Taille : $(stat -c %s qadr.dump) octets"
+
+      - name: Contrôler l'intégrité de l'export
+        if: steps.config.outputs.pret == 'oui'
+        run: |
+          pg_restore --list qadr.dump > liste.txt
+          echo "Entrées dans l'export : $(grep -vc '^;' liste.txt)"
+          grep -q 'TABLE DATA public' liste.txt || { echo "::error::Aucune donnée de table dans l'export."; exit 1; }
+
+      - name: Restaurer dans une base jetable
+        if: steps.config.outputs.pret == 'oui'
+        run: |
+          # Les rôles ne font pas partie d'un pg_dump : on recrée ceux que les politiques RLS citent.
+          # Le schéma public de la base jetable est recréé par l'export (pg_dump -n public le contient).
+          psql "$RESTORE_URL" -v ON_ERROR_STOP=1 -q -c "CREATE ROLE qadr_tenant NOLOGIN NOBYPASSRLS; DROP SCHEMA public CASCADE;"
+          pg_restore --dbname="$RESTORE_URL" --no-owner --no-privileges --exit-on-error qadr.dump
+
+      - name: Comparer la source et la restauration
+        if: steps.config.outputs.pret == 'oui'
+        run: |
+          cat > comptes.sql <<'SQL'
+          SELECT string_agg(format('%I.%I=%s', schemaname, relname,
+                 (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', schemaname, relname), false, true, '')))[1]::text),
+                 E'\n' ORDER BY schemaname, relname)
+          FROM pg_stat_user_tables WHERE schemaname IN ('public', 'drizzle');
+          SQL
+          cat > catalogue.sql <<'SQL'
+          SELECT md5(coalesce(string_agg(x, E'\n' ORDER BY x), '')) FROM (
+            SELECT format('col %s.%s %s %s %s', table_name, column_name, data_type, is_nullable, coalesce(column_default, '')) x
+              FROM information_schema.columns WHERE table_schema = 'public'
+            UNION ALL SELECT format('con %s %s', conrelid::regclass, pg_get_constraintdef(oid)) FROM pg_constraint WHERE connamespace = 'public'::regnamespace
+            UNION ALL SELECT format('idx %s', pg_get_indexdef(indexrelid)) FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid WHERE c.relnamespace = 'public'::regnamespace
+            UNION ALL SELECT format('pol %s %s %s %s', tablename, policyname, roles::text, coalesce(qual, '')) FROM pg_policies WHERE schemaname = 'public'
+            UNION ALL SELECT format('rls %s %s', relname, relrowsecurity) FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'
+          ) parties;
+          SQL
+          psql "$SOURCE_URL" -XAtq -f comptes.sql > source-comptes.txt
+          psql "$RESTORE_URL" -XAtq -f comptes.sql > restauration-comptes.txt
+          psql "$SOURCE_URL" -XAtq -f catalogue.sql > source-catalogue.txt
+          psql "$RESTORE_URL" -XAtq -f catalogue.sql > restauration-catalogue.txt
+          echo "Tables comparées : $(wc -l < source-comptes.txt)"
+          echo "Empreinte du catalogue : source $(cat source-catalogue.txt), restauration $(cat restauration-catalogue.txt)"
+          diff -q source-comptes.txt restauration-comptes.txt || { echo "::error::Comptes de lignes différents."; diff source-comptes.txt restauration-comptes.txt | sed -E 's/=.*/=…/' | head -20; exit 1; }
+          diff -q source-catalogue.txt restauration-catalogue.txt || { echo "::error::Catalogue différent après restauration."; exit 1; }
+          echo "Restauration conforme : mêmes tables, mêmes comptes, même catalogue."
+
+      - name: Chiffrer l'export
+        if: steps.config.outputs.pret == 'oui'
+        run: |
+          umask 077
+          stamp="$(date -u +%Y-%m-%dT%H%MZ)"
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 --output "qadr-${stamp}.dump.gpg" qadr.dump
+          sha256sum "qadr-${stamp}.dump.gpg" > "qadr-${stamp}.sha256"
+          shred -u qadr.dump
+          echo "STAMP=${stamp}" >> "$GITHUB_ENV"
+
+      - name: Conserver l'export chiffré (artefact privé, 14 jours)
+        if: steps.config.outputs.pret == 'oui'
+        uses: actions/upload-artifact@v7
+        with:
+          name: neon-main-${{ env.STAMP }}
+          path: |
+            qadr-*.dump.gpg
+            qadr-*.sha256
+          retention-days: 14
+          if-no-files-found: error

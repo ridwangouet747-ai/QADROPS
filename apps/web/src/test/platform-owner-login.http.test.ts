@@ -3,7 +3,9 @@ import * as authRoute from "@/app/api/auth/[...all]/route";
 import * as signInRoute from "@/app/api/platform/auth/sign-in/route";
 import * as signOutRoute from "@/app/api/platform/auth/sign-out/route";
 import * as verifyRoute from "@/app/api/platform/auth/verify/route";
+import * as platformPasswordRoute from "@/app/api/platform/account/password/route";
 import * as platformOverviewRoute from "@/app/api/platform/overview/route";
+import * as platformPlansRoute from "@/app/api/platform/plans/route";
 import { getAuth } from "@/lib/auth/server";
 import { platformLoginLimits } from "@/lib/domain/platform-auth";
 import { beginOwnerTwoFactorEnrollment, bootstrapPlatformOwner, resetOwnerTwoFactor, resetPlatformOwnerPassword } from "@/lib/domain/platform-owner";
@@ -86,13 +88,82 @@ describe("connexion du propriétaire de la plateforme (mot de passe + second fac
     expect(wrong.status).toBe(401);
     expect(wrong.headers.getSetCookie()).toEqual([]);
     expect(await ownerSessions()).toBe(1);
-    // Une session ordinaire du même compte (connexion par e-mail) n'ouvre pas la console.
+  });
+
+  it("sans second facteur : /sign-in/email refuse le propriétaire comme un mauvais mot de passe (aucune session, aucun cookie)", async () => {
+    const sessionsBefore = await ownerSessions();
+    const byEmail = await post("/sign-in/email", { email: OWNER.email, password: OWNER.password });
+    const byEmailUpper = await post("/sign-in/email", { email: OWNER.email.toUpperCase(), password: OWNER.password });
+    const byEmailWrong = await post("/sign-in/email", { email: OWNER.email, password: "pas-le-bon-mot-de-passe" });
+    const unknownEmail = await post("/sign-in/email", { email: "personne.inconnue@qadr.test", password: OWNER.password });
+    const merchantWrong = await post("/sign-in/email", { email: "awa@boutique.test", password: "pas-le-bon-mot-de-passe" });
+    const reference = await merchantWrong.json();
+    expect(reference).toEqual({ code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
+    for (const response of [byEmail, byEmailUpper, byEmailWrong, unknownEmail]) {
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual(reference);
+      expect(response.headers.getSetCookie().some((value) => /session_token=[^;]|two_factor=[^;]/.test(value))).toBe(false);
+    }
+    expect(await ownerSessions()).toBe(sessionsBefore);
+    // Requête mal formée : le 400 habituel de Better Auth, identique pour le propriétaire et pour une autre adresse.
+    const tooLongOwner = await post("/sign-in/email", { email: OWNER.email, password: "x".repeat(129) });
+    const tooLongOther = await post("/sign-in/email", { email: "personne.inconnue@qadr.test", password: "x".repeat(129) });
+    expect(tooLongOwner.status).toBe(tooLongOther.status);
+    expect(await tooLongOwner.json()).toEqual(await tooLongOther.json());
+    // La console, elle, s'ouvre toujours avec le seul mot de passe.
+    const viaConsole = await signIn({ username: OWNER.username, password: OWNER.password }, "10.0.0.7");
+    expect(viaConsole.body).toEqual({ ok: true, step: "done", defaultPassword: false });
+    expect((await overview(cookieOf(viaConsole.headers))).status).toBe(200);
+  });
+
+  it("seconde barrière : aucune requête HTTP n'ouvre de session ni ne rattache de fournisseur social au propriétaire", async () => {
+    const hooks = (await getAuth()).options.databaseHooks!;
+    const createSession = hooks.session!.create!.before!;
+    const createAccount = hooks.account!.create!.before!;
+    const http = { request: new Request(`${HARNESS_ORIGIN}/api/auth/callback/google`) } as never;
+    const draft = (userId: string) => ({ id: "s", userId, token: "t", expiresAt: new Date(), createdAt: new Date(), updatedAt: new Date() }) as never;
+    const link = (userId: string, providerId: string) => ({ id: "a", userId, accountId: "x", providerId, createdAt: new Date(), updatedAt: new Date() }) as never;
+    // Requête HTTP (connexion par e-mail, retour Google ou Apple…) : refusée pour le propriétaire actif.
+    expect(await createSession(draft(ownerUserId), http)).toBe(false);
+    expect(await createAccount(link(ownerUserId, "google"), http)).toBe(false);
+    // Appels serveur de la console (aucune requête) et comptes des commerces : inchangés.
+    expect(await createSession(draft(ownerUserId), null)).toBeUndefined();
+    expect(await createSession(draft(merchant.userId), http)).toBeUndefined();
+    expect(await createAccount(link(merchant.userId, "google"), http)).toBeUndefined();
+    expect(await createAccount(link(ownerUserId, "credential"), http)).toBeUndefined();
+  });
+
+  it("session ordinaire antérieure au correctif : aucune fonction de la console ; droit retiré : console refusée", async () => {
+    // Session ordinaire ouverte quand le compte n'était pas encore bloqué (droit momentanément retiré ici).
+    await h.client.query("update platform_admin set revoked_at = $2 where user_id = $1", [ownerUserId, new Date()]);
     const ordinary = await post("/sign-in/email", { email: OWNER.email, password: OWNER.password });
+    await h.client.query("update platform_admin set revoked_at = null where user_id = $1", [ownerUserId]);
     expect(ordinary.status).toBe(200);
     const ordinaryCookie = cookieOf(ordinary.headers);
+    expect(ordinaryCookie).toContain("better-auth.session_token=");
     const refused = await overview(ordinaryCookie);
     expect(refused.status).toBe(401);
     expect(refused.body.code).toBe("platform_reauth_required");
+    // Écritures de la console refusées, rien n'est modifié.
+    const plans = () => h.count("select count(*) as n from subscription_plan");
+    const plansBefore = await plans();
+    const plan = await h.call(platformPlansRoute.POST, { path: "/api/platform/plans", body: { code: "ordinaire", name: "Formule imposée", priceXof: "1000", durationDays: 30 }, headers: { cookie: ordinaryCookie } });
+    expect(plan.status).toBe(401);
+    expect(await plans()).toBe(plansBefore);
+    const [hashBefore] = (await h.client.query<{ password: string }>("select password from account where user_id = $1 and provider_id = 'credential'", [ownerUserId])).rows;
+    const changed = await h.call(platformPasswordRoute.POST, { path: "/api/platform/account/password", body: { currentPassword: OWNER.password, newPassword: "autre-mot-de-passe-2026-x" }, headers: { cookie: ordinaryCookie } });
+    expect(changed.status).toBe(401);
+    const [hashAfter] = (await h.client.query<{ password: string }>("select password from account where user_id = $1 and provider_id = 'credential'", [ownerUserId])).rows;
+    expect(hashAfter!.password).toBe(hashBefore!.password);
+    await h.client.query("delete from session where token = $1", [decodeURIComponent(/better-auth\.session_token=([^;]+)/.exec(ordinaryCookie)![1]!).split(".")[0]]);
+
+    // Révocation du droit : une session plateforme valide ne suffit plus (404, comme un compte de commerce).
+    const viaConsole = await signIn({ username: OWNER.username, password: OWNER.password }, "10.0.0.8");
+    const consoleCookie = cookieOf(viaConsole.headers);
+    expect((await overview(consoleCookie)).status).toBe(200);
+    await h.client.query("update platform_admin set revoked_at = $2 where user_id = $1", [ownerUserId, new Date()]);
+    expect((await overview(consoleCookie)).status).toBe(404);
+    await h.client.query("update platform_admin set revoked_at = null where user_id = $1", [ownerUserId]);
   });
 
   it("activation : un code faux n'active rien ; un premier code valide rend le facteur obligatoire", async () => {
@@ -162,14 +233,17 @@ describe("connexion du propriétaire de la plateforme (mot de passe + second fac
     for (const path of ["/two-factor/verify-totp", "/two-factor/verify-backup-code", "/two-factor/enable", "/two-factor/disable", "/two-factor/get-totp-uri", "/two-factor/generate-backup-codes", "/two-factor/send-otp"]) {
       expect((await post(path, { code: totpCode(secret), password: OWNER.password }, merchant.cookie)).status, path).toBe(404);
     }
-    // Connexion ordinaire par e-mail du propriétaire (mission 15) : même refus qu'un mauvais mot de passe,
-    // ni session, ni cookie de défi, donc ni contournement des limites de la console ni indice sur le mot de passe.
+    // Connexion ordinaire par e-mail du propriétaire à second facteur (mission 15) : même refus qu'un mauvais
+    // mot de passe, ni session, ni cookie de défi, donc ni contournement des limites de la console ni indice.
+    const sessionsBefore = await ownerSessions();
     const byEmail = await post("/sign-in/email", { email: OWNER.email, password: OWNER.password });
     const byEmailWrong = await post("/sign-in/email", { email: OWNER.email, password: "pas-le-bon-mot-de-passe" });
-    expect(byEmail.status).toBe(401);
-    expect(byEmailWrong.status).toBe(401);
-    expect(await byEmail.json()).toEqual(await byEmailWrong.json());
-    expect(byEmail.headers.getSetCookie().some((value) => /session_token=[^;]|two_factor=[^;]/.test(value))).toBe(false);
+    for (const response of [byEmail, byEmailWrong]) {
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password" });
+      expect(response.headers.getSetCookie().some((value) => /session_token=[^;]|two_factor=[^;]/.test(value))).toBe(false);
+    }
+    expect(await ownerSessions()).toBe(sessionsBefore);
   });
 
   it("refus identiques pour un nom inconnu, un mauvais mot de passe ou un compte de commerce", async () => {

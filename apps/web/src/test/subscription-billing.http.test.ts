@@ -51,7 +51,11 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
   }
 
   const checkout = (actor: Actor, body: Record<string, unknown>) => h.call(checkoutRoute.POST, { path: "/api/business/subscription/checkout", actor, body });
+  /** Lecture seule de l’état enregistré (aucun appel à GeniusPay, aucune écriture). */
   const status = (actor: Actor, attemptId: string) => h.call(paymentStatusRoute.GET, { path: `/api/business/subscription/payments/${attemptId}`, actor, params: { attemptId } });
+  /** Page de retour : relecture chez GeniusPay puis application (POST, sans corps). */
+  const refresh = (actor: Actor, attemptId: string, headers?: Record<string, string>) =>
+    h.call(paymentStatusRoute.POST, { method: "POST", path: `/api/business/subscription/payments/${attemptId}`, actor, params: { attemptId }, headers });
   const webhook = (signed: { body: string; headers: Record<string, string> }) => h.call(webhookRoute.POST, { path: "/api/webhooks/geniuspay", body: signed.body, headers: signed.headers });
 
   async function referenceOf(attemptId: string) {
@@ -113,6 +117,9 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     // Le caissier ne lit pas non plus l'état d'un paiement du propriétaire.
     const opened = await openPayment(owner);
     expect((await status(cashier, opened.attemptId)).status).toBe(403);
+    const refused = await refresh(cashier, opened.attemptId);
+    expect(refused.status).toBe(403);
+    expect(refused.body.code).toBe("forbidden");
   });
 
   it("succès : le prix vient de la base, la redirection seule n'active rien, seul le paiement relu chez GeniusPay active", async () => {
@@ -127,7 +134,7 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     const reference = await referenceOf(response.body.attemptId);
 
     // Retour sur success_url alors que GeniusPay n'a rien confirmé : toujours « en vérification ».
-    const pending = await status(owner, response.body.attemptId);
+    const pending = await refresh(owner, response.body.attemptId);
     expect(pending.body).toMatchObject({ status: "pending", verification: "fresh", subscription: null });
     expect(await subscriptions(businessId)).toEqual([]);
 
@@ -369,7 +376,7 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     fake.getUnavailable = true;
     try {
       // Page de retour pendant la panne : « vérification impossible », jamais un succès.
-      expect((await status(other.owner, second.attemptId)).body).toMatchObject({ status: "pending", verification: "unavailable", subscription: null });
+      expect((await refresh(other.owner, second.attemptId)).body).toMatchObject({ status: "pending", verification: "unavailable", subscription: null });
       const result = await reconcilePendingSubscriptionPayments(h.db, getBillingProvider(), { now: later });
       expect(result.errors).toBeGreaterThanOrEqual(1);
       expect((await attempt(second.attemptId)).status).toBe("pending");
@@ -410,7 +417,7 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
       expect((await attempt(opened.attemptId)).status).toBe("pending");
     }
     // Retour « result=success&status=pending » : la page relit, rien n'est activé, le même lien reste proposé.
-    expect((await status(owner, opened.attemptId)).body).toMatchObject({ status: "pending", subscription: null });
+    expect((await refresh(owner, opened.attemptId)).body).toMatchObject({ status: "pending", subscription: null });
     const again = await checkout(owner, { planCode: "MENSUEL", idempotencyKey: newKey("abo") });
     expect(again.body).toMatchObject({ attemptId: opened.attemptId, reused: true });
     expect(await subscriptions(businessId)).toEqual([]);
@@ -444,10 +451,103 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     const opened = await openPayment(owner);
     fake.set(opened.reference, { status: "completed", payment_method: "wave" });
     // Aucun webhook : le commerçant revient sur la page de retour (cas observé en sandbox le 2026-11-09, passerelle coupée).
-    expect((await status(owner, opened.attemptId)).body).toMatchObject({ status: "confirmed", verification: "fresh", subscription: { status: "active" } });
-    expect((await status(owner, opened.attemptId)).body).toMatchObject({ status: "confirmed", verification: "final" });
+    expect((await refresh(owner, opened.attemptId)).body).toMatchObject({ status: "confirmed", verification: "fresh", subscription: { status: "active" } });
+    expect((await refresh(owner, opened.attemptId)).body).toMatchObject({ status: "confirmed", verification: "final" });
     expect(await subscriptions(businessId)).toHaveLength(1);
     expect((await invoices(businessId))[0]!.status).toBe("paid");
+  });
+
+  /* -------------------------------------------------------------- Lecture (GET) et relecture (POST) séparées */
+
+  /** Lignes du commerce que la relecture pourrait modifier, plus les événements du prestataire liés à la référence. */
+  async function billingState(businessId: string, reference: string) {
+    const state: Record<string, unknown> = {};
+    for (const table of ["subscription_payment", "subscription_invoice", "business_subscription", "business_profile", "audit_event"]) {
+      state[table] = (await h.client.query(`select * from "${table}" where business_id=$1 order by 1`, [businessId])).rows;
+    }
+    state.payment_provider_event = (await h.client.query("select * from payment_provider_event where provider_reference=$1 order by 1", [reference])).rows;
+    return JSON.stringify(state, (_key, value: unknown) => (typeof value === "bigint" ? value.toString() : value));
+  }
+
+  it("GET en lecture seule : aucun appel à GeniusPay, aucune ligne modifiée, même quand GeniusPay a confirmé", async () => {
+    const { owner, businessId } = await merchant();
+    const opened = await openPayment(owner);
+    fake.set(opened.reference, { status: "completed", payment_method: "wave" });
+    const before = await billingState(businessId, opened.reference);
+    const gets = getsOf(opened.reference);
+    for (let round = 0; round < 3; round += 1) {
+      const read = await status(owner, opened.attemptId);
+      expect(read.status, read.text).toBe(200);
+      expect(read.body).toMatchObject({ attemptId: opened.attemptId, status: "pending", verification: "stored", subscription: null, amountXof: "15000" });
+    }
+    expect(getsOf(opened.reference)).toBe(gets);
+    expect(await billingState(businessId, opened.reference)).toBe(before);
+  });
+
+  it("POST : un paiement confirmé par GeniusPay est appliqué une seule fois, même relancé deux fois de suite", async () => {
+    const { owner, businessId } = await merchant();
+    const opened = await openPayment(owner);
+    fake.set(opened.reference, { status: "completed", payment_method: "wave" });
+    const gets = getsOf(opened.reference);
+    const first = await refresh(owner, opened.attemptId);
+    expect(first.status, first.text).toBe(200);
+    expect(first.body).toMatchObject({ status: "confirmed", verification: "fresh", subscription: { status: "active" } });
+    const second = await refresh(owner, opened.attemptId);
+    expect(second.body).toMatchObject({ status: "confirmed", verification: "final" });
+    // Une seule relecture chez GeniusPay : la tentative confirmée n'est plus interrogée.
+    expect(getsOf(opened.reference)).toBe(gets + 1);
+    const rows = await subscriptions(businessId);
+    expect(rows).toHaveLength(1);
+    expect(Math.abs(rows[0]!.ends_at.getTime() - rows[0]!.starts_at.getTime() - 30 * dayMs)).toBeLessThan(1000);
+    expect((await invoices(businessId))[0]!.status).toBe("paid");
+    expect(await h.count("select count(*)::text n from audit_event where business_id=$1 and event_type='subscription.payment_activated'", [businessId])).toBe(1);
+    // Le GET relit ensuite l'état enregistré, sans rien changer.
+    const after = await billingState(businessId, opened.reference);
+    expect((await status(owner, opened.attemptId)).body).toMatchObject({ status: "confirmed", verification: "final", subscription: { status: "active" } });
+    expect(await billingState(businessId, opened.reference)).toBe(after);
+  });
+
+  it("POST : un paiement que GeniusPay ne confirme pas n'active rien (en attente, échec, montant différent)", async () => {
+    const { owner, businessId } = await merchant();
+    const opened = await openPayment(owner);
+    // En attente chez GeniusPay : la redirection « succès » ne suffit pas.
+    fake.set(opened.reference, { status: "pending" });
+    expect((await refresh(owner, opened.attemptId)).body).toMatchObject({ status: "pending", verification: "fresh", subscription: null });
+    // Deux relances rapprochées : la seconde ne rappelle pas GeniusPay (une relecture au plus toutes les 5 s).
+    const gets = getsOf(opened.reference);
+    expect((await refresh(owner, opened.attemptId)).body).toMatchObject({ status: "pending", verification: "recent" });
+    expect(getsOf(opened.reference)).toBe(gets);
+    expect(await subscriptions(businessId)).toEqual([]);
+    expect((await invoices(businessId))[0]!.status).toBe("open");
+
+    // « completed » mais pour un autre montant : anomalie, rien n'est activé.
+    const other = await merchant();
+    const mismatch = await openPayment(other.owner);
+    fake.set(mismatch.reference, { status: "completed", amount: 200 });
+    expect((await refresh(other.owner, mismatch.attemptId)).body).toMatchObject({ status: "pending", subscription: null });
+    expect(await subscriptions(other.businessId)).toEqual([]);
+    expect(await h.count("select count(*)::text n from audit_event where business_id=$1 and event_type='subscription.payment_anomaly'", [other.businessId])).toBe(1);
+
+    // Échec annoncé par GeniusPay : la tentative est close, la facture reste ouverte.
+    const third = await merchant();
+    const failed = await openPayment(third.owner);
+    fake.set(failed.reference, { status: "failed" });
+    expect((await refresh(third.owner, failed.attemptId)).body).toMatchObject({ status: "failed", subscription: null });
+    expect(await subscriptions(third.businessId)).toEqual([]);
+    expect((await invoices(third.businessId))[0]!.status).toBe("open");
+  });
+
+  it("POST : origine étrangère refusée (403 invalid_origin), rien n'est relu ni modifié", async () => {
+    const { owner, businessId } = await merchant();
+    const opened = await openPayment(owner);
+    fake.set(opened.reference, { status: "completed" });
+    const before = await billingState(businessId, opened.reference);
+    const gets = getsOf(opened.reference);
+    const foreign = await refresh(owner, opened.attemptId, { origin: "https://attaquant.test.invalid" });
+    expect(foreign.status).toBe(403);
+    expect(foreign.body.code).toBe("invalid_origin");
+    expect(getsOf(opened.reference)).toBe(gets);
+    expect(await billingState(businessId, opened.reference)).toBe(before);
   });
 
   it("double clic simultané (même clé) puis nouvelle clé : une seule tentative, un seul paiement GeniusPay", async () => {
@@ -477,7 +577,7 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     // Simule une tentative ouverte par une instance live dans la même base que cette instance sandbox.
     await h.client.query("update subscription_payment set environment='live' where id=$1", [opened.attemptId]);
     const gets = getsOf(opened.reference);
-    expect((await status(owner, opened.attemptId)).body).toMatchObject({ status: "pending", verification: "unavailable", subscription: null });
+    expect((await refresh(owner, opened.attemptId)).body).toMatchObject({ status: "pending", verification: "unavailable", subscription: null });
     const result = await reconcilePendingSubscriptionPayments(h.db, getBillingProvider(), { now: later(), limit: 1000 });
     expect(result.errors).toBe(0);
     expect((await webhook(signedWebhook("payment.success", opened.reference))).status).toBe(200);
@@ -538,7 +638,7 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     await reconcilePendingSubscriptionPayments(h.db, getBillingProvider(), { now: later(), limit: 1000 });
     expect(getsOf(old.reference)).toBe(gets);
     expect((await attempt(old.attemptId)).status).toBe("pending");
-    expect((await status(owner, old.attemptId)).body).toMatchObject({ status: "confirmed", subscription: { status: "active" } });
+    expect((await refresh(owner, old.attemptId)).body).toMatchObject({ status: "confirmed", subscription: { status: "active" } });
     expect(await subscriptions(businessId)).toHaveLength(1);
   });
 
@@ -562,6 +662,16 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     const unknown = await status(a.owner, "00000000-0000-4000-8000-000000000000");
     expect(forB.status).toBe(404);
     expect(forB.text).toBe(unknown.text);
+    // Relance de la tentative de B par A : même réponse qu’un identifiant inconnu, aucune relecture chez GeniusPay.
+    fake.set(opened.reference, { status: "completed" });
+    const gets = getsOf(opened.reference);
+    const refreshB = await refresh(a.owner, opened.attemptId);
+    const refreshUnknown = await refresh(a.owner, "00000000-0000-4000-8000-000000000000");
+    expect(refreshB.status).toBe(404);
+    expect(refreshB.text).toBe(refreshUnknown.text);
+    expect(getsOf(opened.reference)).toBe(gets);
+    expect((await attempt(opened.attemptId)).status).toBe("pending");
+    expect(await subscriptions(b.businessId)).toEqual([]);
     expect(await h.count("select count(*)::text n from subscription_invoice where business_id=$1", [a.businessId])).toBe(0);
   });
 });
