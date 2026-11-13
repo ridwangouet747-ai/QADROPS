@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { registrationAllows, registrationPolicy } from "@/lib/auth/registration";
 import { createQadrAuth, signUpRefusal } from "@/lib/auth/server";
-import { user } from "@/lib/db/schema";
+import { count } from "drizzle-orm";
+import { account, session, user, verification } from "@/lib/db/schema";
 import { HARNESS_ORIGIN, startHttpHarness, type HttpHarness } from "./http-harness";
 
 vi.mock("@/lib/db/client", () => import("@/test/harness-database"));
@@ -73,5 +74,39 @@ describe("ouverture des inscriptions", () => {
       const created = await auth.api.signUpEmail({ body: { name: "Script", email: "script@hors-liste.test", password: "mot-de-passe-de-test-liste" } });
       expect(created.user.email).toBe("script@hors-liste.test");
     });
+
+    it("hors liste, adresse déjà inscrite ou inconnue : même réponse, rien n'est créé (aucune comparaison de durée)", async () => {
+      // script@hors-liste.test existe (essai précédent) ; inconnue@hors-liste.test n'existe pas.
+      const before = await tableCounts();
+      const existing = await signUp("script@hors-liste.test");
+      const unknown = await signUp("inconnue@hors-liste.test");
+      expect(existing.status).toBe(422);
+      expect(unknown.status).toBe(existing.status);
+      expect(await existing.json()).toEqual(signUpRefusal);
+      expect(await unknown.json()).toEqual(signUpRefusal);
+      const headerNames = (response: Response) => [...response.headers.keys()].filter((name) => name !== "date").sort();
+      expect(headerNames(unknown)).toEqual(headerNames(existing));
+      expect(existing.headers.get("set-cookie")).toBeNull();
+      expect(unknown.headers.get("set-cookie")).toBeNull();
+      expect(await tableCounts()).toEqual(before);
+    });
+
+    it("limitation : au-delà de 30 inscriptions par adresse IP et par heure, refus 429", async () => {
+      const fixedIp = "198.19.7.7";
+      const attempt = (index: number) => auth.handler(new Request(`${HARNESS_ORIGIN}/api/auth/sign-up/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: HARNESS_ORIGIN, "x-forwarded-for": fixedIp },
+        body: JSON.stringify({ name: "Rafale", email: `rafale-${index}@hors-liste.test`, password: "mot-de-passe-de-test-liste" }),
+      }));
+      for (let index = 0; index < 30; index += 1) expect((await attempt(index)).status).toBe(422);
+      expect((await attempt(30)).status).toBe(429);
+      const accounts = await h.db.select({ email: user.email }).from(user);
+      expect(accounts.some((row) => row.email.startsWith("rafale-"))).toBe(false);
+    });
+
+    async function tableCounts() {
+      const counted = await Promise.all([user, account, session, verification].map(async (table) => (await h.db.select({ n: count() }).from(table))[0]!.n));
+      return { user: counted[0], account: counted[1], session: counted[2], verification: counted[3] };
+    }
   });
 });

@@ -283,4 +283,27 @@ une offre commerciale. Hors production Vercel (développement, tests, Preview), 
 Le refus est levé dans `databaseHooks.user.create.before` (toutes les routes) en `422 FAILED_TO_CREATE_USER`,
 puis rendu par le hook `after` sous la forme habituelle `422 SIGN_UP_FAILED` : la réponse ne dit pas si
 l'adresse est sur la liste. Les créations faites par le serveur (scripts, console) ne sont pas visées. Tests :
-`registration-allowlist.http.test.ts`.
+`registration-allowlist.http.test.ts` : réponse identique (statut, corps, noms d'en-têtes, aucun cookie) pour une
+adresse hors liste déjà inscrite ou inconnue, aucune ligne créée dans `user`, `account`, `session`,
+`verification`, et refus `429` à la 31e tentative d'une même adresse IP en une heure (`rateRules.signUpIp`).
+Ces tests ne comparent aucune durée.
+
+**Coût d'une inscription et d'un refus (mesure du 2026-11-13).** Une inscription acceptée hache le mot de passe
+(scrypt) puis écrit l'utilisateur, le compte, la session et l'audit : plusieurs allers-retours vers la base. Un
+refus hache aussi le mot de passe (mission 16) mais n'écrit rien. Sur PGlite l'écart est négligeable ; depuis le
+poste vers Neon (us-east-1), le test `auth-security.http.test.ts` « durée comparable » a mesuré environ 1,3 s pour
+une création et 0,53 s pour un refus (médianes de 5 essais) et a échoué : l'écart vient des allers-retours réseau
+des écritures, pas du hachage. Ce test reste en place (il signale ce risque) ; sur Vercel (`iad1`, même région
+que la base) l'écart sera bien plus faible mais **n'est pas mesuré**.
+
+Conséquence pratique : tant que la liste est en place, **toutes** les adresses hors liste, inscrites ou non,
+suivent le même chemin (recherche, hachage, refus sans écriture), donc la durée ne révèle rien sur elles ; seule
+une adresse de la liste peut donner une durée de création. Avant d'ouvrir les inscriptions à tous (C-3), il
+faudra mesurer l'écart sur Vercel et, s'il est exploitable, égaliser le refus (par exemple écritures fictives ou
+délai calé sur une création).
+
+**Procédure conseillée pour le propriétaire** : poser `QADR_REGISTRATION_ALLOWLIST` avec sa seule adresse,
+s'inscrire et créer son commerce, puis **retirer la variable** : la production redevient fermée à toute
+inscription (aucune liste = aucune inscription), sans code supplémentaire. Une préinitialisation par script
+serveur serait possible (`auth.api.signUpEmail` n'est pas visé par la liste) mais demanderait de transmettre le
+mot de passe au script ; la procédure ci-dessus l'évite.
