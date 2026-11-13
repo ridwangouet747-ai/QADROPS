@@ -43,6 +43,10 @@
    `production` avec affichage de l'hôte, de la base et du nombre de migrations en attente, phrase de
    confirmation distincte, refus si la base contient des tables `public` sans journal. Test associé sur PGlite
    et sur une base jetable de staging.
+   **Fait le 2026-11-13** : `scripts/migrate-production.ts` (tests `src/test/migrate-production.test.ts`),
+   répété sur la branche `repetition-migration-main-2026-11-13` (copie de `main`), puis appliqué à `main`
+   (26 migrations, une transaction, 163 s). Résultats : `backup-restore.md` § 6.7,
+   `../security/neon-rls-validation.md` § 4 bis.
 4. Garde-fou du harnais : `openPostgresHarness` ne supprime pas sa base si `migrate()` échoue (origine
    probable d'une base orpheline, `mission-16-neon.md` § 3). Correctif de test à autoriser.
 5. **Dépôt Git distant privé** : les migrations ne sont protégées que par le poste de développement

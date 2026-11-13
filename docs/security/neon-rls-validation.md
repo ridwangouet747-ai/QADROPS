@@ -147,12 +147,23 @@ branche de staging (voir `docs/engineering/backup-restore.md` § 6.6). Sur la co
 dernière empreinte, 63 tables, 44 politiques, rôle `qadr_tenant` présent, même empreinte de structure
 (`md5` des colonnes) que l'original.
 
+## 4 bis. Essais du 2026-11-13 sur une copie migrée de `main`, y compris à travers le pooler
+
+Branche `repetition-migration-main-2026-11-13` (`br-curly-art-bc9m4uea`, copie de `main` migrée par
+`scripts/migrate-production.ts`, sans donnée réelle), outils `psql` 18.7 :
+
+- script rejouable du § 3 en connexion directe : **24/24** ;
+- pooler Neon (PgBouncer, mode transaction, hôte `-pooler`) : données A et B validées, puis 6 transactions
+  alternées A/B (dont un `ROLLBACK` et une sans contexte) **sur la même connexion serveur** (même
+  `pg_backend_pid`, donc réutilisation réelle) : chaque transaction ne voit que le produit de son commerce,
+  aucune ligne sans contexte ; après chaque `COMMIT` ou `ROLLBACK`, la requête suivante tourne de nouveau sous
+  `neondb_owner` avec `qadr.business_id` vide. Données de test supprimées (0 ligne restante).
+
 ## 5. Limites (ce qui n'est pas prouvé sur Neon)
 
-- **Réutilisation d'une connexion après `COMMIT`** : `SET LOCAL` et `set_config(…, true)` sont de portée
-  transaction, ce que garantit PostgreSQL. Le test de bout en bout qui le vérifie (pool réutilisé, rôle et
-  contexte remis à zéro) n'a tourné que sur PGlite (`tenant-rls.http.test.ts`, essai 7), pas sur une
-  connexion Neon poolée.
+- **Réutilisation d'une connexion après `COMMIT`** : prouvée à travers le pooler Neon le 2026-11-13 (§ 4 bis),
+  avec `psql`. Le pool WebSocket de l'application (`@neondatabase/serverless`) n'a été exercé que par les tests
+  HTTP sur base Neon réelle, qui ouvrent leurs propres connexions directes.
 - **Code applicatif contre Neon** : seul l'export complet (`data-export.ts`) passe par `withTenantScope`. Les
   autres routes restent protégées par le filtrage applicatif (`business_id` issu de la session) ; la RLS n'y
   est pas encore une seconde barrière. Inventaire et plan d'extension : `production-security-audit.md`.

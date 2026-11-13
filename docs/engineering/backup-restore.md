@@ -178,12 +178,13 @@ Restaurer une archive : la télécharger depuis l'exécution, vérifier `sha256s
 vers une **branche Neon dédiée** (§ 6), jamais directement vers `main` ; créer d'abord le rôle `qadr_tenant`
 (`NOLOGIN NOBYPASSRLS`) s'il n'existe pas sur la cible.
 
-### 4.0 bis Essai local impossible au 2026-11-13
+### 4.0 bis Essai local du 2026-11-13 (réussi) : voir § 6.7
 
-Le poste de développement n'a ni `pg_dump` ni Docker en état de marche : Docker Desktop est installé mais aucune
-distribution WSL ne l'est (`wsl -l -v`), donc son moteur ne démarre pas. L'agent n'a pas non plus accès aux
-identifiants de base (refus de son système d'autorisations). La première preuve réelle passera donc par le
-workflow ci-dessus ou par une autorisation explicite du propriétaire (checklist P-0).
+Docker ne démarre toujours pas sur le poste (aucune distribution WSL), mais il n'est pas nécessaire : les outils
+clients officiels PostgreSQL 18.7 pour Windows (archive EnterpriseDB `postgresql-18.7-1-windows-x64-binaries.zip`,
+seuls `pg_dump`, `pg_restore`, `psql` et leurs DLL extraits, signature Authenticode EnterpriseDB vérifiée)
+suffisent. Le mot de passe est passé par un `PGPASSFILE` privé (ACL Windows réduite au seul compte, hors du
+dépôt, supprimé en fin d'essai), jamais par la ligne de commande.
 
 ### 4.1 Principe
 
@@ -551,6 +552,25 @@ Ce qu'il **ne** prouve **pas** :
 
 Branche laissée en place (3 branches sur 10 autorisées) : sa suppression est une **décision du propriétaire**
 (console Neon, *Branches*). Elle ne doit jamais être branchée sur Vercel.
+
+### 6.7 Essai réel du 2026-11-13 : `pg_dump` puis `pg_restore` dans une base vide (réussi)
+
+Outils : `pg_dump`/`pg_restore`/`psql` 18.7 (§ 4.0 bis). Serveurs : PostgreSQL 18.7 (Neon).
+
+| Étape | Résultat |
+| --- | --- |
+| `pg_dump -Fc` de `qadr_staging` (branche `mission-14-staging`) | exit 0, 33 s, 283 019 octets ; `pg_restore -l` lisible : 649 entrées (63 tables + journal Drizzle, 44 politiques, 44 activations RLS, 85 index, 158 clés étrangères, 4 fonctions, 3 déclencheurs) |
+| Cible | base **neuve** `qadr_restore_verif` créée sur la branche isolée `restore-test-2026-11-12` (0 objet avant restauration) |
+| `pg_restore --single-transaction --exit-on-error` | 1er essai refusé et annulé en entier (propriétaire `qadr_m14_staging` non endossable) ; 2e essai `--no-owner` refusé sur `ALTER DEFAULT PRIVILEGES FOR ROLE cloud_admin` ; 3e essai réussi (exit 0, 155 s) en excluant **seulement** les 2 entrées `DEFAULT ACL` de `cloud_admin`, réglages de la plateforme Neon présents d'office sur toute base |
+| Comparaison source / copie | identiques : 2 schémas, 64 tables, 608 colonnes, 828 contraintes, 201 index, 44 politiques, 44 tables sous RLS, 1 séquence (même valeur), 4 fonctions (même `md5` de définition), 3 déclencheurs, 158 droits de `qadr_tenant` (même empreinte, lue dans `relacl`), 35 lignes de données avec la même empreinte `md5` par table |
+| Écarts expliqués | propriétaire des objets (`neondb_owner` au lieu de `qadr_m14_staging`, effet de `--no-owner`) ; texte de 4 contraintes `CHECK` (parenthèses ajoutées autour de `AND` imbriqués, même condition) |
+| `pg_dump` de `main` avant migration (`neondb` et `postgres`) | exit 0 ; 47 et 24 entrées ; `neondb` restaurée dans la base neuve `qadr_restore_main` (branche isolée) : 9 tables `neon_auth`, contenu identique (empreintes égales) |
+
+À retenir pour une vraie restauration : se connecter avec le rôle propriétaire d'origine si l'on veut garder
+les propriétaires, sinon `--no-owner` ; exclure les `DEFAULT ACL` de `cloud_admin` (liste `pg_restore -l`
+filtrée puis `-L`). Les archives sont restées sur le poste (dossier privé, hors dépôt) puis ont été
+supprimées en fin de mission : **aucune sauvegarde hors Neon n'est conservée** tant que le workflow chiffré
+(§ 4.0) n'a pas de secrets.
 
 ## 7. Objets hors base
 
