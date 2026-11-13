@@ -270,3 +270,17 @@ Détail et commandes : `docs/engineering/mission-16-securite.md`. Tests : `src/t
   (`auth.api.*`, sans `request`) ne sont pas concernés. Une session ordinaire ouverte avant ce correctif
   n'ouvre pas la console (401 `platform_reauth_required`). Tests : `platform-owner-login.http.test.ts` ;
   détails dans `docs/platform-owner-access.md`.
+
+### 11.6 Inscriptions limitées en production (2026-11-13)
+
+L'offre Vercel Hobby est réservée à l'usage personnel : la production ne doit pas accueillir de commerçants
+tiers. `src/lib/auth/registration.ts` le rend technique. En production Vercel (`VERCEL_ENV=production`), un
+compte ne peut être créé par une requête HTTP (inscription par e-mail, retour Google ou Apple, invitation
+acceptée par un nouveau compte) que si son adresse figure dans `QADR_REGISTRATION_ALLOWLIST` (virgules, casse
+ignorée). Sans liste, aucune inscription ; `QADR_REGISTRATION=open` rouvre à tous et ne doit être posée qu'avec
+une offre commerciale. Hors production Vercel (développement, tests, Preview), rien ne change.
+
+Le refus est levé dans `databaseHooks.user.create.before` (toutes les routes) en `422 FAILED_TO_CREATE_USER`,
+puis rendu par le hook `after` sous la forme habituelle `422 SIGN_UP_FAILED` : la réponse ne dit pas si
+l'adresse est sur la liste. Les créations faites par le serveur (scripts, console) ne sont pas visées. Tests :
+`registration-allowlist.http.test.ts`.

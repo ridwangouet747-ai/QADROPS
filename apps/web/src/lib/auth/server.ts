@@ -13,6 +13,7 @@ import { claimPublicCampaignSafely, signupCampaignScope } from "@/lib/domain/pub
 import { consumeRateLimits, rateRules, type RateRule } from "@/lib/security/rate-limit";
 import { defaultLocale, localeCookie, resolveLocale, type Locale } from "@/lib/i18n/config";
 import { clientIpFrom, clientIpHeaders } from "./client-ip-headers";
+import { registrationAllows, registrationPolicy, type RegistrationPolicy } from "./registration";
 import { deliverEmail, emailRequestScope, resolveEmailTransport, type EmailLogger, type EmailMessage, type EmailTransport } from "./email";
 import { renderInvitationEmail, renderPasswordResetEmail, renderVerificationEmail } from "./email-templates";
 import { businessAccess, businessRoles } from "./permissions";
@@ -136,6 +137,8 @@ type AuthOptions = {
   turnstile?: { secret?: string; siteKey?: string; fetcher?: typeof fetch };
   /** Connexions sociales configurées (`socialProviders()` de lib/env), aucune par défaut. */
   social?: ReturnType<typeof configuredSocialProviders>;
+  /** Qui peut créer un compte par requête HTTP (`registration.ts`) ; ouvert par défaut. */
+  registration?: RegistrationPolicy;
 };
 
 /**
@@ -148,6 +151,7 @@ export function createQadrAuth(options: AuthOptions) {
   const db = options.db as CommercialDatabase;
   const deliver = (message: EmailMessage) => deliverEmail(transport!, message, options.emailDelivery);
   const expectedHostname = new URL(options.baseURL).hostname;
+  const registration = options.registration ?? { mode: "open" };
   return betterAuth({
     appName: "QADR OPS",
     baseURL: options.baseURL,
@@ -276,6 +280,14 @@ export function createQadrAuth(options: AuthOptions) {
     // reçoivent aussitôt leur session plateforme. `context.request` n'existe que pour une requête reçue par le
     // gestionnaire HTTP : aucun en-tête envoyé par le client ne peut le fabriquer.
     databaseHooks: {
+      // Usage personnel sous Hobby (registration.ts) : un compte hors liste n'est pas créé, quelle que soit la
+      // route HTTP. Le refus est levé en 422 FAILED_TO_CREATE_USER (un simple `false` donnerait 400), puis rendu
+      // générique par le hook `after` : même statut et même corps qu'une adresse déjà inscrite.
+      user: { create: { before: async (created, context) => {
+        if (context?.request && !registrationAllows(registration, created.email)) {
+          throw new APIError("UNPROCESSABLE_ENTITY", { message: "FAILED_TO_CREATE_USER", code: "FAILED_TO_CREATE_USER" });
+        }
+      } } },
       session: { create: { before: async (created, context) => {
         if (context?.request && await isActivePlatformOwner(db, created.userId)) return false;
       } } },
@@ -427,7 +439,7 @@ export function getAuth(): Promise<QadrAuth> {
       if (env.NODE_ENV === "production") assertProductionAuthUrl(process.env.BETTER_AUTH_URL);
       return createQadrAuth({ db: getDatabase(env.DATABASE_URL), secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL,
         isProduction: env.NODE_ENV === "production", emailTransport: resolveEmailTransport(), backgroundTask: runAfterResponse, social: configuredSocialProviders(),
-        turnstile: { secret: env.TURNSTILE_SECRET_KEY, siteKey: env.NEXT_PUBLIC_TURNSTILE_SITE_KEY } });
+        turnstile: { secret: env.TURNSTILE_SECRET_KEY, siteKey: env.NEXT_PUBLIC_TURNSTILE_SITE_KEY }, registration: registrationPolicy() });
     })();
     authInstance.catch(() => { authInstance = undefined; });
   }

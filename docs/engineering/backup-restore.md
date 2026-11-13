@@ -165,14 +165,25 @@ Secrets à créer par le propriétaire (GitHub → dépôt → *Settings* → *S
 | --- | --- |
 | `NEON_BACKUP_DATABASE_URL` | Chaîne **directe** (sans `-pooler`) de la base `neondb` de la branche `main`, console Neon → *Connect* |
 | `BACKUP_PASSPHRASE` | Phrase de passe d'au moins 32 caractères, **conservée hors de GitHub** (gestionnaire de mots de passe) : sans elle, l'archive est illisible |
+| `NEON_STAGING_DATABASE_URL` | Facultatif (2026-11-13) : chaîne **directe** de la base `qadr_staging` de la branche `mission-14-staging`. Lancement manuel avec la source `staging` : preuve de restauration sur un schéma complet et des données d'essai, avant la première migration de `main` (qui n'a encore aucune table) |
 
-Sans ces deux secrets, le travail s'arrête avec un avertissement, sans erreur. Tant qu'une exécution réelle n'a
+Sans le secret de la source choisie ou sans `BACKUP_PASSPHRASE`, le travail s'arrête avec un avertissement, sans
+erreur. L'exécution planifiée exporte toujours la production. GitHub ne propose le lancement manuel
+(`workflow_dispatch`) que pour un workflow présent sur la branche par défaut : il faut donc que la release soit
+fusionnée dans `main`. Tant qu'une exécution réelle n'a
 pas réussi, **aucune sauvegarde automatique n'existe**.
 
 Restaurer une archive : la télécharger depuis l'exécution, vérifier `sha256sum -c`, puis
 `gpg --decrypt qadr-….dump.gpg > qadr.dump` et `pg_restore --no-owner --no-privileges --dbname=<cible> qadr.dump`
 vers une **branche Neon dédiée** (§ 6), jamais directement vers `main` ; créer d'abord le rôle `qadr_tenant`
 (`NOLOGIN NOBYPASSRLS`) s'il n'existe pas sur la cible.
+
+### 4.0 bis Essai local impossible au 2026-11-13
+
+Le poste de développement n'a ni `pg_dump` ni Docker en état de marche : Docker Desktop est installé mais aucune
+distribution WSL ne l'est (`wsl -l -v`), donc son moteur ne démarre pas. L'agent n'a pas non plus accès aux
+identifiants de base (refus de son système d'autorisations). La première preuve réelle passera donc par le
+workflow ci-dessus ou par une autorisation explicite du propriétaire (checklist P-0).
 
 ### 4.1 Principe
 

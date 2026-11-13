@@ -15,6 +15,12 @@ on:
   schedule:
     - cron: "30 2 * * *"
   workflow_dispatch:
+    inputs:
+      source:
+        description: "Base exportée : production (main) ou staging (essai de restauration avant migration)"
+        type: choice
+        options: [production, staging]
+        default: production
 
 permissions:
   contents: read
@@ -38,7 +44,10 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      SOURCE_URL: ${{ secrets.NEON_BACKUP_DATABASE_URL }}
+      # Planifié : toujours la production. Manuel : au choix ; staging sert à prouver la restauration avant
+      # la première migration de main (secret NEON_STAGING_DATABASE_URL, branche mission-14-staging).
+      SOURCE: ${{ inputs.source || 'production' }}
+      SOURCE_URL: ${{ (inputs.source == 'staging') && secrets.NEON_STAGING_DATABASE_URL || secrets.NEON_BACKUP_DATABASE_URL }}
       BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
       RESTORE_URL: postgresql://postgres:restauration-jetable@localhost:5432/restauration
     steps:
@@ -46,7 +55,7 @@ jobs:
         id: config
         run: |
           if [ -z "$SOURCE_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
-            echo "::warning::Secrets NEON_BACKUP_DATABASE_URL et BACKUP_PASSPHRASE absents : aucune sauvegarde."
+            echo "::warning::Secret de la base ($SOURCE) ou BACKUP_PASSPHRASE absent : aucune sauvegarde."
             echo "pret=non" >> "$GITHUB_OUTPUT"
           elif [ "${#BACKUP_PASSPHRASE}" -lt 32 ]; then
             echo "::error::BACKUP_PASSPHRASE doit compter au moins 32 caractères."
@@ -133,7 +142,7 @@ jobs:
         if: steps.config.outputs.pret == 'oui'
         uses: actions/upload-artifact@v7
         with:
-          name: neon-main-${{ env.STAMP }}
+          name: neon-${{ env.SOURCE }}-${{ env.STAMP }}
           path: |
             qadr-*.dump.gpg
             qadr-*.sha256

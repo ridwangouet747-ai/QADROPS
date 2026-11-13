@@ -1,125 +1,94 @@
-# Rapport exécutif unique : directive finale de mise en ligne
+# Rapport exécutif unique : activation de la production
 
-> Relevé du 2026-11-12, 23 h UTC environ. Ce document **remplace** les versions précédentes de ce rapport : il
-> n'en existe pas d'autre. Chaque affirmation est classée **vérifié** (commande exécutée, résultat cité),
-> **fait sans preuve de bout en bout**, ou **bloqué**. Aucun secret n'y figure.
+> Relevé du 2026-11-13. Ce document **remplace** toutes les versions précédentes de ce rapport. Statuts :
+> **VALIDÉ** (preuve citée), **PARTIEL**, **BLOQUÉ** (accès, décision ou outil du propriétaire), **À CORRIGER**,
+> **NON TESTÉ**. Aucun secret n'y figure.
 
-## Verdict en une phrase
+## Verdict
 
-Le code est publié sur GitHub (dépôt privé) et construit sans erreur sur Vercel ; l'application n'est **pas encore
-utilisable**, parce que la base de production Neon (`main`) n'est pas migrée : son écriture a été refusée par le
-système d'autorisations de l'agent et attend l'accord explicite du propriétaire.
+Qadr Ops **n'est pas encore en production**. La chaîne s'arrête à la première étape que vous avez imposée :
+la **restauration réelle** d'une sauvegarde PostgreSQL avant de migrer `main`. Elle exige un `pg_dump` et les
+identifiants de la base ; le système d'autorisations de l'agent a refusé deux fois l'accès aux identifiants, et
+Docker ne démarre pas sur le poste (aucune distribution WSL). Tout ce qui suit (migration, fusion, déploiement,
+tests distants) en dépend et n'a donc pas été fait. Le reste a avancé : verrou d'inscription pour l'usage
+personnel, script de la formule Standard, workflow de sauvegarde capable de tester la restauration sur staging.
 
-## A. Adresse de l'application
+## Tableau de bord
 
-| Élément | Valeur | Statut |
+| Sujet | Statut | Détail |
 | --- | --- | --- |
-| URL de production | `https://web-phi-beryl-45.vercel.app` | sert encore l'**ancien** déploiement du 1er novembre (commit `2cb9c97`) ; la production change à la fusion dans `main` |
-| URL du Preview du code actuel | `https://web-o7q39yzpb-qadragency.vercel.app` (déploiement `dpl_8SG96E3jpAJxo1jnrU7hmEJwJv47`, état READY) | **vérifié** : construit sur Vercel à partir de `31d8eca` |
-| Type | projet Vercel canonique `web`, équipe `qadragency`, offre **Hobby** | — |
-| Environnements | Production : variables posées (§ F, G) ; Preview : **aucune variable** | Preview sans base, donc les API qui lisent la base répondent 500 |
-| HTTPS | HTTPS seul, HSTS `max-age=63072000; includeSubDomains` | **vérifié** sur le Preview |
-| Accès | protection Vercel « All Deployments » : tout visiteur anonyme reçoit 302 vers `vercel.com/sso-api` | **vérifié** par `curl` anonyme sur les deux URL, pages et `/api/webhooks/geniuspay` compris |
+| Branche, commit | VALIDÉ | `feat/mission-13-reprise` ; code testé `31d8eca`, puis le commit de ce lot (voir `git log`) poussé sans force |
+| Hash GitHub | VALIDÉ | `origin/feat/mission-13-reprise` = dernier commit local ; dépôt `ridwangouet747-ai/QADROPS` **privé** |
+| `main` GitHub | BLOQUÉ | `2cb9c97` (31 octobre) ; fusion prévue juste après la migration |
+| URL Vercel de production | BLOQUÉ | `https://web-phi-beryl-45.vercel.app` sert encore le déploiement du 1er novembre (`2cb9c97`), derrière la protection Vercel (302 vers `vercel.com/sso-api` pour tout visiteur anonyme) |
+| Statut du déploiement | PARTIEL | le Preview de `31d8eca` est READY (`dpl_8SG96E3jpAJxo1jnrU7hmEJwJv47`) ; aucun déploiement de production de la release |
+| Neon `main` | BLOQUÉ | cible vérifiée par SQL : branche `br-holy-wind-bc24ak16` (`main`, principale, branche de production Vercel), base `neondb`, PostgreSQL 18.7, **0 table publique**, rôle `qadr_tenant` absent |
+| Migrations exécutées sur `main` | BLOQUÉ | 0 sur 26. Revue faite : aucune ne supprime de données (les `DROP` remplacent des contraintes `CHECK` ou des politiques, les deux `UPDATE` remplissent une colonne nouvelle avant `NOT NULL`). Instantané `snap-cold-frost-bcldn8o9` (2026-11-12 22:28 UTC) présent |
+| RLS réellement vérifiée | PARTIEL | sur Neon staging uniquement : 24 essais SQL et catalogue 44/44 (`../security/neon-rls-validation.md`). La RLS ne protège que l'export complet ; les autres routes reposent sur le filtrage applicatif. Connexions poolées, réutilisation de connexion et fin de transaction à travers le pooler : NON TESTÉ (identifiants nécessaires) |
+| Sauvegarde et restauration | BLOQUÉ | aucun `pg_dump` réel. Workflow `neon-backup.yml` prêt (export, contrôle, restauration dans PostgreSQL 18 jetable, comparaison des comptes et du catalogue, chiffrement), jamais exécuté : secrets GitHub absents, et le lancement manuel exige qu'il soit sur `main` |
+| Tests locaux | voir § Tests | |
+| Tests distants | PARTIEL | Preview seulement, sans base : en-têtes de sécurité, HTTPS, refus du cron sans secret (404), `GET` du webhook (405), erreurs génériques sans fuite. Aucun parcours métier distant |
+| Better Auth | VALIDÉ en local, NON TESTÉ à distance | correctifs propriétaire, connexion générique, et nouveau verrou d'inscription (§ Sécurité) |
+| GeniusPay | NON TESTÉ | aucune clé ; webhook prêt (`/api/webhooks/geniuspay`, signature HMAC, fenêtre 300 s, relecture du paiement) |
+| Resend | NON TESTÉ | aucune clé ni domaine |
+| Turnstile | PARTIEL | widget et clés posés en Production ; vérification réelle impossible sans humain |
+| R2 | NON TESTÉ | aucun bucket |
+| Push | NON TESTÉ | clés VAPID posées ; `VAPID_SUBJECT` absent, donc désactivé |
 
-**Usage personnel seulement.** L'offre Hobby est réservée à l'usage personnel ou non commercial (conditions Vercel
-§ 4). Les restrictions sont techniques et vérifiables : seuls les membres de l'équipe Vercel passent la protection ;
-aucune clé GeniusPay n'existe, et le webhook est derrière la même protection (302), donc aucun paiement ne peut
-aboutir ; aucune formule n'est créée en base, donc aucun tarif n'est affiché ; l'inscription n'est atteignable
-que derrière la protection. Ouvrir aux commerçants exige l'offre Pro (checklist, ligne P-1).
+## Ce qui a été fait le 2026-11-13
 
-## B. Code
+1. **Verrou d'inscription (usage personnel sous Hobby)** : `src/lib/auth/registration.ts`. En production
+   Vercel, seules les adresses de `QADR_REGISTRATION_ALLOWLIST` peuvent créer un compte par requête HTTP
+   (e-mail, Google, Apple, invitation) ; sans liste, aucune ; `QADR_REGISTRATION=open` rouvre à tous. Refus dans
+   `databaseHooks.user.create.before`, rendu en `422 SIGN_UP_FAILED` (identique à une adresse déjà inscrite).
+   C'est ce qui permettra de rendre le domaine de production public (webhook joignable, application protégée par
+   Better Auth) sans accueillir de commerçants tiers. Tests : `registration-allowlist.http.test.ts` (7).
+2. **Formule Standard** : `scripts/ensure-standard-plan.ts`, par le service de la console
+   (`createPlatformPlan` : validation et audit), idempotent (rien si `STANDARD` existe), **inactive** par défaut
+   (absente de la page publique sous Hobby), `--publish` pour l'activer. Tests : `standard-plan.http.test.ts` (3).
+3. **Workflow de sauvegarde** : lancement manuel avec la source `production` ou `staging` (secret
+   `NEON_STAGING_DATABASE_URL`) pour prouver la restauration avant la migration de `main`.
+4. **Constat sur le second facteur** : `scripts/platform-owner.ts enroll-2fa` chiffre avec
+   `BETTER_AUTH_SECRET`, dont la valeur de Production est illisible (type *Sensitive*). Solution dans la
+   checklist (P-5) : le propriétaire pose son propre secret avant toute création de compte.
+5. Documents : `../authentication.md` § 11.6, `vercel-environments.md`, `backup-restore.md` § 4.0 et 4.0 bis,
+   `.env.example`, `CLAUDE.md`, checklist.
 
-| Élément | Valeur |
-| --- | --- |
-| Branche | `feat/mission-13-reprise` |
-| Commit testé | `31d8ecaf2f22b6819930e091e734edb2665b7e3e` (« fix(securite) : propriétaire refusé hors console, GET de paiement sans écriture, sauvegarde Neon »), précédé de `2687738` (release : RLS 0025, comptes, marque, console) |
-| GitHub | `ridwangouet747-ai/QADROPS`, **privé** (vérifié : 404 en accès anonyme) ; `origin/feat/mission-13-reprise` = `31d8eca`, identique au code testé ; push sans force |
-| `main` distant | `2cb9c97` (inchangé) : la fusion attend la migration de la base de production |
-| Secrets dans l'historique | balayage de tout l'historique : seulement des valeurs factices de test ; seul `apps/web/.env.example` est suivi |
-| Hors commit, volontairement | `apps/web/.gitignore`, `docs/engineering/dependencies-and-skills.md`, `production-video/` (changements du propriétaire) |
+## Tests
 
-Correctifs de cette directive :
-
-- **A, owner sur `/sign-in/email`** : refus de tout propriétaire actif de la plateforme ou de tout compte à second
-  facteur (même 401 qu'un mauvais mot de passe, durée comparable, aucun cookie), plus `databaseHooks` qui refusent
-  au propriétaire toute session ou tout fournisseur social ouverts par requête HTTP. Les appels serveur de la
-  console passent.
-- **B, GET qui écrivait** : `GET /api/business/subscription/payments/[attemptId]` est en lecture seule ; la
-  relecture GeniusPay passe par un `POST` (propriétaire, origine contrôlée, au plus une relecture toutes les 5 s).
-- **C, CSP** : toujours en `Report-Only` (vérifié dans les en-têtes du Preview).
-- **D, `@opennextjs/cloudflare`** : reste en dépendance de développement.
-
-## C. Base de données
-
-| Élément | Valeur | Statut |
-| --- | --- | --- |
-| Projet Neon de production | `soft-shadow-92812879` (région `iad1`), relié au projet `web` par la ressource `qadr-data-base` (Production seulement) | **vérifié** |
-| Branche `main` | **aucune migration appliquée** (0 table publique ; seulement `neon_auth` de l'intégration Vercel) | **bloqué** : premier appel d'écriture refusé par le système d'autorisations de l'agent |
-| Migrations prêtes | 26 (0000 à 0025), toutes additives ; empreintes SHA-256 des 26 fichiers identiques au journal de `qadr_staging` | **vérifié** |
-| Branche de staging | `mission-14-staging`, base `qadr_staging` : 26 migrations | **vérifié** |
-| RLS | 0025 appliquée sur staging ; 24 essais SQL exécutés sur Neon, tous conformes ; catalogue 44/44 tables. `tenant-rls.http.test.ts` tourne sur PGlite, pas sur Neon ; le comportement à travers le pooler Neon n'a jamais été testé | **vérifié (staging, SQL)** |
-| Instantané | `snap-cold-frost-bcldn8o9` de `main`, 2026-11-12 22:28 UTC, avant toute écriture | **vérifié** |
-| Sauvegarde planifiée | `.github/workflows/neon-backup.yml` (quotidien 02:30 UTC) : `pg_dump` 18, restauration dans un PostgreSQL 18 jetable, comparaison des comptes et du catalogue, chiffrement AES-256, artefact privé 14 jours | **écrite, jamais exécutée** : secrets GitHub à saisir (checklist P-4) |
-| Test de restauration | branche `restore-test-2026-11-12` (copie de staging, conservée) : copie identique, **ce n'est pas** une restauration de sauvegarde. Le vrai test sera la première exécution du workflow | **non fait** |
-
-Le rapport précédent annonçait la RLS « validée sur Neon » sans préciser : les 24 essais sont du SQL exécuté sur
-la branche de staging par l'outil Neon, pas la suite Vitest. C'est la seule preuve Neon.
-
-## D. Tests
-
-Tous lancés depuis `apps/web`, sur `31d8eca`, en local, le 2026-11-12 :
+Locaux, depuis `apps/web` :
 
 | Commande | Résultat |
 | --- | --- |
-| `npx vitest run` | **96 fichiers, 845 réussis, 0 échec, 10 ignorés** (1 155 s). Base : PGlite. Les 10 ignorés sont les essais Cloudflare R2 réels (`r2.integration.test.ts`), sans bucket de test configuré : ils ne comptent pas comme réussis |
+| `npx vitest run` (suite complète) | 98 fichiers réussis, 855 tests réussis, 10 ignorés, 0 échec |
+| `npx vitest run` des deux nouveaux fichiers | 2 fichiers, 10 tests réussis |
+| `npx vitest run` auth (`registration-allowlist`, `auth-security`, `platform-owner-login`) | 3 fichiers, 44 tests réussis |
 | `npm run lint` | exit 0 |
-| `npm run typecheck` | exit 0 |
-| `npx drizzle-kit check` | « Everything's fine » |
-| `npm run build` | réussi, « Compiled successfully in 93s », 82/82 pages |
-| Tests ciblés des correctifs | `platform-owner-login.http.test.ts` 19/19, `password-change.http.test.ts` 9/9, `subscription-billing.http.test.ts` (+4), `tenant-isolation.http.test.ts` (attaque A→B sur le nouveau `POST`) |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run build` | exit 0, « Compiled successfully in 2.6min », 82 pages générées |
 
-Essais **distants** sur le Preview (`vercel curl`, qui passe la protection avec le jeton de l'agent) :
+Les 10 tests ignorés de la suite sont les essais Cloudflare R2 réels (aucun bucket de test) : ils ne comptent
+pas comme réussis.
 
-| Requête | Résultat | Lecture |
-| --- | --- | --- |
-| `/`, `/login`, `/platform/login`, `/robots.txt` | 200 | pages servies |
-| en-têtes de `/login` | HSTS, CSP appliquée (`frame-ancestors 'none'`…), CSP `Report-Only`, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy` | conformes |
-| `/api/account/me`, `/api/business/products`, `/api/platform/plans` | 500, corps `{"error":"Une erreur empêche le traitement de la requête."}` | attendu sans base en Preview ; message générique, aucune fuite |
-| `/api/cron/subscriptions` sans secret | 404 | refus attendu |
-| `GET /api/webhooks/geniuspay` | 405 | seul `POST` est accepté |
+## Sécurité
 
-**Non testé à distance** : connexion, sessions et cookies réels, parcours métier (boutique, produits, stock,
-vente, paiement manuel, crédit, dépenses, fournisseurs, tableau de bord, export, impression, déconnexion), journaux
-d'exécution d'une requête réussie, crons. Deux raisons : la base de production n'est pas migrée, et la connexion
-exige un défi Turnstile que l'agent ne doit pas résoudre. Ces parcours se font par le propriétaire (checklist P-6).
+- Authentification et sessions : comportement figé par tests HTTP sur PGlite ; jamais observé sur Vercel.
+- Permissions et multi-tenant : attaques A→B refusées (`tenant-isolation.http.test.ts`) ; aucune fuite connue.
+- Webhooks : signature vérifiée en local ; aujourd'hui injoignable (protection Vercel), ce qui sera corrigé au
+  déploiement en passant la protection en mode standard (Preview protégés, domaine de production public).
+- Dépendances : `npm audit --omit=dev` 0 élevée, 9 modérées ; `npm audit` complet 4 élevées (outils de
+  développement Workers inutilisés). Ce n'est pas un audit « sans vulnérabilité ».
+- Risques résiduels : RLS limitée à l'export ; pooler Neon jamais testé ; aucune sauvegarde prouvée ; adresse IP
+  vue par la limitation non vérifiée sur Vercel ; offre Neon Free (6 h de restauration) ; aucun hors-ligne.
 
-## E. Sécurité
+## Ce qui débloque tout
 
-| Domaine | État |
-| --- | --- |
-| Authentification | connexion générique (même 401 pour adresse inconnue et mauvais mot de passe) ; propriétaire de la plateforme refusé hors console ; routes d'identifiants Better Auth fermées au propriétaire ; changement de mot de passe d'un commerçant révoque les autres sessions. Tests HTTP sur PGlite |
-| Sessions | cookies `__Secure-` en production d'après le code et `session-cookies.http.test.ts` ; **jamais observés sur Vercel** |
-| Permissions et multi-tenant | permissions centralisées, attaques A→B de `tenant-isolation.http.test.ts` réussies (refus identique à un identifiant inconnu) ; RLS 0025 en défense en profondeur pour l'export seulement |
-| Webhooks | GeniusPay : signature HMAC sur le corps brut, fenêtre de 300 s, relecture obligatoire du paiement par l'API ; tests locaux seulement ; aucun appel sandbox réel dans cette directive |
-| Dépendances | `npm audit --omit=dev` : 0 critique, **0 élevée**, 9 modérées (outils de build ou de migration). `npm audit` complet : 0 critique, 4 élevées et 17 modérées, toutes dans des dépendances de développement (préparation Workers inutilisée, outils). Ce n'est pas un audit « sans vulnérabilité » |
-| Origine des requêtes | `assertTrustedOrigin` sur les contextes et routes qui écrivent |
-| Risques résiduels | RLS non étendue aux routes métier ; pooler Neon jamais testé avec la RLS ; adresse IP vue par la limitation derrière Vercel non vérifiée ; CSP complète jamais observée dans un navigateur ; offre Neon Free sans sauvegarde planifiée côté Neon (6 h de restauration) ; aucun fonctionnement hors ligne ; politique non tranchée pour un commerce `pending` |
+Une seule décision : la checklist **P-0** ([`owner-action-checklist.md`](owner-action-checklist.md)).
 
-## F. Intégrations
-
-| Intégration | Configuration | Testée à distance ? |
-| --- | --- | --- |
-| GeniusPay | aucune clé (ni sandbox ni live) dans `web` ; webhook prévu `https://web-phi-beryl-45.vercel.app/api/webhooks/geniuspay`, aujourd'hui derrière la protection | **non** : paiement volontairement non opérationnel |
-| Resend | aucune clé, aucun domaine ; sans elles, aucun e-mail n'est envoyé et l'interface le dit | **non** |
-| Turnstile | widget `qadr-ops-production-vercel` (mode géré, domaine `web-phi-beryl-45.vercel.app`) ; clé de site et secret posés en Production | **non** : la vérification exige un humain |
-| R2 | aucun bucket ni jeton | **non** |
-| Push | clés VAPID générées et posées en Production ; `VAPID_SUBJECT` absent, donc push désactivé | **non** |
-| Sentry | `SENTRY_ENVIRONMENT` posé ; pas de DSN | **non** |
-
-## G. Actions du propriétaire
-
-Une seule checklist, classée comme demandé : [`owner-action-checklist.md`](owner-action-checklist.md).
-
-La première action débloque tout le reste : **autoriser la migration de la branche Neon `main`** (26 migrations
-additives, une transaction par migration, instantané déjà pris). Après elle, l'agent fusionne
-`feat/mission-13-reprise` dans `main` sans force, ce qui déploie la production, puis rejoue les essais distants.
+- **Voie rapide** : autoriser dans la conversation l'usage des identifiants de base (fichiers locaux privés,
+  jamais affichés, effacés ensuite), et rendre un `pg_dump` 18 disponible (installer la distribution WSL de
+  Docker Desktop, ou autoriser le téléchargement des outils clients PostgreSQL 18 officiels). L'agent enchaîne
+  alors restauration réelle, migration de `main`, contrôles RLS (y compris par le pooler), fusion, protection
+  standard, déploiement et tests distants.
+- **Voie GitHub** : vous créez les secrets et lancez le workflow (P-4) ; elle suppose que la release soit
+  d'abord sur `main`.
