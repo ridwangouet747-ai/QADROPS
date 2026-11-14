@@ -248,6 +248,8 @@ describe("mission 11, phase 7 : rôles et états du commerce sur les routes HTTP
       const minuteAgo = new Date(Date.now() - 60_000);
       await h.client.query("insert into business_subscription (id,business_id,plan_id,status,starts_at,ends_at,trial_ends_at,origin) values ($1,$2,'plan-phase7','trialing',$3,$4,$4,'promotion')",
         [newKey("abonnement"), seeded.id, new Date(Date.now() - 15 * 86_400_000), minuteAgo]);
+      // L’accès de test posé par le harnais se termine lui aussi : plus aucun droit en cours.
+      await h.client.query("update business_subscription set ends_at = $2, trial_ends_at = $2 where business_id = $1 and plan_id = 'harness-access-plan'", [seeded.id, minuteAgo]);
       await expectBlocked(seeded.actor, seeded.id, seeded, /abonnement de ce commerce a expiré/);
     });
   });

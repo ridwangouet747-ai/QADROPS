@@ -284,6 +284,10 @@ describe("mission 16 : sécurité des comptes et des routes", () => {
       expect(forged.status).toBe(403);
       expect(forged.body).toEqual(refusal);
       expect(await customers()).toBe(before);
+      // Les commerces créés directement par la route (tests précédents) n’ont aucun droit d’usage : accès de test.
+      const unopened = await h.client.query<{ id: string }>(`select m.organization_id as id from member m join "user" u on u.id = m.user_id
+        where u.id = $1 and not exists (select 1 from business_subscription s where s.business_id = m.organization_id)`, [owner.userId]);
+      for (const row of unopened.rows) await h.grantTrialAccess(row.id);
       expect((await h.call(customersRoute.POST, { path: "/api/business/customers", actor: owner, body: { name: "Client réel" } })).status).toBe(201);
 
       const admin = await h.signUp("Console", "console@qadr.test");

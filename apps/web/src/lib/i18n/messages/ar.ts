@@ -50,6 +50,8 @@ export const ar: Messages = {
     homeLink: "QADR OPS، لوحة القيادة",
     activeBusiness: "المتجر الحالي",
     defaultBusiness: "مساحة المتجر",
+    businessSwitch: "المتجر النشط: {business}. تغيير المتجر",
+    poweredBy: "يُدار عبر Qadr Ops",
     tagline: "متجرك، عملياتك.",
     brandSubtitle: "إدارة تجارية",
     secureSpace: "مساحة آمنة للمتجر",

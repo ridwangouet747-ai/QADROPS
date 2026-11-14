@@ -22,7 +22,7 @@ export const wizardFr = {
   formats: { shop: "Boutique", kiosk: "Kiosque ou étal", wholesale: "Dépôt ou grossiste", other: "Autre" },
   actions: {
     back: "Retour", next: "Continuer", createAccount: "Créer mon compte", creatingAccount: "Création du compte…", create: "Créer mon commerce", creating: "Création…",
-    edit: "Modifier", goDashboard: "Ouvrir mon tableau de bord", login: "Déjà un compte ?", loginLink: "Se connecter", signedInAs: "Connecté : {email}",
+    edit: "Modifier", goDashboard: "Ouvrir mon tableau de bord", choosePlan: "Choisir ma formule", login: "Déjà un compte ?", loginLink: "Se connecter", signedInAs: "Connecté : {email}",
   },
   review: { account: "Compte", business: "Commerce", contact: "Coordonnées", branding: "Identité visuelle", none: "Non renseigné", currency: "Montants en francs CFA (XOF)", logoAlt: "Aperçu du logo" },
   errors: {
@@ -35,7 +35,7 @@ export const wizardFr = {
     network: "Pas de connexion. Vos informations sont conservées : réessayez dès que le réseau revient.",
     summary: "Corrigez les champs signalés pour continuer.",
   },
-  welcome: { title: "Bienvenue dans Qadr Ops", body: "{business} est ouvert. Votre tableau de bord vous attend.", redirecting: "Ouverture du tableau de bord…", haveCode: "J’ai un code d’accès Qadr Agency" },
+  welcome: { title: "Bienvenue dans Qadr Ops", body: "{business} est ouvert. Votre tableau de bord vous attend.", redirecting: "Ouverture du tableau de bord…", bodyPending: "{business} est créé. Pour ouvrir votre espace de gestion, choisissez une formule ou saisissez un code d’accès.", redirectingPending: "Ouverture de la page d’abonnement…", haveCode: "J’ai un code d’accès Qadr Agency" },
   scene: {
     label: "Illustration décorative : votre boutique se construit au fil des étapes.", loading: "Préparation de l’illustration…",
     captions: { account: "Les fondations sont posées", identity: "La façade prend forme", details: "L’intérieur s’installe", branding: "Votre enseigne s’affiche", review: "Votre boutique est prête", welcome: "C’est ouvert !" },
@@ -81,7 +81,7 @@ export const wizardEn: WizardMessages = {
   formats: { shop: "Shop", kiosk: "Kiosk or stall", wholesale: "Depot or wholesaler", other: "Other" },
   actions: {
     back: "Back", next: "Continue", createAccount: "Create my account", creatingAccount: "Creating account…", create: "Create my business", creating: "Creating…",
-    edit: "Edit", goDashboard: "Open my dashboard", login: "Already have an account?", loginLink: "Sign in", signedInAs: "Signed in: {email}",
+    edit: "Edit", goDashboard: "Open my dashboard", choosePlan: "Choose my plan", login: "Already have an account?", loginLink: "Sign in", signedInAs: "Signed in: {email}",
   },
   review: { account: "Account", business: "Business", contact: "Contact", branding: "Branding", none: "Not provided", currency: "Amounts in CFA francs (XOF)", logoAlt: "Logo preview" },
   errors: {
@@ -94,7 +94,7 @@ export const wizardEn: WizardMessages = {
     network: "No connection. Your details are kept: try again when the network is back.",
     summary: "Fix the highlighted fields to continue.",
   },
-  welcome: { title: "Welcome to Qadr Ops", body: "{business} is open. Your dashboard is waiting.", redirecting: "Opening your dashboard…", haveCode: "I have a Qadr Agency access code" },
+  welcome: { title: "Welcome to Qadr Ops", body: "{business} is open. Your dashboard is waiting.", redirecting: "Opening your dashboard…", bodyPending: "{business} has been created. To open your workspace, choose a plan or enter an access code.", redirectingPending: "Opening the subscription page…", haveCode: "I have a Qadr Agency access code" },
   scene: {
     label: "Decorative illustration: your shop is built step by step.", loading: "Preparing the illustration…",
     captions: { account: "The foundations are laid", identity: "The storefront takes shape", details: "The interior settles in", branding: "Your sign lights up", review: "Your shop is ready", welcome: "We're open!" },
@@ -137,7 +137,7 @@ export const wizardAr: WizardMessages = {
   formats: { shop: "متجر", kiosk: "كشك أو بسطة", wholesale: "مستودع أو بيع بالجملة", other: "أخرى" },
   actions: {
     back: "رجوع", next: "متابعة", createAccount: "إنشاء حسابي", creatingAccount: "جارٍ إنشاء الحساب…", create: "إنشاء متجري", creating: "جارٍ الإنشاء…",
-    edit: "تعديل", goDashboard: "فتح لوحة التحكم", login: "لديك حساب بالفعل؟", loginLink: "تسجيل الدخول", signedInAs: "متصل: {email}",
+    edit: "تعديل", goDashboard: "فتح لوحة التحكم", choosePlan: "اختيار باقتي", login: "لديك حساب بالفعل؟", loginLink: "تسجيل الدخول", signedInAs: "متصل: {email}",
   },
   review: { account: "الحساب", business: "المتجر", contact: "العنوان", branding: "الهوية البصرية", none: "غير محدد", currency: "المبالغ بالفرنك الإفريقي (XOF)", logoAlt: "معاينة الشعار" },
   errors: {
@@ -150,7 +150,7 @@ export const wizardAr: WizardMessages = {
     network: "لا يوجد اتصال. بياناتك محفوظة: أعد المحاولة عند عودة الشبكة.",
     summary: "صحّح الحقول المشار إليها للمتابعة.",
   },
-  welcome: { title: "مرحباً بك في Qadr Ops", body: "{business} مفتوح الآن. لوحة التحكم بانتظارك.", redirecting: "جارٍ فتح لوحة التحكم…", haveCode: "لديّ رمز دخول من Qadr Agency" },
+  welcome: { title: "مرحباً بك في Qadr Ops", body: "{business} مفتوح الآن. لوحة التحكم بانتظارك.", redirecting: "جارٍ فتح لوحة التحكم…", bodyPending: "تم إنشاء {business}. لفتح مساحة الإدارة، اختر باقة أو أدخل رمز دخول.", redirectingPending: "جارٍ فتح صفحة الاشتراك…", haveCode: "لديّ رمز دخول من Qadr Agency" },
   scene: {
     label: "رسم توضيحي زخرفي: متجرك يُبنى خطوة بخطوة.", loading: "جارٍ تحضير الرسم…",
     captions: { account: "وُضعت الأساسات", identity: "الواجهة تتشكّل", details: "الداخل يتجهّز", branding: "لافتتك تظهر", review: "متجرك جاهز", welcome: "نحن مفتوحون!" },

@@ -10,7 +10,7 @@ export const runtime = "nodejs";
  */
 export async function GET(request: Request) {
   try {
-    const context = await getBusinessContext(request.headers);
+    const context = await getBusinessContext(request.headers, { allowWithoutSubscription: true });
     const { archive, fileName } = await buildBusinessDataArchive(context.db, { businessId: context.businessId, actorUserId: context.actorUserId });
     return new Response(new Uint8Array(archive), { headers: {
       "content-type": "application/zip", "content-disposition": `attachment; filename="${fileName}"`,

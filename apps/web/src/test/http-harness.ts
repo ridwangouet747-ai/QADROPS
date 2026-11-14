@@ -123,10 +123,31 @@ export class HttpHarness {
   }
 
   /** Commerce créé par la route d'inscription ; il devient le commerce actif de la session du propriétaire. */
-  async createBusiness(owner: Actor, name: string, activity: "hardware" | "phones" | "general" | "clothing" = "general") {
+  async createBusiness(owner: Actor, name: string, activity: "hardware" | "phones" | "general" | "clothing" = "general",
+    options: { access?: "trial" | "none" } = {}) {
     const result = await this.call(accountBusinessesRoute.POST, { path: "/api/account/businesses", actor: owner, body: { name, activity } });
     if (result.status !== 201) throw new Error(`Harnais : création du commerce refusée (${result.status}) ${result.text}`);
-    return result.body.business.id as string;
+    const businessId = result.body.business.id as string;
+    // Un commerce sans droit d'usage n'ouvre pas son espace (commercial-access.ts). Les tests métier partent
+    // donc d'un essai en cours, comme après un code d'accès ; `access: "none"` garde le commerce tel qu'il sort
+    // de l'inscription (parcours d'abonnement, paiement, refus).
+    if ((options.access ?? "trial") === "trial") await this.grantTrialAccess(businessId);
+    return businessId;
+  }
+
+  /** Retire l’accès de test du harnais : le commerce redevient tel qu’après l’inscription (aucun droit d’usage). */
+  async revokeTrialAccess(businessId: string) {
+    await this.client.query("delete from business_subscription where business_id = $1 and plan_id = 'harness-access-plan'", [businessId]);
+  }
+
+  /** Essai de 30 jours sur une formule de test inactive (jamais proposée à l'achat), comme un code d'accès. */
+  async grantTrialAccess(businessId: string, days = 30) {
+    await this.client.query(`insert into subscription_plan (id, code, name, price_xof, duration_days, active, features, currency)
+      values ('harness-access-plan', 'HARNESS_ACCESS', 'Accès de test', 0, 30, false, '{}'::jsonb, 'XOF') on conflict (id) do nothing`);
+    const now = new Date();
+    await this.client.query(`insert into business_subscription (id, business_id, plan_id, status, starts_at, ends_at, trial_ends_at, origin)
+      values ($1, $2, 'harness-access-plan', 'trialing', $3, $4, $4, 'manual')`,
+    [randomUUID(), businessId, now, new Date(now.getTime() + days * 86_400_000)]);
   }
 
   /** Invitation par la route d'équipe, puis inscription et acceptation par la personne invitée. */

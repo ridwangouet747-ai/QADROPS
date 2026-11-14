@@ -1,10 +1,8 @@
 import type { CSSProperties } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/components/ui/cn";
 import { Icon, type IconName } from "@/components/ui/icon";
-import { intlLocale, type Locale } from "@/lib/i18n/config";
-import { formatXof } from "@/lib/i18n/format";
+import type { Locale } from "@/lib/i18n/config";
 import type { Translate } from "@/lib/i18n/translate";
 import { DaySection } from "./day-section";
 import { displayFont } from "./fonts";
@@ -26,7 +24,8 @@ const landingName = "font-display text-[1.2rem] font-bold tracking-[-0.02em] whi
  * Page publique officielle (2026-11-10). Direction artistique : docs/design/direction-artistique.md ;
  * état livré, preuves et limites : docs/product/landing-page.md.
  * Composant serveur ; seuls l'en-tête, le ticket 3D et le mouvement sont des composants client isolés.
- * Captures : vraies captures de l'application en mode aperçu (données de démonstration, marquées comme telles).
+ * Aucune capture ni donnée inventée (mission CTO du 2026-11-14) : le téléphone, le ticket et les écrans de la journée
+ * sont schématiques — libellés réels, valeurs remplacées par des traits. `landing-content.test.ts` y veille.
  */
 
 const container = "mx-auto w-full max-w-[76rem] px-5 sm:px-8";
@@ -35,24 +34,51 @@ const container = "mx-auto w-full max-w-[76rem] px-5 sm:px-8";
    dès le premier affichage, sans attendre le JavaScript, et ne retarde donc pas le LCP. */
 const delay = (ms: number) => ({ "--d": `${ms}ms` }) as CSSProperties;
 
+/* Modèle de ticket : ce que le ticket imprime (nom du commerce, articles, total, paiements, reste à crédit), sans
+   aucun montant inventé. Les montants sont remplacés par des points de suspension typographiques. */
+const blank = "· · ·";
+
 function receiptData(t: Translate, locale: Locale): ReceiptData {
-  const n = (value: number) => new Intl.NumberFormat(intlLocale[locale]).format(value);
-  const strip = (value: string) => value.replace(/[⁦-⁩]/g, "");
+  const item = { label: t("landing.receipt.item"), detail: t("landing.receipt.detail"), amount: blank };
   return {
     dir: locale === "ar" ? "rtl" : "ltr",
     shop: t("landing.receipt.shop"),
     sale: t("landing.receipt.sale"),
-    lines: [
-      { label: t("landing.receipt.cement"), detail: `2 × ${n(6500)}`, amount: n(13000) },
-      { label: t("landing.receipt.cable"), detail: `${locale === "fr" ? "1,5" : "1.5"} m × ${n(900)}`, amount: n(1350) },
-    ],
+    lines: [item, { ...item, label: `${item.label} 2` }],
     totals: [
-      { label: t("landing.receipt.total"), amount: strip(formatXof("14350", locale)), strong: true },
-      { label: t("landing.receipt.wave"), amount: n(12000) },
-      { label: t("landing.receipt.credit"), amount: n(2350) },
+      { label: t("landing.receipt.total"), amount: blank, strong: true },
+      { label: t("landing.receipt.paid"), amount: blank },
+      { label: t("landing.receipt.credit"), amount: blank },
     ],
     thanks: t("landing.receipt.thanks"),
   };
+}
+
+/* Écran de caisse schématique (HTML, pas d'image) : libellés réels de la caisse, articles figurés par des traits.
+   Les tailles suivent la largeur du téléphone (unités de conteneur), comme le ferait une image. */
+function PhoneSketch({ t }: { t: Translate }) {
+  const rows = ["w-[64%]", "w-[46%]", "w-[72%]", "w-[52%]"];
+  return (
+    <div role="img" aria-label={t("landing.hero.phoneAlt")} className="@container flex aspect-[390/844] flex-col overflow-hidden rounded-[1.85rem] bg-canvas">
+      <div className="bg-qadr-950 px-[8cqw] pt-[14cqw] pb-[6cqw] font-display text-[7.5cqw] font-bold text-white">{t("landing.hero.phone.title")}</div>
+      <div className="mx-[6cqw] mt-[6cqw] flex items-center gap-[2.5cqw] rounded-full border border-line bg-surface px-[5cqw] py-[3.5cqw] text-[5cqw] text-fg-subtle">
+        <Icon name="search" className="size-[5cqw] shrink-0" /><span className="truncate">{t("landing.hero.phone.search")}</span>
+      </div>
+      <ul aria-hidden="true" className="m-0 mx-[6cqw] mt-[5cqw] grid list-none gap-[3cqw] p-0">
+        {rows.map((width) => (
+          <li key={width} className="flex items-center gap-[3cqw] rounded-[4cqw] bg-surface p-[3.5cqw] shadow-card">
+            <span className="size-[11cqw] shrink-0 rounded-[3cqw] bg-qadr-100" />
+            <span className="grid min-w-0 flex-1 gap-[2cqw]"><span className={cn("h-[2.6cqw] rounded-full bg-qadr-200", width)} /><span className="h-[2.6cqw] w-[34%] rounded-full bg-line" /></span>
+            <span className="grid size-[8cqw] shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="plus" className="size-[4.5cqw]" /></span>
+          </li>
+        ))}
+      </ul>
+      <div className="mx-[6cqw] mt-auto mb-[9cqw] flex items-center justify-between gap-[3cqw] rounded-[5cqw] bg-brand px-[5cqw] py-[4cqw] text-[5.2cqw] text-white">
+        <span className="inline-flex min-w-0 items-center gap-[2cqw]"><Icon name="cart" className="size-[5.5cqw] shrink-0" /><span className="truncate">{t("landing.hero.phone.cart")}</span></span>
+        <span className="shrink-0 font-semibold">{t("landing.hero.phone.pay")}</span>
+      </div>
+    </div>
+  );
 }
 
 function Hero({ t, locale }: { t: Translate; locale: Locale }) {
@@ -80,11 +106,11 @@ function Hero({ t, locale }: { t: Translate; locale: Locale }) {
           </ul>
         </div>
 
-        {/* Scène : vraie caisse sur téléphone, ticket (3D si possible), mascotte, questions du commerçant. */}
+        {/* Scène : caisse schématique sur téléphone, modèle de ticket (3D si possible), mascotte, questions du commerçant. */}
         <div className="relative mx-auto aspect-[1/1.08] w-full max-w-[33rem] min-w-0 sm:aspect-[1.05/1]">
           <div data-hero-device style={delay(150)} className="absolute start-[21%] top-0 w-[43%] -rotate-[5deg] rtl:rotate-[5deg]">
             <div className="rounded-[2.3rem] bg-ink p-[4.5%] shadow-[0_40px_70px_-30px_rgb(0_0_0/0.65)] ring-1 ring-white/10">
-              <Image src={`/landing/pos-phone-${locale}.png`} alt={t("landing.hero.phoneAlt")} width={390} height={844} priority fetchPriority="high" sizes="(min-width: 1024px) 230px, 40vw" className="block h-auto w-full rounded-[1.85rem]" />
+              <PhoneSketch t={t} />
             </div>
           </div>
           <div data-hero-device style={delay(300)} className="absolute end-[0%] top-[17%] w-[42%] sm:top-[21%] sm:w-[35%] rotate-[7deg] rtl:-rotate-[7deg]">
@@ -96,9 +122,6 @@ function Hero({ t, locale }: { t: Translate; locale: Locale }) {
           <p aria-hidden="true" data-bubble style={delay(950)} className="hero-bubble end-[0%] top-[4%]">{t("landing.hero.bubbles.stock")}</p>
           <p aria-hidden="true" data-bubble style={delay(1150)} className="hero-bubble start-[-2%] top-[30%] hidden sm:block">{t("landing.hero.bubbles.credit")}</p>
           <p aria-hidden="true" data-bubble style={delay(1350)} className="hero-bubble end-[2%] bottom-[-5%]">{t("landing.hero.bubbles.cash")}</p>
-          <p data-hero-fade style={delay(1100)} className="absolute start-0 -bottom-14 m-0 inline-flex w-full justify-center">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[0.78rem] font-semibold whitespace-nowrap text-qadr-100"><Icon name="info" className="size-3.5" />{t("landing.hero.demo")}</span>
-          </p>
         </div>
       </div>
     </section>
@@ -125,11 +148,11 @@ function Benefits({ t }: { t: Translate }) {
 }
 
 /*
- * Démonstration vidéo. L'adresse vient de QADR_DEMO_VIDEO_URL ; sans elle, la section n'existe pas en production
+ * Vidéo de présentation. L'adresse vient de QADR_DEMO_VIDEO_URL ; sans elle, la section n'existe pas en production
  * (aucune vidéo fictive) et montre un emplacement vide marqué comme tel hors production. Le lecteur n'est chargé
- * qu'au clic : la section ne coûte qu'une image de couverture, elle-même différée.
+ * qu'au clic. Pas d'image de couverture : l'ancienne était une capture de l'aperçu (données de démonstration).
  */
-function Demo({ t, locale }: { t: Translate; locale: Locale }) {
+function Demo({ t }: { t: Translate }) {
   const demo = readDemoVideo();
   if (demo.status === "hidden") return null;
   const source = demo.status === "ready" ? demo.source : null;
@@ -142,7 +165,7 @@ function Demo({ t, locale }: { t: Translate; locale: Locale }) {
           <p className="m-0 mt-4 max-w-md text-[1.05rem] leading-relaxed text-fg-muted">{t("landing.video.intro")}</p>
           {!source && <p className="m-0 mt-5 flex max-w-md items-start gap-2 rounded-2xl border border-warn-line bg-warn-soft p-3 text-[0.86rem] leading-relaxed text-warn"><Icon name="info" className="mt-0.5 size-4 shrink-0" />{t("landing.video.placeholderNote")}</p>}
         </div>
-        <VideoEmbed source={source} title={t("landing.video.videoTitle")} poster={`/landing/dashboard-desktop-${locale}.png`} className="min-w-0"
+        <VideoEmbed source={source} title={t("landing.video.videoTitle")} className="min-w-0"
           labels={{
             play: t("landing.video.play"), placeholder: t("landing.video.placeholder"), error: t("landing.video.error"), retry: t("landing.video.retry"),
             openExternal: t("landing.video.openExternal"), privacy: provider ? t("landing.video.privacy", { provider }) : undefined,
@@ -175,7 +198,7 @@ function Sectors({ t }: { t: Translate }) {
   );
 }
 
-function Features({ t, locale }: { t: Translate; locale: Locale }) {
+function Features({ t }: { t: Translate }) {
   const groups = [
     { key: "sell", items: ["landing.features.sell.pos", "landing.features.sell.split", "landing.features.sell.receipt", "landing.features.sell.receiptLang"] },
     { key: "stock", items: ["landing.features.stock.opening", "landing.features.stock.moves", "landing.features.stock.count", "landing.features.stock.import"] },
@@ -199,17 +222,6 @@ function Features({ t, locale }: { t: Translate; locale: Locale }) {
             </div>
           ))}
         </div>
-        <figure className="m-0 mt-16">
-          <div className="overflow-hidden rounded-[1.4rem] border border-line bg-surface shadow-overlay">
-            <div className="flex h-8 items-center gap-1.5 border-b border-line bg-surface-muted px-4" aria-hidden="true">
-              <i className="size-2.5 rounded-full bg-line-strong" /><i className="size-2.5 rounded-full bg-line-strong" /><i className="size-2.5 rounded-full bg-line-strong" />
-            </div>
-            <Image src={`/landing/dashboard-desktop-${locale}.png`} alt={t("landing.features.shotAlt")} width={1280} height={800} sizes="(min-width: 1216px) 1152px, 92vw" className="block h-auto w-full" />
-          </div>
-          <figcaption className="mt-3 flex justify-end">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-warn-line bg-warn-soft px-3 py-1 text-[0.78rem] font-semibold text-warn"><Icon name="info" className="size-3.5" />{t("landing.hero.demo")}</span>
-          </figcaption>
-        </figure>
       </div>
     </section>
   );
@@ -340,10 +352,10 @@ export function LandingPage({ t, locale }: { t: Translate; locale: Locale }) {
       <main id="contenu" tabIndex={-1} className="outline-none">
         <Hero t={t} locale={locale} />
         <Benefits t={t} />
-        <Demo t={t} locale={locale} />
+        <Demo t={t} />
         <Sectors t={t} />
-        <DaySection t={t} locale={locale} container={container} />
-        <Features t={t} locale={locale} />
+        <DaySection t={t} container={container} />
+        <Features t={t} />
         <Testimonials t={t} />
         <Integrations t={t} />
         <PricingSection t={t} locale={locale} container={container} />

@@ -55,7 +55,8 @@ describe("mission 12 : campagnes publiques d’acquisition", () => {
     admin = await h.signUp("Super Admin", "admin@campagnes.test");
     await h.grantPlatformAdmin(admin);
     merchant = await h.signUp("Commerçant inscrit", "inscrit@campagnes.test");
-    merchantBusiness = await h.createBusiness(merchant, "Commerce déjà inscrit");
+    // Commerce inscrit sans droit d’usage : il peut encore saisir un code privé (accès ou remise).
+    merchantBusiness = await h.createBusiness(merchant, "Commerce déjà inscrit", "general", { access: "none" });
   });
   // Les deux compteurs (mémoire de l'instance et compteur partagé en base) repartent de zéro à chaque test.
   beforeEach(async () => {

@@ -25,7 +25,7 @@ Jakarta Sans). Elle est remplacée le 2026-11-10 par la version « cahier de la 
 | `lib/domain/public-plans.ts` | Lecture des formules publiées (`subscription_plan`), cache 10 min |
 | `lib/i18n/messages/landing.ts` | Textes fr/en/ar, typés par `Shape` (parité vérifiée par `messages.test.ts`) |
 | `public/patterns/qadr-curves.svg`, `qadr-links.svg` | Points ondulés (export Durves fourni) et maillons entrelacés |
-| `public/landing/*.png` | Six captures : tableau de bord (1280 × 800) et caisse (390 × 844), en fr/en/ar |
+| `src/lib/landing/landing-content.test.ts` | Garde-fou : aucune mention de démonstration, aucun chiffre ni nom inventé, aucune capture servie |
 | `app/robots.ts` | Tout interdit hors `VERCEL_ENV=production` |
 
 ## 2. Inventaire : chaque promesse et sa preuve dans le code
@@ -130,23 +130,32 @@ vide), nombre de clients, logos de partenaires, notes, contact, conditions gén�
   trop lourd pour le dépôt et pour `public/`. Il doit être publié chez un hébergeur vidéo ou dans un
   stockage objet, puis son adresse mise dans la variable.
 
-## 4. Données d'exemple
+## 4. Aucune donnée d'exemple (mission CTO du 2026-11-14)
 
-Toutes les valeurs du ticket, de la journée et des captures sont marquées « Exemple » ou « Données de
-démonstration ». Elles sont cohérentes entre elles et avec le catalogue de démonstration : 2 sacs de ciment à
-6 500 et 1,5 m de câble à 900 font 14 350 F CFA, dont 12 000 par Wave et 2 350 à crédit (client fictif
-« Moussa Traoré »). Les noms de produits restent en français dans les trois langues : les noms saisis par un
-commerçant ne sont jamais traduits.
+Jusqu'au 2026-11-14, le ticket, la journée et deux captures de l'aperçu montraient des montants, un commerce et
+un client inventés, signalés par un badge « Données de démonstration » ; les captures portaient en plus le
+bandeau « Prévisualisation · données fictives ». La page de production ne doit rien montrer de tel. Désormais :
 
-## 5. Captures
+- **téléphone du hero** : caisse schématique en HTML (`PhoneSketch`) : vrais libellés (« Caisse »,
+  « Rechercher un article… », « Panier », « Encaisser »), articles figurés par des traits ;
+- **ticket** : modèle de ticket (« Votre commerce », « Article », « Qté × prix », « Total », « Payé »,
+  « Reste à crédit »), montants remplacés par « · · · » en HTML comme en 3D ;
+- **journée** : chaque moment garde son heure, sa question et son explication ; le fragment d'écran montre les
+  champs réels (fournisseur, article, quantité reçue, coût d'achat, total calculé par le serveur, écart…) et
+  des traits à la place des valeurs ; plus de badge « Exemple » ;
+- **fonctions** : la capture du tableau de bord est retirée (la liste des fonctions suffit) ;
+- **vidéo** : titre « Présentation de Qadr Ops », sans image de couverture ;
+- les six captures sont archivées dans `docs/product/captures-apercu/` (hors `public/`, donc plus servies).
 
-- Prises le 2026-11-10 dans l'aperçu PGlite, avec le commerce de démonstration et la palette bleue, par
-  Playwright à la taille exacte (390 × 844 et 1280 × 800). Le bandeau « Prévisualisation · données
-  fictives » reste visible.
-- Avant la prise : invitation d'installation, indicateur de développement Next.js et barre de défilement
-  masqués ; deux sacs de ciment sont mis au panier (13 000 F CFA).
-- L'aperçu n'embarque pas la police Plus Jakarta Sans : les captures montrent la police de repli. À refaire
-  depuis un build de production avant la mise en ligne.
+`landing-content.test.ts` échoue si un texte public (fr/en/ar) reparle de démonstration, d'exemple ou de
+données fictives, s'il réintroduit un des anciens montants ou noms, si un composant de la page pointe vers
+`/landing/…` ou écrit un montant en dur, ou si une image revient dans `public/landing/`. Seuls les textes
+affichés hors production (badge des formules de l'aperçu, emplacement vidéo vide) sont exemptés.
+
+## 5. Captures de remplacement
+
+De vraies captures pourront revenir quand un commerce pilote aura donné son accord écrit et que ses données
+auront été vérifiées : jamais une capture de l'aperçu.
 
 ## 6. Performance
 

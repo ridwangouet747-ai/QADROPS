@@ -49,6 +49,8 @@ export const en: Messages = {
     homeLink: "QADR OPS, dashboard",
     activeBusiness: "ACTIVE BUSINESS",
     defaultBusiness: "Business space",
+    businessSwitch: "Active business: {business}. Switch business",
+    poweredBy: "Run with Qadr Ops",
     tagline: "Your business, your operations.",
     brandSubtitle: "BUSINESS MANAGEMENT",
     secureSpace: "Secure business space",

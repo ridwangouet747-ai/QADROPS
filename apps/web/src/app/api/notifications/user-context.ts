@@ -10,6 +10,6 @@ export async function notificationUser(request: Request) {
     const context = await getPlatformContext(request.headers);
     return { db: context.db, userId: context.actorUserId, sessionId: context.sessionId };
   }
-  const context = await getBusinessContext(request.headers);
+  const context = await getBusinessContext(request.headers, { allowWithoutSubscription: true });
   return { db: context.db, userId: context.userId, sessionId: context.sessionId };
 }

@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { emailRequestScope, type EmailRequestScope } from "@/lib/auth/email";
 import { businessActivities, storeFormats, type QadrAuth } from "@/lib/auth/server";
 import { locales } from "@/lib/i18n/config";
 import { hasBusinessPermission } from "@/lib/auth/permissions";
-import { auditEvent, businessMemberAccess, businessProfile, invitation, member, organization, platformAdmin, session, user } from "@/lib/db/schema";
+import { auditEvent, businessMemberAccess, businessProfile, businessSubscription, invitation, member, organization, platformAdmin, session, user } from "@/lib/db/schema";
 import { assertActiveMembership, BusinessContextError } from "./business-context";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { assertPlanQuota } from "./plan-limits";
+import { businessLifecycle } from "./subscription-lifecycle";
+import { logoSchema } from "./business-logo";
 import { campaignOutcomeForBusiness, signupCampaignScope, type SignupCampaignScope } from "./public-campaigns";
 
 export const assignableRoles = ["owner", "admin", "cashier", "stock_manager", "accountant", "member"] as const;
@@ -25,31 +27,28 @@ function fromAuthError(error: unknown, fallback: string): never {
 export async function getAccountOverview(db: CommercialDatabase, userId: string, activeBusinessId: string | null) {
   const [memberships, admin] = await Promise.all([
     db.select({ id: organization.id, name: organization.name, logo: organization.logo, role: member.role, activity: businessProfile.activity,
-      status: businessProfile.status, disabledAt: businessMemberAccess.disabledAt })
+      status: businessProfile.status, timezone: businessProfile.timezone, disabledAt: businessMemberAccess.disabledAt })
       .from(member).innerJoin(organization, eq(organization.id, member.organizationId))
       .leftJoin(businessProfile, eq(businessProfile.businessId, organization.id))
       .leftJoin(businessMemberAccess, and(eq(businessMemberAccess.businessId, member.organizationId), eq(businessMemberAccess.userId, member.userId)))
       .where(eq(member.userId, userId)).orderBy(asc(organization.name)),
     db.select({ userId: platformAdmin.userId }).from(platformAdmin).where(and(eq(platformAdmin.userId, userId), isNull(platformAdmin.revokedAt))).limit(1),
   ]);
-  const businesses = memberships.filter((row) => row.activity !== null).map((row) => ({
-    id: row.id, name: row.name, logo: row.logo, role: row.role, activity: row.activity, status: row.status,
+  const visible = memberships.filter((row) => row.activity !== null);
+  // État commercial de chaque commerce : l’interface masque les modules d’un commerce sans droit d’usage ;
+  // le refus reste appliqué côté serveur (getBusinessContext, requireBusinessPageAccess).
+  const subscriptions = visible.length ? await db.select({ businessId: businessSubscription.businessId, status: businessSubscription.status, endsAt: businessSubscription.endsAt })
+    .from(businessSubscription).where(inArray(businessSubscription.businessId, visible.map((row) => row.id))) : [];
+  const now = new Date();
+  const businesses = visible.map((row) => ({
+    id: row.id, name: row.name, logo: row.logo, role: row.role, activity: row.activity, status: row.status, timezone: row.timezone,
+    lifecycle: businessLifecycle(row.status ?? "active", subscriptions.filter((item) => item.businessId === row.id), now),
     disabled: row.disabledAt !== null, active: row.id === activeBusinessId,
   }));
   return { businesses, isPlatformAdmin: admin.length > 0, activeBusinessId: businesses.some((row) => row.active && !row.disabled) ? activeBusinessId : null };
 }
 
-const logoSchema = z.string().max(200_000).refine((value) => /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(value) && logoBytesMatch(value), "Logo invalide");
-
-/** Le type annoncé du logo doit correspondre à ses premiers octets (pas seulement à l'extension). */
-export function logoBytesMatch(dataUrl: string) {
-  const [, kind = "", payload = ""] = /^data:image\/(png|jpeg|webp);base64,(.*)$/.exec(dataUrl) ?? [];
-  const bytes = Buffer.from(payload.slice(0, 24), "base64");
-  if (kind === "png") return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  if (kind === "jpeg") return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (kind === "webp") return bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
-  return false;
-}
+export { logoBytesMatch } from "./business-logo";
 
 export const createBusinessInput = z.object({
   name: z.string().trim().min(2).max(120), activity: z.enum(businessActivities),

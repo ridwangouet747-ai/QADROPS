@@ -10,7 +10,7 @@ export const runtime = "nodejs";
  */
 export async function POST(request: Request) {
   try {
-    const context = await getBusinessContext(request.headers);
+    const context = await getBusinessContext(request.headers, { allowWithoutSubscription: true });
     const result = await startSubscriptionCheckout(context.db, getBillingProvider(), { actorUserId: context.actorUserId, businessId: context.businessId, raw: await parseJsonRequest(request) });
     return new Response(jsonSafe(result), { status: result.replayed || result.reused ? 200 : 201, headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }

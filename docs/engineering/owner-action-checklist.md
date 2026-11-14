@@ -1,6 +1,6 @@
 # Checklist unique du propriétaire
 
-> Mise à jour le 2026-11-14 (mise en production). Elle remplace toutes les listes précédentes. Chaque action revient
+> Mise à jour le 2026-11-14 (mise en production, puis mission CTO : `mission-cto-2026-11-14.md`). Elle remplace toutes les listes précédentes. Chaque action revient
 > au propriétaire parce qu'elle demande un accord, une dépense, un secret ou un accès que l'agent n'a pas.
 > **Ne collez jamais un secret dans une conversation avec un agent** : saisissez-le directement dans Vercel,
 > GitHub ou le tableau de bord concerné.
@@ -14,6 +14,9 @@ protection Vercel en mode standard (domaine public, Preview protégés), clés G
 `VAPID_SUBJECT` posés en Production (*Sensitive*), workflow CI. Détail : `mission-global-release-report.md`.
 
 **Tout de suite** : remettre le dépôt GitHub `QADROPS` en **privé** (GitHub → *Settings* → *General* → *Danger Zone*).
+Il répondait encore publiquement le 2026-11-14 au soir. Aucun secret n'a été trouvé dans l'historique Git (balayage du
+2026-11-14) ; renouvelez quand même toute clé que vous auriez collée dans une *issue*, une *pull request*, un journal
+d'*Actions* ou un fichier hors Git pendant la période publique.
 
 ## P. Obligatoire avant utilisation personnelle
 
@@ -27,6 +30,7 @@ protection Vercel en mode standard (domaine public, Preview protégés), clés G
 | P-4 | Créer les secrets GitHub `BACKUP_PASSPHRASE` (32 caractères au moins, gardée hors de GitHub), `NEON_STAGING_DATABASE_URL` (chaîne **directe** de la branche `mission-14-staging`, base `qadr_staging`) puis, après P-1, `NEON_BACKUP_DATABASE_URL` (chaîne directe de `main`) ; lancer « Sauvegarde Neon » à la main avec la source voulue | clé + validation | GitHub → *Settings* → *Secrets and variables* → *Actions* ; onglet *Actions* | GitHub ne propose le lancement manuel qu'une fois le workflow présent sur `main` (après P-2) ; procédure : `backup-restore.md` § 4.0 |
 | P-5 | Second facteur du propriétaire | décision + validation | Vercel, puis votre poste | `scripts/platform-owner.ts enroll-2fa` chiffre le facteur avec `BETTER_AUTH_SECRET` ; celui de Production est de type *Sensitive*, donc illisible, même pour vous. **Avant toute création de compte**, remplacez-le dans Vercel par un secret que vous générez et gardez dans votre gestionnaire de mots de passe (48 caractères aléatoires), puis lancez le script avec ce secret, la chaîne de `main`, `QADR_OWNER_USERNAME` et `QADR_OWNER_PASSWORD`. Facultatif (D-05), fortement conseillé |
 | P-5 bis | Formule Standard | validation | votre poste, ou l'agent avec P-0 (a) | `npx tsx scripts/ensure-standard-plan.ts` (après P-3) : crée `STANDARD` (5 000 XOF, 30 jours, toutes fonctions, sans limite) **inactive**, donc absente de la page publique sous Hobby ; idempotent, aucun doublon |
+| P-5 ter | Ouvrir votre propre commerce : depuis le 2026-11-14, un commerce sans abonnement est **fermé** (seule la page Abonnement s'affiche). Un code d'accès ne se crée que sur une formule **active** (règle de la mission 08) : dans `/platform/plans`, activez la formule Standard (P-5 bis), créez dans `/platform` une série d'un code (durée voulue), désactivez aussitôt la formule, puis saisissez le code sur `/business/subscription` | validation | console de la plateforme, puis votre espace | aucun paiement ; la formule reste visible sur la page publique jusqu'à 10 min (cache) pendant l'opération, sans effet tant que les inscriptions sont réservées (P-3 bis). Décision possible : autoriser les codes sur une formule inactive (à demander à l'agent) |
 | P-6 | Parcourir l'application connectée : créer une boutique, un produit, du stock, une vente, un paiement manuel, un crédit, une dépense, un fournisseur, consulter le tableau de bord, exporter, se déconnecter | validation | navigateur | l'agent ne peut pas passer Turnstile ; signalez toute erreur, il la corrige |
 | P-7 | Rester sur l'usage personnel tant que l'offre Vercel est Hobby : pas de commerçant tiers, pas de paiement réel, pas de formule publiée | décision | — | conditions Vercel § 4 |
 
@@ -42,7 +46,7 @@ protection Vercel en mode standard (domaine public, Preview protégés), clés G
 | C-6 | GeniusPay live : clés posées par l'agent (secret **non vérifié**, la seule vérification crée un paiement). Reste : déclarer le webhook `https://web-phi-beryl-45.vercel.app/api/webhooks/geniuspay` (puis le domaine définitif) dans le tableau de bord GeniusPay, et décider d'un premier paiement réel de faible montant pour valider la chaîne | compte + validation | GeniusPay | aucun paiement n'a été créé |
 | C-7 | Créer la formule **Standard** : 5 000 FCFA, 30 jours, toutes fonctions (D-04) | validation | `/platform/plans` | aucun tarif n'est écrit dans le code |
 | C-8 | ~~`VAPID_SUBJECT`~~ | fait | — | posé le 2026-11-14 ; réception réelle non testée (L-5) |
-| C-9 | Décider de la politique pour un commerce sans abonnement ou en `pending` | décision | — | aujourd'hui non bloqué |
+| C-9 | ~~Politique pour un commerce sans abonnement~~ | fait | — | tranchée par le mandat CTO du 2026-11-14 : fermé jusqu'au paiement confirmé par le serveur, à un code d'accès ou à un abonnement accordé |
 | C-10 | Relecture juridique de `/privacy` et des conditions d'utilisation | validation | — | |
 | C-11 | Vérifier l'adresse IP vue par la limitation derrière Vercel (et Cloudflare si proxy) | validation | Preview ou production | `../rate-limiting.md` |
 

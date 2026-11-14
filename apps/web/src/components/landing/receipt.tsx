@@ -1,9 +1,8 @@
 import { cn } from "@/components/ui/cn";
 
 /**
- * Contenu d'un ticket d'exemple, partagé par la version HTML (rendu serveur, repli sans WebGL) et la version
- * 3D (texture dessinée dans un canvas). Les noms de produits restent ceux saisis par le commerçant : ils ne
- * sont pas traduits. Toutes les valeurs sont des données de démonstration.
+ * Contenu du modèle de ticket, partagé par la version HTML (rendu serveur, repli sans WebGL) et la version
+ * 3D (texture dessinée dans un canvas). Page publique : libellés seulement, aucun montant (voir landing-page.tsx).
  */
 export type ReceiptData = {
   dir: "ltr" | "rtl";
@@ -22,7 +21,7 @@ export function ReceiptPaper({ data, className }: { data: ReceiptData; className
       <div className="my-2.5 border-t border-dashed border-line-strong" />
       {data.lines.map((line) => (
         <div key={line.label} className="mb-1.5">
-          <p className="m-0 font-semibold" dir="ltr">{line.label}</p>
+          <p className="m-0 font-semibold" dir="auto">{line.label}</p>
           <p className="m-0 flex justify-between gap-2 text-fg-muted"><span dir="ltr">{line.detail}</span><span dir="ltr" className="text-ink">{line.amount}</span></p>
         </div>
       ))}

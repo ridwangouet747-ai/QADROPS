@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQLWrapper } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "@/lib/auth/permissions";
+import { logoSchema } from "./business-logo";
 import {
   auditEvent, businessProfile, customer, expense, member, organization,
   payment, paymentRefund, product, productCategory, productVariant, purchase, purchaseLine, purchasePayment,
@@ -545,7 +546,9 @@ export async function updateBusinessSettings(db: CommercialDatabase, raw: unknow
   const input = z.object({ ...contextShape, name: z.string().trim().min(1).max(160), phone: z.string().trim().max(60).nullable(),
     address: z.string().trim().max(240).nullable(), email: z.union([z.string().email().max(240), z.literal("")]).nullable(),
     primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), paperWidthMm: z.union([z.literal(58), z.literal(80)]),
-    showLogo: z.boolean(), receiptFooter: z.string().trim().max(300).nullable() }).parse(raw);
+    showLogo: z.boolean(), receiptFooter: z.string().trim().max(300).nullable(),
+    /** Absent : logo inchangé ; null : logo retiré ; data URL : nouveau logo (mêmes règles qu’à l’inscription). */
+    logo: logoSchema.nullable().optional() }).parse(raw);
   await requirePermission(db, input, "business", "update");
   await db.transaction(async (tx) => {
     // Verrou exclusif sur le profil AVANT le contrôle d'état (FOR SHARE) : deux enregistrements simultanés
@@ -553,13 +556,15 @@ export async function updateBusinessSettings(db: CommercialDatabase, raw: unknow
     // Ordre fixe ensuite : profil, organisation, réglages du reçu.
     await tx.select({ businessId: businessProfile.businessId }).from(businessProfile).where(eq(businessProfile.businessId, input.businessId)).for("update");
     await assertBusinessOperational(tx, input.businessId);
-    await tx.update(organization).set({ name: input.name }).where(eq(organization.id, input.businessId));
+    await tx.update(organization).set(input.logo === undefined ? { name: input.name } : { name: input.name, logo: input.logo })
+      .where(eq(organization.id, input.businessId));
     await tx.update(businessProfile).set({ phone: input.phone, address: input.address, businessEmail: input.email || null,
       primaryColor: input.primaryColor, updatedAt: new Date() }).where(eq(businessProfile.businessId, input.businessId));
     await tx.insert(receiptSettings).values({ businessId: input.businessId, paperWidthMm: input.paperWidthMm,
       showLogo: input.showLogo, footer: input.receiptFooter, updatedAt: new Date() }).onConflictDoUpdate({ target: receiptSettings.businessId,
       set: { paperWidthMm: input.paperWidthMm, showLogo: input.showLogo, footer: input.receiptFooter, updatedAt: new Date() } });
-    await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "business.settings_updated", entityType: "business_profile", entityId: input.businessId, metadata: {} });
+    await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "business.settings_updated", entityType: "business_profile", entityId: input.businessId,
+      metadata: input.logo === undefined ? {} : { logo: input.logo === null ? "removed" : "replaced" } });
   });
   return { updated: true };
 }

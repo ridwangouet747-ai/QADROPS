@@ -2,8 +2,9 @@
  * Page publique de présentation (landing officielle, 2026-11-10, docs/product/landing-page.md).
  * Règle : chaque phrase décrit une fonction réellement codée. Aucun chiffre client, aucun témoignage, aucun
  * prix écrit à la main (les tarifs viennent de `subscription_plan`), aucune promesse hors ligne, aucun
- * paiement Mobile Money présenté comme automatique. Les montants des exemples sont des données de
- * démonstration et sont marqués comme tels dans la page. L'arabe doit être relu par un locuteur natif.
+ * paiement Mobile Money présenté comme automatique. Aucun chiffre, nom de client ni capture de démonstration :
+ * les écrans illustrés sont schématiques (mission CTO du 2026-11-14, test `landing-content.test.ts`).
+ * L'arabe doit être relu par un locuteur natif.
  */
 export const landingFr = {
   skip: "Aller au contenu",
@@ -18,11 +19,11 @@ export const landingFr = {
     lede: "Qadr Ops enregistre vos ventes, votre stock, votre caisse et les crédits de vos clients. Pour les quincailleries, la téléphonie, les boutiques générales et les boutiques de vêtements.",
     points: { devices: "Téléphone, tablette ou ordinateur", languages: "Français, anglais, arabe", barcode: "Sans lecteur de code-barres" },
     bubbles: { stock: "Il me reste combien de sacs de ciment ?", credit: "Qui me doit encore de l’argent ?", cash: "La caisse tombe juste ce soir ?" },
-    phoneAlt: "Écran de caisse de Qadr Ops sur un téléphone : recherche d’articles et panier.",
-    receiptLabel: "Exemple de ticket de caisse",
-    demo: "Données de démonstration",
+    phoneAlt: "Écran de caisse schématisé : recherche d’un article par son nom, panier et encaissement.",
+    receiptLabel: "Modèle de ticket : nom de votre commerce, articles vendus, total, paiements et reste à crédit.",
+    phone: { title: "Caisse", search: "Rechercher un article…", cart: "Panier", pay: "Encaisser" },
   },
-  receipt: { shop: "Quincaillerie du Plateau", sale: "Vente n° 0142", cement: "Ciment 50 kg", cable: "Câble 2,5 mm²", total: "Total", wave: "Wave", credit: "Reste à crédit", thanks: "Merci de votre visite" },
+  receipt: { shop: "Votre commerce", sale: "Ticket de vente", item: "Article", detail: "Qté × prix", total: "Total", paid: "Payé", credit: "Reste à crédit", thanks: "Merci de votre visite" },
   benefits: {
     title: "Ce que vous savez, à tout moment.",
     stock: { title: "Ce qui reste en rayon.", body: "Le stock bouge à chaque vente et à chaque réception. Chaque mouvement garde sa date et la personne qui l’a fait." },
@@ -40,7 +41,6 @@ export const landingFr = {
   day: {
     title: "Une journée à la boutique.",
     intro: "De l’arrivée de la marchandise à la fermeture, chaque question du commerçant a sa réponse dans Qadr Ops.",
-    example: "Exemple",
     receive: { time: "07:30", label: "Réception", question: "« Qu’est-ce que je viens de recevoir ? »", body: "Vous enregistrez la réception de la commande. Le stock augmente aussitôt, au coût d’achat noté." },
     stock: { time: "08:15", label: "Stock", question: "« Il me reste combien de sacs de ciment ? »", body: "Chaque article affiche son stock à jour et l’historique de ses mouvements." },
     sale: { time: "10:40", label: "Vente", question: "« Deux sacs et un mètre et demi de câble. »", body: "Vous trouvez les articles par leur nom et vous vendez au détail. Le total est calculé par le serveur, pas par le téléphone." },
@@ -48,15 +48,15 @@ export const landingFr = {
     expense: { time: "16:20", label: "Dépense", question: "« J’ai payé le transport. »", body: "La dépense est enregistrée avec sa catégorie. Payée en espèces, elle sort de la caisse du jour." },
     close: { time: "19:00", label: "Bilan", question: "« Est-ce que la caisse tombe juste ? »", body: "Vous comptez, vous clôturez. L’écart s’affiche, puis le rapport du jour." },
     ui: {
-      received: "Réception enregistrée", supplier: "Dépôt Koné", bags: "sacs", meters: "m", onHand: "En stock", yesterday: "Stock de la veille",
-      reception: "Réception de 07:30", cart: "Panier", total: "Total", wave: "Wave", credit: "Crédit", customer: "Moussa Traoré", balance: "Solde du client",
-      expense: "Transport de marchandises", category: "Transport", cashOut: "Sortie de caisse en espèces", expected: "Attendu", counted: "Compté", difference: "Écart",
+      supplier: "Fournisseur", item: "Article", quantity: "Quantité reçue", cost: "Coût d’achat", received: "Réception enregistrée",
+      onHand: "En stock", lastMove: "Dernier mouvement", cart: "Panier", lineTotal: "Quantité × prix", total: "Total", serverTotal: "Calculé par le serveur",
+      wave: "Wave", cash: "Espèces", credit: "Reste à crédit", customer: "Client", balance: "Solde du client mis à jour",
+      category: "Catégorie", amount: "Montant", cashOut: "Sortie de caisse en espèces", expected: "Attendu", counted: "Compté", difference: "Écart", closed: "Caisse clôturée",
     },
   },
   features: {
     title: "Tout ce que fait Qadr Ops.",
     intro: "Uniquement des fonctions qui existent aujourd’hui dans le logiciel.",
-    shotAlt: "Vue d’ensemble de Qadr Ops sur un ordinateur : ventes, stock et crédits du commerce.",
     sell: { title: "Vendre", pos: "Caisse avec recherche par nom, sans code-barres obligatoire", split: "Plusieurs paiements dans une même vente", receipt: "Ticket au nom et au logo de votre commerce, imprimé depuis le navigateur", receiptLang: "Ticket dans une autre langue que l’écran" },
     stock: { title: "Stock", opening: "Stock de départ, distinct d’un achat", moves: "Entrées, sorties et ajustements, avec leur auteur", count: "Inventaire physique avec validation des écarts", import: "Import du catalogue depuis un fichier CSV ou Excel, vérifié avant l’enregistrement" },
     money: { title: "Argent", credit: "Crédits clients et paiements partiels", debts: "Dettes de départ séparées des nouvelles ventes", till: "Caisse du jour : ouverture, mouvements, clôture", suppliers: "Fournisseurs, achats et dépenses" },
@@ -73,9 +73,9 @@ export const landingFr = {
   video: {
     title: "Qadr Ops en vidéo",
     intro: "Regardez comment une vente, le stock et la caisse du jour se tiennent dans le logiciel.",
-    videoTitle: "Démonstration de Qadr Ops",
+    videoTitle: "Présentation de Qadr Ops",
     play: "Lire la vidéo",
-    placeholder: "La vidéo de démonstration n’est pas encore en ligne.",
+    placeholder: "La vidéo de présentation n’est pas encore en ligne.",
     placeholderNote: "Emplacement visible hors production seulement. Renseignez QADR_DEMO_VIDEO_URL pour publier la vidéo.",
     error: "La vidéo n’a pas pu être lue.",
     retry: "Réessayer",
@@ -145,11 +145,11 @@ export const landingEn: LandingMessages = {
     lede: "Qadr Ops records your sales, your stock, your till and what your customers owe you. For hardware stores, phone shops, general stores and clothing shops.",
     points: { devices: "Phone, tablet or computer", languages: "French, English, Arabic", barcode: "No barcode scanner needed" },
     bubbles: { stock: "How many bags of cement are left?", credit: "Who still owes me money?", cash: "Will the till add up tonight?" },
-    phoneAlt: "Qadr Ops checkout screen on a phone: product search and basket.",
-    receiptLabel: "Sample receipt",
-    demo: "Demo data",
+    phoneAlt: "Simplified checkout screen: search for an item by name, basket and payment.",
+    receiptLabel: "Receipt layout: your shop’s name, items sold, total, payments and amount left on credit.",
+    phone: { title: "Checkout", search: "Search for an item…", cart: "Basket", pay: "Take payment" },
   },
-  receipt: { shop: "Quincaillerie du Plateau", sale: "Sale no. 0142", cement: "Ciment 50 kg", cable: "Câble 2,5 mm²", total: "Total", wave: "Wave", credit: "Left on credit", thanks: "Thank you for your visit" },
+  receipt: { shop: "Your shop", sale: "Sales receipt", item: "Item", detail: "Qty × price", total: "Total", paid: "Paid", credit: "Left on credit", thanks: "Thank you for your visit" },
   benefits: {
     title: "What you know, at any moment.",
     stock: { title: "What is left on the shelf.", body: "Stock moves with every sale and every delivery. Each movement keeps its date and the person who made it." },
@@ -167,7 +167,6 @@ export const landingEn: LandingMessages = {
   day: {
     title: "A day at the shop.",
     intro: "From the morning delivery to closing time, each of the shopkeeper’s questions has its answer in Qadr Ops.",
-    example: "Example",
     receive: { time: "07:30", label: "Delivery", question: "“What did I just receive?”", body: "You record the goods received. Stock goes up at once, at the purchase cost you entered." },
     stock: { time: "08:15", label: "Stock", question: "“How many bags of cement are left?”", body: "Each item shows its current stock and the history of its movements." },
     sale: { time: "10:40", label: "Sale", question: "“Two bags and a metre and a half of cable.”", body: "You find items by name and sell by the unit or by measure. The total is calculated by the server, not by the phone." },
@@ -175,15 +174,15 @@ export const landingEn: LandingMessages = {
     expense: { time: "16:20", label: "Expense", question: "“I paid for transport.”", body: "The expense is recorded with its category. Paid in cash, it comes out of the day’s till." },
     close: { time: "19:00", label: "Closing", question: "“Does the till add up?”", body: "You count, you close. The difference is shown, followed by the day’s report." },
     ui: {
-      received: "Delivery recorded", supplier: "Dépôt Koné", bags: "bags", meters: "m", onHand: "In stock", yesterday: "Yesterday’s stock",
-      reception: "07:30 delivery", cart: "Basket", total: "Total", wave: "Wave", credit: "Credit", customer: "Moussa Traoré", balance: "Customer balance",
-      expense: "Goods transport", category: "Transport", cashOut: "Cash paid out of the till", expected: "Expected", counted: "Counted", difference: "Difference",
+      supplier: "Supplier", item: "Item", quantity: "Quantity received", cost: "Purchase cost", received: "Delivery recorded",
+      onHand: "In stock", lastMove: "Last movement", cart: "Basket", lineTotal: "Quantity × price", total: "Total", serverTotal: "Calculated by the server",
+      wave: "Wave", cash: "Cash", credit: "Left on credit", customer: "Customer", balance: "Customer balance updated",
+      category: "Category", amount: "Amount", cashOut: "Cash paid out of the till", expected: "Expected", counted: "Counted", difference: "Difference", closed: "Till closed",
     },
   },
   features: {
     title: "Everything Qadr Ops does.",
     intro: "Only features that exist in the software today.",
-    shotAlt: "Qadr Ops overview on a computer: the business’s sales, stock and credit.",
     sell: { title: "Selling", pos: "Checkout with search by name, no barcode required", split: "Several payments in a single sale", receipt: "Receipt with your shop’s name and logo, printed from the browser", receiptLang: "Receipt in a different language from the screen" },
     stock: { title: "Stock", opening: "Opening stock, kept apart from purchases", moves: "Stock in, stock out and adjustments, with who made them", count: "Physical stock counts with validation of differences", import: "Catalogue import from a CSV or Excel file, checked before saving" },
     money: { title: "Money", credit: "Customer credit and partial payments", debts: "Opening debts kept apart from new sales", till: "Daily till: opening, movements, closing", suppliers: "Suppliers, purchases and expenses" },
@@ -200,9 +199,9 @@ export const landingEn: LandingMessages = {
   video: {
     title: "Qadr Ops on video",
     intro: "See how a sale, the stock and the day’s till are handled in the software.",
-    videoTitle: "Qadr Ops demonstration",
+    videoTitle: "Qadr Ops overview",
     play: "Play the video",
-    placeholder: "The demonstration video is not online yet.",
+    placeholder: "The overview video is not online yet.",
     placeholderNote: "Slot shown outside production only. Set QADR_DEMO_VIDEO_URL to publish the video.",
     error: "The video could not be played.",
     retry: "Try again",
@@ -269,11 +268,11 @@ export const landingAr: LandingMessages = {
     lede: "يسجّل قدر أوبس مبيعاتك ومخزونك وصندوقك وديون زبائنك. لمحلات الأدوات والخردوات، ومحلات الهواتف، والمحلات العامة، ومحلات الملابس.",
     points: { devices: "هاتف أو جهاز لوحي أو حاسوب", languages: "الفرنسية والإنجليزية والعربية", barcode: "دون قارئ رموز شريطية" },
     bubbles: { stock: "كم كيس إسمنت بقي عندي؟", credit: "من ما زال مدينًا لي؟", cash: "هل سيكون الصندوق مضبوطًا الليلة؟" },
-    phoneAlt: "شاشة الصندوق في قدر أوبس على هاتف: البحث عن المنتجات والسلة.",
-    receiptLabel: "مثال على تذكرة صندوق",
-    demo: "بيانات تجريبية",
+    phoneAlt: "شاشة صندوق مبسّطة: البحث عن منتج باسمه، السلة ثم التحصيل.",
+    receiptLabel: "نموذج تذكرة: اسم محلك، المنتجات المبيعة، المجموع، المدفوعات والباقي دَينًا.",
+    phone: { title: "الصندوق", search: "ابحث عن منتج…", cart: "السلة", pay: "تحصيل" },
   },
-  receipt: { shop: "Quincaillerie du Plateau", sale: "البيع رقم 0142", cement: "Ciment 50 kg", cable: "Câble 2,5 mm²", total: "المجموع", wave: "Wave", credit: "الباقي دَين", thanks: "شكرًا لزيارتكم" },
+  receipt: { shop: "اسم محلك", sale: "تذكرة بيع", item: "منتج", detail: "الكمية × السعر", total: "المجموع", paid: "المدفوع", credit: "الباقي دَين", thanks: "شكرًا لزيارتكم" },
   benefits: {
     title: "ما تعرفه في كل لحظة.",
     stock: { title: "ما بقي على الرفوف.", body: "يتغيّر المخزون مع كل بيع وكل استلام. تحتفظ كل حركة بتاريخها وبالشخص الذي قام بها." },
@@ -291,7 +290,6 @@ export const landingAr: LandingMessages = {
   day: {
     title: "يوم في المحل.",
     intro: "من وصول البضاعة صباحًا حتى الإغلاق، لكل سؤال من أسئلة التاجر جوابه في قدر أوبس.",
-    example: "مثال",
     receive: { time: "07:30", label: "استلام", question: "«ماذا استلمت الآن؟»", body: "تسجّل استلام الطلبية. يرتفع المخزون فورًا بتكلفة الشراء المسجَّلة." },
     stock: { time: "08:15", label: "المخزون", question: "«كم كيس إسمنت بقي عندي؟»", body: "يعرض كل منتج مخزونه المحدَّث وسجل حركاته." },
     sale: { time: "10:40", label: "بيع", question: "«كيسان ومتر ونصف من الكابل.»", body: "تجد المنتجات باسمها وتبيع بالتجزئة. يحسب الخادم المجموع، لا الهاتف." },
@@ -299,15 +297,15 @@ export const landingAr: LandingMessages = {
     expense: { time: "16:20", label: "مصروف", question: "«دفعت ثمن النقل.»", body: "يُسجَّل المصروف مع فئته. وإذا دُفع نقدًا يخرج من صندوق اليوم." },
     close: { time: "19:00", label: "الحصيلة", question: "«هل الصندوق مضبوط؟»", body: "تعدّ ثم تغلق. يظهر الفرق، ثم تقرير اليوم." },
     ui: {
-      received: "تم تسجيل الاستلام", supplier: "Dépôt Koné", bags: "أكياس", meters: "م", onHand: "في المخزون", yesterday: "مخزون الأمس",
-      reception: "استلام الساعة 07:30", cart: "السلة", total: "المجموع", wave: "Wave", credit: "دَين", customer: "Moussa Traoré", balance: "رصيد الزبون",
-      expense: "نقل البضائع", category: "نقل", cashOut: "خروج نقدي من الصندوق", expected: "المتوقَّع", counted: "المعدود", difference: "الفرق",
+      supplier: "المورّد", item: "المنتج", quantity: "الكمية المستلمة", cost: "سعر الشراء", received: "تم تسجيل الاستلام",
+      onHand: "في المخزون", lastMove: "آخر حركة", cart: "السلة", lineTotal: "الكمية × السعر", total: "المجموع", serverTotal: "يحسبه الخادم",
+      wave: "Wave", cash: "نقدًا", credit: "الباقي دَين", customer: "الزبون", balance: "تم تحديث رصيد الزبون",
+      category: "الفئة", amount: "المبلغ", cashOut: "خروج نقدي من الصندوق", expected: "المتوقَّع", counted: "المعدود", difference: "الفرق", closed: "تم إغلاق الصندوق",
     },
   },
   features: {
     title: "كل ما يفعله قدر أوبس.",
     intro: "وظائف موجودة اليوم في البرنامج فقط.",
-    shotAlt: "نظرة عامة على قدر أوبس على حاسوب: مبيعات المحل ومخزونه وديونه.",
     sell: { title: "البيع", pos: "صندوق مع بحث بالاسم، دون رمز شريطي إلزامي", split: "عدة دفعات في البيع نفسه", receipt: "تذكرة باسم محلك وشعاره، تُطبع من المتصفح", receiptLang: "تذكرة بلغة غير لغة الشاشة" },
     stock: { title: "المخزون", opening: "مخزون افتتاحي منفصل عن المشتريات", moves: "إدخالات وإخراجات وتسويات، مع اسم من قام بها", count: "جرد فعلي مع اعتماد الفروق", import: "استيراد قائمة المنتجات من ملف CSV أو Excel، مع مراجعتها قبل الحفظ" },
     money: { title: "المال", credit: "ديون الزبائن والدفعات الجزئية", debts: "ديون افتتاحية منفصلة عن المبيعات الجديدة", till: "صندوق اليوم: فتح وحركات وإغلاق", suppliers: "الموردون والمشتريات والمصروفات" },
@@ -324,9 +322,9 @@ export const landingAr: LandingMessages = {
   video: {
     title: "قدر أوبس بالفيديو",
     intro: "شاهد كيف تُدار عملية بيع والمخزون وصندوق اليوم داخل البرنامج.",
-    videoTitle: "عرض توضيحي لقدر أوبس",
+    videoTitle: "تقديم قدر أوبس",
     play: "تشغيل الفيديو",
-    placeholder: "الفيديو التوضيحي غير متاح بعد.",
+    placeholder: "فيديو التقديم غير متاح بعد.",
     placeholderNote: "موضع يظهر خارج الإنتاج فقط. اضبط QADR_DEMO_VIDEO_URL لنشر الفيديو.",
     error: "تعذّر تشغيل الفيديو.",
     retry: "إعادة المحاولة",

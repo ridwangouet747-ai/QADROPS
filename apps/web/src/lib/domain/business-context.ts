@@ -5,6 +5,7 @@ import { getAuth } from "@/lib/auth/server";
 import { businessMemberAccess, businessProfile, member } from "@/lib/db/schema";
 import { isTrustedRequest, originRefusal } from "@/lib/security/request-origin";
 import type { CommercialDatabase } from "./commercial";
+import { commercialAccess, subscriptionRequired } from "./commercial-access";
 
 export class BusinessContextError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
@@ -30,7 +31,12 @@ export async function assertActiveMembership(db: CommercialDatabase, businessId:
   return row.role;
 }
 
-export async function getBusinessContext(headers: Headers): Promise<{ db: CommercialDatabase; businessId: string; userId: string; actorUserId: string; sessionId: string | null }> {
+/**
+ * `allowWithoutSubscription` : routes encore ouvertes à un commerce sans droit d’usage (suivi d’abonnement,
+ * paiement, code d’accès, notifications, export de ses données). Toutes les autres répondent
+ * 403 `subscription_required` (voir commercial-access.ts).
+ */
+export async function getBusinessContext(headers: Headers, options: { allowWithoutSubscription?: boolean } = {}): Promise<{ db: CommercialDatabase; businessId: string; userId: string; actorUserId: string; sessionId: string | null }> {
   assertTrustedOrigin(headers);
   const preview = process.env.QADR_PREVIEW_MODE === "true";
   if (preview && process.env.NODE_ENV !== "development") {
@@ -48,6 +54,9 @@ export async function getBusinessContext(headers: Headers): Promise<{ db: Commer
   if (!businessId) throw new BusinessContextError("Sélectionnez d’abord un commerce.", 403);
   const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : getDatabase();
   await assertActiveMembership(db, businessId, authSession.user.id);
+  if (!options.allowWithoutSubscription && !(await commercialAccess(db, businessId)).open) {
+    throw new BusinessContextError(subscriptionRequired.error, 403, subscriptionRequired.code);
+  }
   return { db, businessId, userId: authSession.user.id, actorUserId: authSession.user.id, sessionId: authSession.session.id };
 }
 

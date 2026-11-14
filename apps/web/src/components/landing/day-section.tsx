@@ -1,16 +1,14 @@
 import type { ReactNode } from "react";
 import { cn } from "@/components/ui/cn";
 import { Icon, type IconName } from "@/components/ui/icon";
-import { intlLocale, type Locale } from "@/lib/i18n/config";
-import { formatXof } from "@/lib/i18n/format";
 import type { LandingMessages } from "@/lib/i18n/messages/landing";
 import type { Translate } from "@/lib/i18n/translate";
 
 /*
  * « Une journée à la boutique » : la seule séquence numérotée de la page, parce que c'est une vraie suite
- * d'heures. Chaque moment montre un fragment d'écran construit en HTML avec des données de démonstration
- * (marquées « Exemple »), cohérentes d'un moment à l'autre et avec le catalogue de démonstration : 2 sacs à 6 500 et 1,5 m de câble
- * à 900 font 14 350 F CFA, dont 12 000 par Wave et 2 350 à crédit.
+ * d'heures. Chaque moment montre un fragment d'écran schématique : les libellés sont ceux de l'application, les
+ * valeurs sont figurées par des traits. Aucun montant, aucune quantité, aucun nom de client ou de fournisseur
+ * inventé (mission CTO du 2026-11-14, `landing-content.test.ts`).
  */
 const moments = [
   { key: "receive", icon: "truck" },
@@ -23,101 +21,104 @@ const moments = [
 
 type MomentKey = (typeof moments)[number]["key"];
 
-function Fragment({ t, children }: { t: Translate; children: ReactNode }) {
+function Fragment({ children }: { children: ReactNode }) {
+  return <div className="mt-5 max-w-md rounded-[1.4rem] border border-line bg-surface p-4 shadow-card sm:p-5">{children}</div>;
+}
+
+/** Valeur figurée : un trait, jamais un chiffre. */
+function Bar({ className }: { className?: string }) {
+  return <span aria-hidden="true" className={cn("block h-2.5 shrink-0 rounded-full bg-qadr-100", className)} />;
+}
+
+function Field({ label, bar = "w-20", className }: { label: string; bar?: string; className?: string }) {
   return (
-    <div className="relative mt-5 max-w-md rounded-[1.4rem] border border-line bg-surface p-4 shadow-card sm:p-5">
-      <span className="absolute end-4 top-4 rounded-full bg-warn-soft px-2 py-0.5 text-[0.7rem] font-semibold text-warn">{t("landing.day.example")}</span>
-      {children}
+    <div className={cn("flex items-center justify-between gap-3 py-2", className)}>
+      <span className="min-w-0 font-semibold text-ink">{label}</span>
+      <Bar className={bar} />
     </div>
   );
 }
 
-function Row({ label, detail, value, className }: { label: string; detail?: string; value: string; className?: string }) {
+function Status({ children, tone = "ok" }: { children: ReactNode; tone?: "ok" | "warn" }) {
   return (
-    <div className={cn("flex items-baseline justify-between gap-3 py-2", className)}>
-      <span className="min-w-0">
-        <span className="block font-semibold text-ink">{label}</span>
-        {detail && <span dir="ltr" className="block text-[0.82rem] text-fg-subtle">{detail}</span>}
-      </span>
-      <span dir="ltr" className="shrink-0 font-semibold text-ink tabular-nums">{value}</span>
-    </div>
+    <p className={cn("m-0 mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.82rem] font-semibold", tone === "ok" ? "bg-ok-soft text-ok" : "bg-warn-soft text-warn")}>
+      <Icon name="check" className="size-3.5" />{children}
+    </p>
   );
 }
 
-function MomentUi({ id, t, locale }: { id: MomentKey; t: Translate; locale: Locale }) {
-  const n = (value: number) => new Intl.NumberFormat(intlLocale[locale]).format(value);
+function MomentUi({ id, t }: { id: MomentKey; t: Translate }) {
   const ui = (key: keyof LandingMessages["day"]["ui"]) => t(`landing.day.ui.${key}`);
-  const cement = t("landing.receipt.cement");
-  const cable = t("landing.receipt.cable");
   switch (id) {
     case "receive":
       return (
-        <Fragment t={t}>
-          <p className="m-0 flex items-center gap-2 pe-16 text-[0.85rem] font-semibold text-fg-muted"><Icon name="truck" className="size-4" />{ui("supplier")}</p>
+        <Fragment>
+          <p className="m-0 flex items-center gap-2 text-[0.85rem] font-semibold text-fg-muted"><Icon name="truck" className="size-4" />{ui("supplier")}<Bar className="w-24" /></p>
           <div className="mt-2 divide-y divide-line">
-            <Row label={cement} value={`+${n(40)} ${ui("bags")}`} />
-            <Row label={cable} value={`+${n(100)} ${ui("meters")}`} />
+            <Field label={ui("item")} bar="w-28" />
+            <Field label={ui("quantity")} bar="w-14" />
+            <Field label={ui("cost")} bar="w-20" />
           </div>
-          <p className="m-0 mt-3 inline-flex items-center gap-1.5 rounded-full bg-ok-soft px-3 py-1 text-[0.82rem] font-semibold text-ok"><Icon name="check" className="size-3.5" />{ui("received")}</p>
+          <Status>{ui("received")}</Status>
         </Fragment>
       );
     case "stock":
       return (
-        <Fragment t={t}>
-          <p className="m-0 pe-16 font-semibold text-ink">{cement}</p>
-          <p className="m-0 mt-1 flex items-baseline gap-2"><span className="font-display text-[3.2rem] leading-none font-bold text-brand tabular-nums">{n(52)}</span><span className="text-fg-muted">{ui("bags")}, {ui("onHand").toLocaleLowerCase(intlLocale[locale])}</span></p>
-          <div className="mt-3 divide-y divide-line border-t border-line text-[0.9rem]">
-            <Row label={ui("yesterday")} value={n(12)} />
-            <Row label={ui("reception")} value={`+${n(40)}`} className="text-ok" />
-          </div>
+        <Fragment>
+          <p className="m-0 flex items-center gap-2 font-semibold text-ink"><Icon name="box" className="size-4 text-brand" />{ui("item")}<Bar className="w-28" /></p>
+          <p className="m-0 mt-3 flex items-center gap-3"><Bar className="h-9 w-20 rounded-xl bg-qadr-200" /><span className="text-fg-muted">{ui("onHand")}</span></p>
+          <div className="mt-3 border-t border-line text-[0.9rem]"><Field label={ui("lastMove")} bar="w-24" /></div>
         </Fragment>
       );
     case "sale":
       return (
-        <Fragment t={t}>
-          <p className="m-0 pe-16 text-[0.85rem] font-semibold text-fg-muted">{ui("cart")}</p>
+        <Fragment>
+          <p className="m-0 text-[0.85rem] font-semibold text-fg-muted">{ui("cart")}</p>
           <div className="mt-1 divide-y divide-line">
-            <Row label={cement} detail={`2 × ${n(6500)}`} value={n(13000)} />
-            <Row label={cable} detail={`${locale === "fr" ? "1,5" : "1.5"} ${ui("meters")} × ${n(900)}`} value={n(1350)} />
+            <Field label={ui("item")} bar="w-28" />
+            <Field label={ui("lineTotal")} bar="w-16" />
           </div>
-          <p className="m-0 mt-2 flex items-baseline justify-between rounded-xl bg-brand px-3.5 py-2.5 text-white"><span className="font-semibold">{ui("total")}</span><span className="font-display text-xl font-bold">{formatXof("14350", locale)}</span></p>
+          <div className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-brand px-3.5 py-2.5 text-white">
+            <span><span className="block font-semibold">{ui("total")}</span><span className="block text-[0.8rem] text-qadr-100">{ui("serverTotal")}</span></span>
+            <Bar className="w-20 bg-white/35" />
+          </div>
         </Fragment>
       );
     case "payment":
       return (
-        <Fragment t={t}>
-          <div className="me-16 flex h-3 overflow-hidden rounded-full bg-surface-muted" aria-hidden="true">
-            <span className="h-full w-[77%] bg-brand" /><span className="h-full flex-1 bg-[repeating-linear-gradient(45deg,var(--color-warn-line)_0_6px,var(--color-warn-soft)_6px_12px)]" />
+        <Fragment>
+          <div className="flex h-3 overflow-hidden rounded-full bg-surface-muted" aria-hidden="true">
+            <span className="h-full w-[60%] bg-brand" /><span className="h-full flex-1 bg-[repeating-linear-gradient(45deg,var(--color-warn-line)_0_6px,var(--color-warn-soft)_6px_12px)]" />
           </div>
           <div className="mt-3 divide-y divide-line">
-            <Row label={ui("wave")} value={formatXof("12000", locale)} />
-            <Row label={ui("credit")} value={formatXof("2350", locale)} />
+            <Field label={ui("wave")} />
+            <Field label={ui("credit")} bar="w-14" />
           </div>
           <p className="m-0 mt-2 flex items-center justify-between gap-3 rounded-xl bg-surface-muted px-3.5 py-2.5 text-[0.9rem]">
             <span><span className="block font-semibold text-ink">{ui("customer")}</span><span className="text-fg-muted">{ui("balance")}</span></span>
-            <span className="font-semibold text-warn">{formatXof("2350", locale)}</span>
+            <Bar className="w-14 bg-warn-line" />
           </p>
         </Fragment>
       );
     case "expense":
       return (
-        <Fragment t={t}>
+        <Fragment>
           <span className="inline-flex rounded-full bg-surface-muted px-2.5 py-0.5 text-[0.78rem] font-semibold text-fg-muted">{ui("category")}</span>
-          <p className="m-0 mt-2 pe-2 font-semibold text-ink">{ui("expense")}</p>
-          <p className="m-0 mt-1 font-display text-[2rem] leading-tight font-bold text-ink"><bdi>−{formatXof("3000", locale)}</bdi></p>
+          <div className="mt-2 divide-y divide-line"><Field label={ui("amount")} bar="w-24" /></div>
           <p className="m-0 mt-1 flex items-center gap-1.5 text-[0.88rem] text-fg-muted"><Icon name="wallet" className="size-4" />{ui("cashOut")}</p>
         </Fragment>
       );
     case "close":
       return (
-        <Fragment t={t}>
-          <div className="me-14 divide-y divide-line">
-            <Row label={ui("expected")} value={formatXof("84500", locale)} />
-            <Row label={ui("counted")} value={formatXof("84000", locale)} />
+        <Fragment>
+          <div className="divide-y divide-line">
+            <Field label={ui("expected")} bar="w-24" />
+            <Field label={ui("counted")} bar="w-24" />
           </div>
-          <p className="m-0 mt-2 flex items-center justify-between rounded-xl border border-warn-line bg-warn-soft px-3.5 py-2.5 text-warn">
-            <span className="font-semibold">{ui("difference")}</span><span className="font-display text-xl font-bold"><bdi>−{formatXof("500", locale)}</bdi></span>
+          <p className="m-0 mt-2 flex items-center justify-between gap-3 rounded-xl border border-warn-line bg-warn-soft px-3.5 py-2.5 text-warn">
+            <span className="font-semibold">{ui("difference")}</span><Bar className="w-12 bg-warn-line" />
           </p>
+          <Status>{ui("closed")}</Status>
         </Fragment>
       );
   }
@@ -141,7 +142,7 @@ function Clock() {
   );
 }
 
-export function DaySection({ t, locale, container }: { t: Translate; locale: Locale; container: string }) {
+export function DaySection({ t, container }: { t: Translate; container: string }) {
   return (
     <section id="day" aria-labelledby="day-title" className="scroll-mt-20 bg-qadr-50 py-20 sm:py-28">
       <div className={cn(container, "grid gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16")}>
@@ -162,7 +163,7 @@ export function DaySection({ t, locale, container }: { t: Translate; locale: Loc
               </p>
               <h3 className="m-0 mt-3 font-display text-[1.45rem] leading-snug font-semibold text-ink sm:text-[1.65rem] rtl:leading-relaxed">{t(`landing.day.${key}.question`)}</h3>
               <p className="m-0 mt-2 max-w-lg leading-relaxed text-fg-muted">{t(`landing.day.${key}.body`)}</p>
-              <MomentUi id={key} t={t} locale={locale} />
+              <MomentUi id={key} t={t} />
             </li>
           ))}
         </ol>

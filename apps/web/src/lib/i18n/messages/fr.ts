@@ -48,6 +48,8 @@ export const fr = {
     homeLink: "QADR OPS, tableau de bord",
     activeBusiness: "COMMERCE ACTIF",
     defaultBusiness: "Espace commerce",
+    businessSwitch: "Commerce actif : {business}. Changer de commerce",
+    poweredBy: "Géré avec Qadr Ops",
     tagline: "Votre commerce, vos opérations.",
     brandSubtitle: "GESTION COMMERCIALE",
     secureSpace: "Espace sécurisé du commerce",

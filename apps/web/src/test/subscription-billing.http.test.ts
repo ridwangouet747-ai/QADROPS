@@ -46,7 +46,8 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
     // n'est pas l'objet de ces tests, elle l'est de rate-limit.http.test.ts. Seuls les compteurs d'inscription sont remis à zéro.
     await h.client.query("delete from rate_limit_bucket where key like 'auth.sign_up.ip:%'");
     const owner = await h.signUp(`Propriétaire ${counter}`, `owner${counter}@abonnement.test`);
-    const businessId = await h.createBusiness(owner, `Commerce ${counter}`);
+    // Commerce tel qu’il sort de l’inscription : aucun droit d’usage avant le paiement (commercial-access.ts).
+    const businessId = await h.createBusiness(owner, `Commerce ${counter}`, "general", { access: "none" });
     return { owner, businessId };
   }
 
@@ -104,8 +105,11 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
 
   it("caissier et administrateur (gérant) sont refusés ; rien n'est créé ni envoyé à GeniusPay", async () => {
     const { owner, businessId } = await merchant();
+    // Inviter l’équipe exige un commerce ouvert : accès de test le temps des invitations, puis retour à l’état d’inscription.
+    await h.grantTrialAccess(businessId);
     const cashier = await h.addMember(owner, "Caissier", `caissier${counter}@abonnement.test`, "cashier");
     const admin = await h.addMember(owner, "Gérant", `gerant${counter}@abonnement.test`, "admin");
+    await h.revokeTrialAccess(businessId);
     const before = fake.countCreates();
     for (const actor of [cashier, admin]) {
       const refused = await checkout(actor, { planCode: "MENSUEL", idempotencyKey: newKey("abo") });

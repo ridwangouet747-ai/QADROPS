@@ -10,7 +10,7 @@ const headers = { "content-type": "application/json", "cache-control": "private,
 /** État ENREGISTRÉ d'un paiement d'abonnement du commerce actif. Lecture seule : ni appel à GeniusPay, ni écriture. */
 export async function GET(request: Request, { params }: Context) {
   try {
-    const context = await getBusinessContext(request.headers);
+    const context = await getBusinessContext(request.headers, { allowWithoutSubscription: true });
     const { attemptId } = await params;
     const result = await getSubscriptionPaymentStatus(context.db, { actorUserId: context.actorUserId, businessId: context.businessId, attemptId });
     return new Response(jsonSafe(result), { headers });
@@ -25,7 +25,7 @@ export async function POST(request: Request, { params }: Context) {
   try {
     // Contrôle d'origine avec la méthode : la règle `Sec-Fetch-Site` des écritures s'ajoute à celle de `Origin`.
     assertTrustedOrigin(request.headers, request.method);
-    const context = await getBusinessContext(request.headers);
+    const context = await getBusinessContext(request.headers, { allowWithoutSubscription: true });
     const { attemptId } = await params;
     const result = await refreshSubscriptionPayment(context.db, getBillingProvider(), { actorUserId: context.actorUserId, businessId: context.businessId, attemptId });
     return new Response(jsonSafe(result), { headers });

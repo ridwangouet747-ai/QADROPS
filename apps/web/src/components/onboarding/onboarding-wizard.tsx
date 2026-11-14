@@ -63,6 +63,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const linkedPlan = (searchParams.get("plan") ?? "").slice(0, 32);
   const [promotion, setPromotion] = useState<SignupPromotion | null>(null);
   const [promotionOutcome, setPromotionOutcome] = useState<SignupOutcome>(null);
+  const [destination, setDestination] = useState<"/business/dashboard" | "/business/subscription">("/business/subscription");
   const [step, setStep] = useState<WizardStep>(entry === "onboarding" ? "identity" : "account");
   const [direction, setDirection] = useState(1);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
@@ -213,13 +214,19 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
       return;
     }
     // Confirmation du serveur reçue : seulement maintenant, la bienvenue.
-    const created = await response.json().catch(() => ({})) as { promotion?: SignupOutcome };
-    setPromotionOutcome(created.promotion ?? null);
+    // La route renvoie { business: { id, name, promotion } } : le résultat du code est dans business.promotion.
+    const created = await response.json().catch(() => ({})) as { business?: { promotion?: SignupOutcome } };
+    const outcome = created.business?.promotion ?? null;
+    // Seul un essai accordé par le serveur ouvre l’espace de gestion ; sinon, le commerçant choisit une formule
+    // (la page de tableau de bord le redirigerait de toute façon : requireBusinessPageAccess).
+    const opened = outcome?.status === "applied" && outcome.subscriptionStatus === "trialing";
+    setPromotionOutcome(outcome);
+    setDestination(opened ? "/business/dashboard" : "/business/subscription");
     storage.clear();
     setPhase("welcome");
     track("signup_completed");
     // Un résultat de code promotionnel à lire laisse un peu plus de temps avant la redirection.
-    redirectTimer.current = setTimeout(() => router.push("/business/dashboard"), created.promotion ? 7000 : 3800);
+    redirectTimer.current = setTimeout(() => router.push(opened ? "/business/dashboard" : "/business/subscription"), outcome ? 7000 : 3800);
   };
 
   const onLogo = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -231,7 +238,9 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
     try {
       const data = await downscaleLogo(file);
       business.setValue("logo", data, { shouldValidate: true, shouldDirty: true });
-    } catch { business.setError("logo", { message: "wizard.errors.logoType" }); } finally { setLogoBusy(false); }
+    } catch (problem) {
+      business.setError("logo", { message: problem instanceof Error && problem.message === "size" ? "wizard.errors.logoSize" : "wizard.errors.logoType" });
+    } finally { setLogoBusy(false); }
   };
 
   const stage: SceneStage = phase === "welcome" ? "welcome" : step;
@@ -266,16 +275,16 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
             <div ref={welcomeRef} className="rounded-xl border border-line bg-surface p-6 text-center shadow-card sm:p-8" role="status" aria-live="polite">
               <span data-welcome className="mx-auto grid size-14 place-items-center rounded-full bg-brand-gradient text-white shadow-brand"><Icon name="check" className="size-7" /></span>
               <h1 data-welcome className="m-0 mt-5 text-[1.9rem] leading-tight font-bold tracking-[-0.03em] text-ink">{t("wizard.welcome.title")}</h1>
-              <p data-welcome className="m-0 mt-2 text-fg-muted">{t("wizard.welcome.body", { business: `⁨${businessLabel}⁩` })}</p>
+              <p data-welcome className="m-0 mt-2 text-fg-muted">{t(destination === "/business/dashboard" ? "wizard.welcome.body" : "wizard.welcome.bodyPending", { business: `⁨${businessLabel}⁩` })}</p>
               {promotionOutcome && <div data-welcome className="mt-4 text-start"><PromotionOutcome outcome={promotionOutcome} /></div>}
               <span className="mt-6 block h-1.5 overflow-hidden rounded-full bg-surface-muted"><span data-progress className="block h-full origin-left rounded-full bg-brand rtl:origin-right" /></span>
-              <p data-welcome className="m-0 mt-2 text-[0.8rem] text-fg-subtle">{t("wizard.welcome.redirecting")}</p>
-              <Button data-welcome className="mt-5" size="lg" block onClick={() => router.push("/business/dashboard")} icon={<Icon name="forward" />}>{t("wizard.actions.goDashboard")}</Button>
-              {/* Facultatif : l'inscription n'exige aucun code ; ce lien suspend la redirection automatique. */}
-              <Link data-welcome href="/business/subscription" onClick={() => { if (redirectTimer.current) clearTimeout(redirectTimer.current); }}
+              <p data-welcome className="m-0 mt-2 text-[0.8rem] text-fg-subtle">{t(destination === "/business/dashboard" ? "wizard.welcome.redirecting" : "wizard.welcome.redirectingPending")}</p>
+              <Button data-welcome className="mt-5" size="lg" block onClick={() => router.push(destination)} icon={<Icon name="forward" />}>{t(destination === "/business/dashboard" ? "wizard.actions.goDashboard" : "wizard.actions.choosePlan")}</Button>
+              {/* Accès déjà ouvert : un code d'accès reste saisissable ; ce lien suspend la redirection automatique. */}
+              {destination === "/business/dashboard" && <Link data-welcome href="/business/subscription" onClick={() => { if (redirectTimer.current) clearTimeout(redirectTimer.current); }}
                 className="mt-3 inline-flex min-h-11 items-center justify-center gap-2 text-sm font-semibold text-brand-strong no-underline hover:underline">
                 <Icon name="tag" className="size-4" />{t("wizard.welcome.haveCode")}
-              </Link>
+              </Link>}
             </div>
           ) : (
             <>

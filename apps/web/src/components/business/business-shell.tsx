@@ -4,7 +4,6 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOutAndResetAnalytics } from "@/lib/auth/logout";
-import { BrandLogo } from "@/components/brand/brand-logo";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -15,7 +14,7 @@ import { BusinessTimeZoneContext } from "@/components/business/business-time-zon
 import { track } from "@/lib/analytics/client";
 import { BUSINESS_DEFAULT_TIME_ZONE, safeTimeZone } from "@/lib/i18n/format";
 import { cn } from "@/components/ui/cn";
-import { Monogram } from "@/components/ui/data-display";
+import { BusinessLogo } from "@/components/business/business-identity";
 import { Icon, type IconName } from "@/components/ui/icon";
 
 export type BusinessArea = "dashboard" | "pos" | "products" | "sales" | "customers" | "stock" | "inventory" | "suppliers" | "purchases" | "expenses" | "reports" | "settings" | "opening" | "team" | "subscription" | "cash" | "notifications" | "printing" | "install" | "imports" | "modules";
@@ -56,14 +55,31 @@ const roleModules: Record<string, BusinessArea[]> = {
 const BusinessRoleContext = createContext("member");
 export const useBusinessRole = () => useContext(BusinessRoleContext);
 
-/** Logo Qadr Ops : toujours de gauche à droite, y compris en arabe. */
-function Brand() {
+type ActiveBusiness = { name: string; logo: string | null; role: string; timezone: string | null; lifecycle: string };
+
+/**
+ * Identité du commerce actif, en tête de l’en-tête à toutes les largeurs (mission CTO du 2026-11-14) : logo du
+ * commerçant (ou initiale) et nom complet, tronqué seulement à la largeur disponible, avec le nom entier en
+ * infobulle. Un clic ouvre le choix du commerce. Qadr Ops reste nommé en petit sous le nom.
+ */
+function BusinessIdentity({ business }: { business: ActiveBusiness | null }) {
   const { t } = useI18n();
+  if (!business) {
+    return (
+      <span className="flex min-w-0 items-center gap-2.5" aria-hidden="true">
+        <span className="size-10 shrink-0 animate-pulse rounded-[12px] bg-surface-muted" />
+        <span className="h-4 w-28 animate-pulse rounded-full bg-surface-muted" />
+      </span>
+    );
+  }
   return (
-    <Link href="/business/dashboard" aria-label={t("shell.homeLink")} className="flex shrink-0 items-center text-ink no-underline">
-      {/* Entre lg et xl, la barre des modules occupe la place du nom (sinon débordement, surtout en arabe). */}
-      <BrandLogo priority labelClassName="hidden leading-none min-[400px]:grid lg:hidden xl:grid"
-        tagline={<small className="mt-1 hidden text-[0.68rem] font-medium text-fg-subtle 2xl:block">{t("shell.tagline")}</small>} />
+    <Link href="/select-business" title={business.name} aria-label={t("shell.businessSwitch", { business: business.name })}
+      className="group flex min-w-12 max-w-[58vw] items-center gap-2.5 rounded-[14px] py-1 pe-2 text-inherit no-underline sm:min-w-13 sm:max-w-[20rem] lg:max-w-[11rem] xl:max-w-[17rem] 2xl:max-w-[22rem]">
+      <BusinessLogo name={business.name} logo={business.logo} className="size-10 sm:size-11" />
+      <span className="grid min-w-0 leading-tight">
+        <strong dir="auto" className="truncate text-[0.98rem] font-bold tracking-[-0.01em] text-ink group-hover:text-brand-strong sm:text-[1.05rem]">{business.name}</strong>
+        <small className="flex items-center gap-1 truncate text-[0.72rem] font-medium text-fg-subtle">{t("shell.poweredBy")}<Icon name="chevronDown" className="size-3.5 shrink-0" /></small>
+      </span>
     </Link>
   );
 }
@@ -101,31 +117,36 @@ function MoreMenu({ entries, active }: { entries: NavItem[]; active: BusinessAre
 export function BusinessShell({ active, preview = false, children }: { active: BusinessArea; preview?: boolean; children: ReactNode }) {
   const { t } = useI18n();
   const router = useRouter();
-  const [businessName, setBusinessName] = useState<string | null>(preview ? "Commerce Démo QADR" : null);
-  const [role, setRole] = useState(preview ? "owner" : "member");
-  const [timeZone, setTimeZone] = useState(BUSINESS_DEFAULT_TIME_ZONE);
-  const displayName = businessName ?? t("shell.defaultBusiness");
+  const [business, setBusiness] = useState<ActiveBusiness | null>(preview ? { name: "Commerce Démo QADR", logo: null, role: "owner", timezone: null, lifecycle: "active" } : null);
+  const role = business?.role ?? "member";
+  const timeZone = safeTimeZone(business?.timezone ?? BUSINESS_DEFAULT_TIME_ZONE);
   useEffect(() => {
     const features = ["dashboard", "pos", "stock", "inventory", "reports", "cash", "sales", "notifications", "printing", "subscription", "team"] as const;
     const feature = features.find((item) => item === active);
     if (feature) track("feature_viewed", { feature });
   }, [active]);
   useEffect(() => {
-    void fetch("/api/business/settings", { cache: "no-store" }).then(async (response) => {
+    // /api/account/me répond à tous les rôles (les réglages du commerce exigent business:read, que la caisse n’a pas).
+    const load = () => void fetch("/api/account/me", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return;
-      const data = await response.json() as { settings?: { name?: string; role?: string; timezone?: string } };
-      if (data.settings?.name) setBusinessName(data.settings.name);
-      setTimeZone(safeTimeZone(data.settings?.timezone));
-      if (data.settings?.role && roleModules[data.settings.role]) setRole(data.settings.role);
+      const data = await response.json() as { businesses?: (ActiveBusiness & { active: boolean })[] };
+      const active = data.businesses?.find((item) => item.active);
+      if (active) setBusiness({ name: active.name, logo: active.logo, role: roleModules[active.role] ? active.role : "member", timezone: active.timezone, lifecycle: active.lifecycle });
     }).catch(() => undefined);
+    load();
+    // Nom ou logo modifiés dans les réglages : l’en-tête se met à jour sans recharger la page.
+    window.addEventListener("qadr:business-updated", load);
+    return () => window.removeEventListener("qadr:business-updated", load);
   }, []);
 
-  const allowed = useMemo(() => new Set(roleModules[role] ?? roleModules.member), [role]);
+  // Commerce sans droit d’usage : seuls l’abonnement et l’installation restent proposés (le serveur refuse le reste).
+  const pending = business?.lifecycle === "pending";
+  const allowed = useMemo(() => new Set(pending ? (["subscription", "install"] as BusinessArea[]) : roleModules[role] ?? roleModules.member), [pending, role]);
   const visible = items.filter((item) => allowed.has(item.key));
   const pick = (keys: BusinessArea[]) => keys.flatMap((key) => visible.filter((item) => item.key === key));
-  const desktopMain = pick(desktopPriority);
+  const desktopMain = pending ? visible : pick(desktopPriority);
   const desktopMore = visible.filter((item) => !desktopMain.includes(item) && item.key !== "settings");
-  const mobileMain = pick(mobilePriority).slice(0, 4);
+  const mobileMain = pending ? visible : pick(mobilePriority).slice(0, 4);
   const mobileLinks: NavItem[] = [...mobileMain, ...(visible.length > mobileMain.length ? [{ key: "modules" as const, href: "/business/modules", icon: "grid" as const }] : [])];
   const canSettings = allowed.has("settings");
 
@@ -135,11 +156,11 @@ export function BusinessShell({ active, preview = false, children }: { active: B
       <div className="min-h-dvh bg-canvas text-fg">
         <header className="sticky top-0 z-20 border-b border-line/70 bg-canvas/90 backdrop-blur-md">
           <div className="mx-auto flex h-[68px] max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:h-[76px] lg:px-8">
-            <Brand />
+            <BusinessIdentity business={business} />
             <nav aria-label={t("shell.modulesNavigation")} className="mx-auto hidden items-center gap-0.5 rounded-full bg-night p-1.5 shadow-raised lg:flex">
               {desktopMain.map((item) => (
                 <Link key={item.key} href={item.href} aria-current={item.key === active ? "page" : undefined}
-                  className={cn("flex min-h-10 items-center gap-1.5 rounded-full px-3 text-[0.86rem] xl:px-3.5 font-semibold whitespace-nowrap no-underline transition-colors",
+                  className={cn("flex min-h-10 items-center gap-1.5 rounded-full px-2.5 text-[0.86rem] xl:px-3.5 font-semibold whitespace-nowrap no-underline transition-colors",
                     item.key === active ? "bg-brand-gradient text-white shadow-brand" : "text-night-fg hover:text-white")}>
                   {item.key === active && <Icon name={item.icon} className="size-4" />}
                   {t(`shell.items.${item.key}.label`)}
@@ -147,10 +168,11 @@ export function BusinessShell({ active, preview = false, children }: { active: B
               ))}
               <MoreMenu entries={desktopMore} active={active} />
             </nav>
-            {/* min-w-0 : à 1280 px la barre de défilement réduit la largeur utile, la pastille du commerce rétrécit au lieu de faire déborder l’en-tête (mission 16). */}
-            <div className="ms-auto flex min-w-0 items-center gap-2 lg:ms-0">
+            {/* Les boutons de droite gardent leur taille ; c’est le nom du commerce (tronqué, nom complet en infobulle) qui cède la place, jusqu’à ne laisser que le logo. */}
+            <div className="ms-auto flex shrink-0 items-center gap-2 lg:ms-0">
               {preview && <span className="hidden rounded-full border border-warn-line bg-warn-soft px-3 py-1.5 text-xs font-semibold text-warn 2xl:inline">{t("shell.previewBadge")}</span>}
-              <LanguageSwitcher className="shrink-0" />
+              <LanguageSwitcher compact className="shrink-0 xl:hidden" />
+              <LanguageSwitcher className="hidden shrink-0 xl:block" />
               <NotificationBell />
               {canSettings && (
                 <Link href="/business/settings" aria-label={t("shell.settingsLink")} title={t("shell.settingsLink")}
@@ -158,13 +180,6 @@ export function BusinessShell({ active, preview = false, children }: { active: B
                   <Icon name="settings" />
                 </Link>
               )}
-              <Link href="/select-business" aria-label={t("selectBusiness.switch")} className="hidden items-center gap-2.5 rounded-full border border-line bg-surface py-1 ps-1 pe-4 text-inherit no-underline hover:border-brand-tint md:flex min-w-0 max-w-52 lg:hidden xl:flex" title={t("selectBusiness.switch")}>
-                <Monogram text={displayName} className="size-9" />
-                <span className="grid min-w-0 leading-tight">
-                  <small className="truncate text-[0.66rem] font-semibold tracking-[0.06em] whitespace-nowrap text-fg-subtle">{t("shell.activeBusiness")}</small>
-                  <strong dir="auto" className="truncate text-[0.84rem] text-ink">{displayName}</strong>
-                </span>
-              </Link>
               <button type="button" onClick={() => void signOutAndResetAnalytics().finally(() => router.push("/login"))} aria-label={t("auth.logout")} title={t("auth.logout")}
                 className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-surface text-ink hover:border-danger-line hover:text-danger">
                 <Icon name="logout" />

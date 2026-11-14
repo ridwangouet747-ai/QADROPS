@@ -6,6 +6,7 @@ import { PosWorkspace } from "@/components/business/pos-workspace";
 import { ProductsWorkspace } from "@/components/business/products-workspace";
 import { StockWorkspace } from "@/components/business/stock-workspace";
 import { localizedPageMetadata } from "@/lib/i18n/server";
+import { requireBusinessPageAccess } from "@/lib/domain/business-page-access";
 
 type BusinessRouteSection = Exclude<BusinessArea, "inventory" | "reports">;
 const sections = new Set<BusinessRouteSection>(["dashboard", "pos", "products", "sales", "customers", "stock", "suppliers", "purchases", "expenses", "settings", "modules"]);
@@ -18,6 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ section: 
 }
 
 export default async function BusinessSectionPage({ params }: { params: Promise<{ section: string }> }) {
+  await requireBusinessPageAccess();
   const { section } = await params;
   if (!sections.has(section as BusinessRouteSection)) notFound();
   const area = section as BusinessRouteSection;

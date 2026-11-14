@@ -13,6 +13,8 @@ export type Activity = (typeof activities)[number];
 export const storeFormats = ["shop", "kiosk", "wholesale", "other"] as const;
 export type StoreFormat = (typeof storeFormats)[number];
 
+import { LOGO_MAX_CHARS } from "@/lib/business-logo-limits";
+
 const logoPattern = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 
 export const accountSchema = z.object({
@@ -34,7 +36,7 @@ export const detailsSchema = z.object({
 });
 
 export const brandingSchema = z.object({
-  logo: z.string().max(200_000, "wizard.errors.logoSize").refine((value) => value === "" || logoPattern.test(value), "wizard.errors.logoType"),
+  logo: z.string().max(LOGO_MAX_CHARS, "wizard.errors.logoSize").refine((value) => value === "" || logoPattern.test(value), "wizard.errors.logoType"),
   displayName: z.string().trim().max(80, "wizard.errors.displayName"),
 });
 

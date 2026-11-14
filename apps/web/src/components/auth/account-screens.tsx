@@ -6,13 +6,14 @@ import { useRouter } from "next/navigation";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { Monogram } from "@/components/ui/data-display";
+import { BusinessLogo } from "@/components/business/business-identity";
 import { Alert, Badge, Skeleton } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { authClient } from "@/lib/auth/client";
 import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { intlLocale } from "@/lib/i18n/config";
+import { LOGO_MAX_CHARS } from "@/lib/business-logo-limits";
 import { AuthShell } from "./auth-shell";
 
 /** Logo du commerce : petite image (≤ 256 px) en data URL, que next/image n'optimiserait pas. */
@@ -24,16 +25,31 @@ function LogoImage({ src, className }: { src: string; className?: string }) {
 const activities = [["hardware", "box"], ["phones", "store"], ["general", "cart"], ["clothing", "grid"]] as const satisfies readonly (readonly [string, IconName])[];
 type Activity = (typeof activities)[number][0];
 
-/** Réduit le logo à 256 px dans le navigateur : moins de données envoyées, rendu net sur les reçus. */
+/**
+ * Réduit le logo dans le navigateur : 256 px au plus, puis, si la data URL dépasse LOGO_MAX_CHARS (corps de
+ * requête plafonné à 64 Kio), WebP de qualité décroissante et taille réduite. Les proportions sont gardées.
+ * Une image photographique trop riche finit en JPEG sur fond blanc ; au-delà, erreur « size ».
+ */
 export async function downscaleLogo(file: File): Promise<string> {
   if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 8_000_000) throw new Error("type");
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/png");
+  const render = (edge: number, type: string, quality?: number) => {
+    const scale = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d")!;
+    if (type === "image/jpeg") { context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height); }
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL(type, quality);
+  };
+  const attempts: [number, string, number?][] = [[256, "image/png"], [256, "image/webp", 0.9], [256, "image/webp", 0.75], [192, "image/webp", 0.75], [160, "image/jpeg", 0.8], [128, "image/jpeg", 0.7]];
+  for (const [edge, type, quality] of attempts) {
+    const data = render(edge, type, quality);
+    // Un navigateur sans encodeur WebP renvoie du PNG : la boucle passe alors au JPEG.
+    if (data.length <= LOGO_MAX_CHARS && /^data:image\/(png|jpeg|webp);base64,/.test(data)) return data;
+  }
+  throw new Error("size");
 }
 
 export function OnboardingForm() {
@@ -136,7 +152,7 @@ export function BusinessPicker() {
                 <button type="button" disabled={business.disabled || busy !== ""} onClick={() => void choose(business)} aria-label={t("selectBusiness.open", { name: business.name })}
                   className={cn("flex w-full cursor-pointer items-center gap-3 rounded-[16px] border p-3 text-start transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                     business.active ? "border-brand bg-brand-soft" : "border-line bg-surface hover:border-brand-tint")}>
-                  {business.logo ? <LogoImage src={business.logo} className="size-11 rounded-[13px]" /> : <Monogram text={business.name} className="size-11 rounded-[13px]" />}
+                  <BusinessLogo name={business.name} logo={business.logo} className="size-11" />
                   <span className="grid min-w-0 flex-1">
                     <strong dir="auto" className="truncate text-ink">{business.name}</strong>
                     <small className="text-xs text-fg-subtle">{t(`roles.${business.role as "owner"}`)}</small>
@@ -196,7 +212,7 @@ export function InvitationView({ invitationId }: { invitationId: string }) {
         ) : (
           <>
             <div className="flex items-center gap-3 rounded-[16px] bg-paper p-3">
-              {invitation.logo ? <LogoImage src={invitation.logo} className="size-12 rounded-[14px]" /> : <Monogram text={invitation.businessName} className="size-12 rounded-[14px]" />}
+              <BusinessLogo name={invitation.businessName} logo={invitation.logo} className="size-12" />
               <div className="min-w-0">
                 <strong dir="auto" className="block truncate text-ink">{invitation.businessName}</strong>
                 <small className="text-sm text-fg-muted">{t("invitation.role", { role: t(`roles.${(invitation.role ?? "member") as "owner"}`) })}</small>
