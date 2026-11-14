@@ -1,6 +1,6 @@
 # Checklist unique du propriétaire
 
-> Mise à jour le 2026-11-12 (directive finale). Elle remplace toutes les listes précédentes. Chaque action revient
+> Mise à jour le 2026-11-14 (mise en production). Elle remplace toutes les listes précédentes. Chaque action revient
 > au propriétaire parce qu'elle demande un accord, une dépense, un secret ou un accès que l'agent n'a pas.
 > **Ne collez jamais un secret dans une conversation avec un agent** : saisissez-le directement dans Vercel,
 > GitHub ou le tableau de bord concerné.
@@ -8,18 +8,20 @@
 > Classement : **P** = obligatoire avant utilisation personnelle ; **C** = obligatoire avant ouverture aux
 > commerçants ; **L** = peut attendre.
 
-Déjà fait par l'agent (pour mémoire) : dépôt vérifié privé, code poussé (`31d8eca`), projet Vercel `web` réglé,
-protection Vercel sur tous les déploiements, variables de Production (`BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
-`CRON_SECRET`, Turnstile, VAPID, Sentry environnement, base Neon), widget Turnstile créé, instantané Neon de `main`,
-workflow de sauvegarde écrit.
+Déjà fait par l'agent (pour mémoire) : sauvegarde restaurée et migration de Neon `main` (26), RLS vérifiée, fusion de
+`7c10771` dans `main` après CI vert, déploiement de production READY sur `https://web-phi-beryl-45.vercel.app`,
+protection Vercel en mode standard (domaine public, Preview protégés), clés GeniusPay live, DSN Sentry et
+`VAPID_SUBJECT` posés en Production (*Sensitive*), workflow CI. Détail : `mission-global-release-report.md`.
+
+**Tout de suite** : remettre le dépôt GitHub `QADROPS` en **privé** (GitHub → *Settings* → *General* → *Danger Zone*).
 
 ## P. Obligatoire avant utilisation personnelle
 
 | # | Action | Type | Où | Détail |
 | --- | --- | --- | --- | --- |
-| P-0 | **Débloquer la sauvegarde réelle** (condition que vous avez posée avant de migrer `main`). Au choix : **(a)** écrire dans la conversation que l'agent peut utiliser les identifiants de base (Production de Vercel et branche de staging de Neon) dans des fichiers locaux privés, jamais affichés ni commités, effacés à la fin, **et** soit installer la distribution WSL de Docker Desktop (`wsl --install`, redémarrage), soit l'autoriser à télécharger les outils clients PostgreSQL 18 officiels ; **(b)** ou faire vous-même P-4 avec la source `staging` | validation | conversation, ou GitHub | le système d'autorisations de l'agent a refusé deux fois l'accès aux identifiants (« Credential Materialization », « Unauthorized Access ») ; Docker ne démarre pas : aucune distribution WSL installée |
-| P-1 | Migration de la branche Neon `main` | validation | — | **autorisée** par la mission du 2026-11-13, sous condition d'une restauration réelle (P-0). 26 migrations, revues : aucune ne supprime de données (les `DROP` remplacent des contraintes ou des politiques, les deux `UPDATE` remplissent une colonne nouvelle) ; instantané `snap-cold-frost-bcldn8o9` vérifié |
-| P-2 | Fusion de `feat/mission-13-reprise` dans `main` (sans force), puis protection Vercel en mode standard (domaine de production public, Preview protégés) | validation | — | autorisée par la mission ; faite par l'agent juste après P-1 |
+| P-0 | ~~Sauvegarde réelle~~ | fait | — | restauration prouvée le 2026-11-13 |
+| P-1 | ~~Migration de Neon `main`~~ | fait | — | 26 migrations, 2026-11-13 |
+| P-2 | ~~Fusion dans `main` et protection standard~~ | fait | — | `7c10771`, 2026-11-14 |
 | P-3 | Saisir `QADR_OWNER_USERNAME` et `QADR_OWNER_PASSWORD` (type *Sensitive*, Production seulement), redéployer, se connecter à `/platform/login`, puis retirer les deux variables | clé | Vercel → `web` → *Settings* → *Environment Variables* | l'agent ne choisit aucun identifiant ; nom de 3 à 30 caractères (a-z, 0-9, point, tiret bas), mot de passe de 12 caractères au moins, propre à Qadr Ops |
 | P-3 bis | Saisir `QADR_REGISTRATION_ALLOWLIST` = votre ou vos adresses e-mail (virgules), Production seulement | clé | Vercel | sans elle, **aucune** inscription n'est possible en production (usage personnel sous Hobby, `../authentication.md` § 11.6) : même vous ne pourriez pas créer votre compte de commerce |
 | P-4 | Créer les secrets GitHub `BACKUP_PASSPHRASE` (32 caractères au moins, gardée hors de GitHub), `NEON_STAGING_DATABASE_URL` (chaîne **directe** de la branche `mission-14-staging`, base `qadr_staging`) puis, après P-1, `NEON_BACKUP_DATABASE_URL` (chaîne directe de `main`) ; lancer « Sauvegarde Neon » à la main avec la source voulue | clé + validation | GitHub → *Settings* → *Secrets and variables* → *Actions* ; onglet *Actions* | GitHub ne propose le lancement manuel qu'une fois le workflow présent sur `main` (après P-2) ; procédure : `backup-restore.md` § 4.0 |
@@ -37,9 +39,9 @@ workflow de sauvegarde écrit.
 | C-3 | Ouvrir les inscriptions : `QADR_REGISTRATION=open` (et retirer `QADR_REGISTRATION_ALLOWLIST`) | décision + clé | Vercel | seulement avec l'offre Pro (C-1) ; tant que l'offre est Hobby, la liste réserve l'application à vos adresses |
 | C-4 | Domaine (achat) puis DNS Cloudflare en **nuage gris** ; mettre à jour `BETTER_AUTH_URL` et le domaine du widget Turnstile | compte (dépense) + DNS | registraire, Cloudflare, Vercel | aucun domaine n'est acheté |
 | C-5 | Resend : domaine vérifié (enregistrements SPF, DKIM et DMARC à créer dans Cloudflare, donnés par Resend), `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | DNS + clé | Resend, Cloudflare, Vercel | `resend-dns.md` ; sans eux, ni réinitialisation de mot de passe ni invitation par e-mail |
-| C-6 | GeniusPay live : contrat, `GENIUSPAY_API_KEY` (`pk_live_`), `GENIUSPAY_API_SECRET` (`sk_live_`), `GENIUSPAY_WEBHOOK_SECRET`, webhook `https://<domaine>/api/webhooks/geniuspay` | clé + compte | GeniusPay, Vercel (Production seulement) | jamais la même clé qu'en sandbox ; aucun paiement réel pour « tester » |
+| C-6 | GeniusPay live : clés posées par l'agent (secret **non vérifié**, la seule vérification crée un paiement). Reste : déclarer le webhook `https://web-phi-beryl-45.vercel.app/api/webhooks/geniuspay` (puis le domaine définitif) dans le tableau de bord GeniusPay, et décider d'un premier paiement réel de faible montant pour valider la chaîne | compte + validation | GeniusPay | aucun paiement n'a été créé |
 | C-7 | Créer la formule **Standard** : 5 000 FCFA, 30 jours, toutes fonctions (D-04) | validation | `/platform/plans` | aucun tarif n'est écrit dans le code |
-| C-8 | `VAPID_SUBJECT` = `mailto:` d'une adresse que vous lisez | clé | Vercel | sans lui le push reste désactivé |
+| C-8 | ~~`VAPID_SUBJECT`~~ | fait | — | posé le 2026-11-14 ; réception réelle non testée (L-5) |
 | C-9 | Décider de la politique pour un commerce sans abonnement ou en `pending` | décision | — | aujourd'hui non bloqué |
 | C-10 | Relecture juridique de `/privacy` et des conditions d'utilisation | validation | — | |
 | C-11 | Vérifier l'adresse IP vue par la limitation derrière Vercel (et Cloudflare si proxy) | validation | Preview ou production | `../rate-limiting.md` |
@@ -50,7 +52,7 @@ workflow de sauvegarde écrit.
 | --- | --- | --- | --- |
 | L-1 | Variables **Preview** du projet `web` : base de staging, secrets propres, clés GeniusPay **sandbox**, Turnstile de test | clés | `vercel-environments.md` § 3 ; sans elles, les Preview répondent 500 aux API |
 | L-2 | Bucket R2 privé de production et jetons ; bucket de test pour `r2.integration.test.ts` | compte + clés | `../storage-r2.md` |
-| L-3 | DSN Sentry (`SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`) | clé | sans eux, aucune erreur n'est remontée |
+| L-3 | ~~DSN Sentry~~ | fait | — | posés le 2026-11-14 ; aucun événement observé |
 | L-4 | Projet Vercel `qadrops` : l'archiver | décision | sa `DATABASE_URL` vise un **autre** projet Neon (`soft-shadow-14690872`) ; il n'est pas relié au dépôt |
 | L-5 | Recevoir une vraie notification push sur un téléphone ; imprimer un vrai ticket | validation | rien de cela n'est vérifié |
 | L-6 | Supprimer, si vous le souhaitez, la branche `restore-test-2026-11-12` et les bases `qadr_t_26b71d2dd995`, `qadr_t_2daf7bad4b7c`, `qadr_t_71046c3dca94` de staging | décision | l'agent ne supprime aucune donnée |
