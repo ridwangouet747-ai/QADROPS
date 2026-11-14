@@ -1,0 +1,67 @@
+# Intégration continue de l'application Next.js (apps/web).
+# Aucun secret : les tests tournent sur PGlite en mémoire (le harnais fournit ses propres clés de test),
+# le build n'a besoin d'aucune variable (l'environnement est lu à la requête). Aucune base distante n'est contactée :
+# `drizzle-kit check` et `generate` ne lisent que le schéma et les fichiers de migration.
+name: Intégration continue
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Aucune variable de base : le harnais retombe sur PGlite, drizzle-kit sur une URL factice jamais contactée.
+      # Les essais PostgreSQL réels (QADR_TEST_POSTGRES_URL) et R2 (QADR_TEST_R2_*) restent ignorés en CI.
+    steps:
+      # Actions épinglées sur un commit (un tag peut être déplacé) ; version lisible en commentaire.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.x"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Installation (lockfile exact)
+        run: npm ci
+
+      - name: Contrôle TypeScript
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Schéma et migrations cohérents (sans base)
+        run: |
+          npx drizzle-kit check
+          npx drizzle-kit generate
+          # Une migration générée ici signifie que le schéma a changé sans migration commitée.
+          git diff --exit-code -- drizzle
+          test -z "$(git status --porcelain -- drizzle)"
+
+      - name: Tests (Vitest, PGlite)
+        run: npm test
+
+      - name: Build de production
+        run: npm run build
+
+      - name: Audit des dépendances de production (échec à partir de « high »)
+        run: npm audit --omit=dev --audit-level=high
