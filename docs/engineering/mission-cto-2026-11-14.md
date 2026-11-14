@@ -35,6 +35,7 @@ webhook GeniusPay, formule, relecture juridique).
 | A-7 | Moyenne | Exploitation | un code d'accès ne se crée que sur une formule **active** (règle de la mission 08) | pour ouvrir son propre commerce sans paiement, le propriétaire doit activer la formule quelques minutes | procédure documentée (P-5 ter) ; aucun changement de règle sans décision | — |
 | A-8 | Basse | Mise en page | à 1024 px l'en-tête ne montre que le logo du commerce | nom complet seulement dans `title` / `aria-label` | assumé (nom visible dès `xl` et sur mobile) | capture |
 | A-9 | Info | Sécurité | 2FA du propriétaire facultative (D-05) | un mot de passe volé suffit à ouvrir la console de la plateforme | non modifié (décision du propriétaire) ; fortement conseillé (P-5) | — |
+| A-11 | Moyenne | Déploiement | le projet Vercel `qadrops` (à ne pas utiliser) est relié au dépôt par Git, contrairement à la checklist | chaque poussée y est construite avec une `DATABASE_URL` d'un autre projet Neon ; un lien de ce projet pourrait être pris pour Qadr Ops | checklist L-4 corrigée : déconnecter le dépôt puis archiver (action du propriétaire) | statuts GitHub de `f6573d1` et `c1f636f` |
 | A-10 | Info | Données | RLS active seulement pour l'export complet | les autres routes reposent sur le filtrage applicatif (testé par `tenant-isolation.http.test.ts`) | non étendu dans cette mission (plan : audit de sécurité § 4.4) | `tenant-rls.http.test.ts` |
 
 Contrôle des données d'amorçage : aucun script de *seed* n'écrit en production ; `ensure-standard-plan.ts` est
@@ -47,7 +48,7 @@ développement.
 | --- | --- |
 | Corrigé et testé | A-1, A-2, A-3, A-4, A-5 |
 | Non testable en production | paiement GeniusPay réel, webhook réel, e-mails Resend, push sur téléphone, impression thermique, adresse IP derrière Cloudflare |
-| En cours | contrôle de l'aperçu Vercel (Preview) de cette branche après poussée |
+| Non fait | aperçu Vercel (Preview) sur le projet `web` : `web` ne construit pas les branches, l'API Vercel par MCP ne voit pas l'équipe et la CLI Vercel n'est pas installée. Seul `qadrops` a construit la branche (voir A-11) |
 | Non corrigé | A-8 (assumé), A-10 (extension de la RLS, chantier à part) |
 | Décision du propriétaire | A-6 (dépôt privé), A-7 (codes sur formule inactive ?), A-9 (2FA obligatoire ?), offre Vercel Pro et Neon payante, tarif public |
 
@@ -88,6 +89,7 @@ Détail et procédures : `owner-action-checklist.md`.
 
 **Bloquant avant le premier utilisateur (vous)**
 - Dépôt GitHub en privé, renouvellement de toute clé collée hors Git pendant la période publique.
+- Déconnecter le projet Vercel `qadrops` du dépôt (L-4, A-11).
 - `QADR_OWNER_USERNAME` / `QADR_OWNER_PASSWORD` (P-3), `QADR_REGISTRATION_ALLOWLIST` (P-3 bis).
 - Formule Standard créée inactive (P-5 bis), puis votre commerce ouvert par un code (P-5 ter).
 - Conseillé : second facteur (P-5).
@@ -133,6 +135,8 @@ Détail et procédures : `owner-action-checklist.md`.
   PostgreSQL, qui exigent des variables `QADR_TEST_*`), 0 échec. `business-branding.http.test.ts` et
   `landing-content.test.ts` relancés seuls après leur dernière modification : 11/11.
 - `npm run build` : réussi.
+- CI GitHub « Intégration continue » sur `c1f636f` (branche `feat/mission-cto-2026-11-14`) : **réussie**
+  (lint, types, contrôle du schéma, tests, build). Aucune fusion dans `main`.
 - Débordement horizontal mesuré par navigateur sans interface : 0 px à 320, 360, 1024, 1100 et 1280 px, en fr, en
   et ar.
 - Non fait : aucun essai sur Neon de staging ni en production, aucun paiement, aucun e-mail, aucune capture d'un

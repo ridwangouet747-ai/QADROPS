@@ -57,7 +57,7 @@ d'*Actions* ou un fichier hors Git pendant la période publique.
 | L-1 | Variables **Preview** du projet `web` : base de staging, secrets propres, clés GeniusPay **sandbox**, Turnstile de test | clés | `vercel-environments.md` § 3 ; sans elles, les Preview répondent 500 aux API |
 | L-2 | Bucket R2 privé de production et jetons ; bucket de test pour `r2.integration.test.ts` | compte + clés | `../storage-r2.md` |
 | L-3 | ~~DSN Sentry~~ | fait | — | posés le 2026-11-14 ; aucun événement observé |
-| L-4 | Projet Vercel `qadrops` : l'archiver | décision | sa `DATABASE_URL` vise un **autre** projet Neon (`soft-shadow-14690872`) ; il n'est pas relié au dépôt |
+| L-4 | Projet Vercel `qadrops` : le **déconnecter du dépôt** puis l'archiver | décision | sa `DATABASE_URL` vise un **autre** projet Neon (`soft-shadow-14690872`). Constat du 2026-11-14 : il **est** relié au dépôt par Git et construit chaque poussée (`f6573d1` sur `main`, `c1f636f` sur la branche de la mission CTO), alors que `web`, le projet canonique, ne construit pas les branches. Vercel → `qadrops` → *Settings* → *Git* → *Disconnect* |
 | L-5 | Recevoir une vraie notification push sur un téléphone ; imprimer un vrai ticket | validation | rien de cela n'est vérifié |
 | L-6 | Supprimer, si vous le souhaitez, la branche `restore-test-2026-11-12` et les bases `qadr_t_26b71d2dd995`, `qadr_t_2daf7bad4b7c`, `qadr_t_71046c3dca94` de staging | décision | l'agent ne supprime aucune donnée |
 | L-7 | Décider du sort de la préparation Workers (`wrangler`, `@opennextjs/cloudflare`, scripts `cf:*`) | décision | elle porte les 4 alertes élevées de `npm audit` complet |
