@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { getBillingProvider } from ".";
+import { getBillingProvider, getConfiguredBillingProvider } from ".";
 import {
   GeniusPayProvider, parseProviderAmount, readGeniusPayConfig, subscriptionMethodFromGeniusPay, verifyGeniusPayWebhookSignature, type FetchLike,
 } from "./geniuspay";
@@ -86,9 +86,18 @@ describe("signature des webhooks GeniusPay", () => {
 describe("configuration GeniusPay", () => {
   const base = { GENIUSPAY_API_KEY: "pk_sandbox_test_unitaire", GENIUSPAY_API_SECRET: "sk_sandbox_test_unitaire", GENIUSPAY_WEBHOOK_SECRET: SECRET };
 
+  it("mode code manuel (défaut, 2026-11-16) : paiement en ligne en pause même avec des clés valides", () => {
+    expect(getBillingProvider(env({ NODE_ENV: "test", ...base }))).toEqual({ available: false, reason: "paused" });
+    expect(getBillingProvider(env({ NODE_ENV: "test", QADR_COMMERCIAL_MODE: "manual_code", ...base }))).toEqual({ available: false, reason: "paused" });
+    expect(getBillingProvider(env({ NODE_ENV: "test", QADR_COMMERCIAL_MODE: "inconnu", ...base }))).toEqual({ available: false, reason: "paused" });
+    // Le webhook en pause vérifie encore les signatures avec la configuration posée.
+    expect(getConfiguredBillingProvider(env({ NODE_ENV: "test", ...base }))).toMatchObject({ available: true });
+    expect(getBillingProvider(env({ NODE_ENV: "test", QADR_COMMERCIAL_MODE: "geniuspay", ...base }))).toMatchObject({ available: true });
+  });
+
   it("sans variables : indisponible ; variables partielles : invalide", () => {
     expect(readGeniusPayConfig(env({ NODE_ENV: "test" }))).toEqual({ status: "unconfigured" });
-    expect(getBillingProvider(env({ NODE_ENV: "test" }))).toEqual({ available: false, reason: "unconfigured" });
+    expect(getBillingProvider(env({ QADR_COMMERCIAL_MODE: "geniuspay", NODE_ENV: "test" }))).toEqual({ available: false, reason: "unconfigured" });
     expect(readGeniusPayConfig(env({ NODE_ENV: "test", GENIUSPAY_API_KEY: base.GENIUSPAY_API_KEY })).status).toBe("invalid");
   });
 
@@ -147,8 +156,8 @@ describe("configuration GeniusPay", () => {
 
   it("refuse une adresse de retour non HTTPS en production", () => {
     const live = { GENIUSPAY_API_KEY: "pk_live_test_unitaire", GENIUSPAY_API_SECRET: "sk_live_test_unitaire", GENIUSPAY_WEBHOOK_SECRET: SECRET };
-    expect(getBillingProvider(env({ NODE_ENV: "production", VERCEL_ENV: "production", BETTER_AUTH_URL: "http://qadr.example.ci", ...live }))).toEqual({ available: false, reason: "invalid" });
-    expect(getBillingProvider(env({ NODE_ENV: "production", VERCEL_ENV: "production", BETTER_AUTH_URL: "https://qadr.example.ci", ...live }))).toMatchObject({ available: true, appUrl: "https://qadr.example.ci" });
+    expect(getBillingProvider(env({ QADR_COMMERCIAL_MODE: "geniuspay", NODE_ENV: "production", VERCEL_ENV: "production", BETTER_AUTH_URL: "http://qadr.example.ci", ...live }))).toEqual({ available: false, reason: "invalid" });
+    expect(getBillingProvider(env({ QADR_COMMERCIAL_MODE: "geniuspay", NODE_ENV: "production", VERCEL_ENV: "production", BETTER_AUTH_URL: "https://qadr.example.ci", ...live }))).toMatchObject({ available: true, appUrl: "https://qadr.example.ci" });
   });
 });
 

@@ -54,6 +54,16 @@
       "port": 3001
     },
     {
+      "name": "qadr-web-preview-access-codes",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/web", "run", "preview"],
+      "env": {
+        "QADR_ACCESS_CODE": "required",
+        "QADR_WHATSAPP_NUMBER": "999000000001"
+      },
+      "port": 3001
+    },
+    {
       "name": "qadr-web-preview-turnstile-test",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "apps/web", "run", "preview"],

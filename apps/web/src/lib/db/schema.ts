@@ -6,7 +6,9 @@ import { sql } from "drizzle-orm";
 
 // Better Auth 1.7.7 Organization schema. organization.id is the commerce/business ID.
 export const user = pgTable("user", {
-  id: text("id").primaryKey(), name: text("name").notNull(), email: text("email").notNull().unique(),
+  // Adresse facultative depuis le 2026-11-16 : un employé rejoint son commerce par un code d'invitation et se
+  // connecte par nom d'utilisateur, sans adresse (jamais d'adresse inventée). Unicité conservée (plusieurs NULL).
+  id: text("id").primaryKey(), name: text("name").notNull(), email: text("email").unique(),
   emailVerified: boolean("email_verified").notNull().default(false), image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -357,7 +359,7 @@ export const businessSubscription = pgTable("business_subscription", {
   canceledAt: timestamp("canceled_at", { withTimezone: true }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [unique("subscription_business_id_unique").on(t.businessId, t.id), index("subscription_business_status_idx").on(t.businessId, t.status, t.endsAt),
   check("subscription_status_check", sql`${t.status} in ('pending','trialing','active','suspended','expired','canceled')`),
-  check("subscription_origin_check", sql`${t.origin} in ('manual','promotion','payment')`),
+  check("subscription_origin_check", sql`${t.origin} in ('manual','promotion','payment','access_code')`),
   check("subscription_resume_status_check", sql`${t.statusBeforeSuspension} is null or ${t.statusBeforeSuspension} in ('trialing','active')`),
   index("subscription_status_end_idx").on(t.status, t.endsAt)]);
 /**
@@ -441,7 +443,7 @@ export const paymentProviderEvent = pgTable("payment_provider_event", {
 }, (t) => [unique("provider_event_idempotency_unique").on(t.businessId, t.provider, t.eventId), foreignKey({ columns: [t.businessId, t.paymentId], foreignColumns: [payment.businessId, payment.id], name: "provider_event_store_payment_tenant_fk" }), foreignKey({ columns: [t.businessId, t.subscriptionPaymentId], foreignColumns: [subscriptionPayment.businessId, subscriptionPayment.id], name: "provider_event_subscription_payment_tenant_fk" }), index("provider_event_business_received_idx").on(t.businessId, t.receivedAt), check("provider_event_single_target_check", sql`num_nonnulls(${t.paymentId}, ${t.subscriptionPaymentId}) <= 1`),
   uniqueIndex("provider_event_provider_event_unique").on(t.provider, t.eventId),
   check("provider_event_unattached_check", sql`${t.businessId} is not null or (${t.paymentId} is null and ${t.subscriptionPaymentId} is null)`),
-  check("provider_event_outcome_check", sql`${t.outcome} in ('received','applied','unchanged','ignored','unmatched','amount_mismatch','currency_mismatch','reference_mismatch','environment_mismatch','metadata_mismatch','provider_error')`),
+  check("provider_event_outcome_check", sql`${t.outcome} in ('received','applied','unchanged','ignored','unmatched','amount_mismatch','currency_mismatch','reference_mismatch','environment_mismatch','metadata_mismatch','provider_error','paused')`),
   index("provider_event_reference_idx").on(t.provider, t.providerReference).where(sql`${t.providerReference} is not null`)]);
 // Client-generated operation keys, scoped per business: a retried command returns its first result instead of running twice.
 export const idempotencyRecord = pgTable("idempotency_record", {
@@ -658,10 +660,65 @@ export const productAlias = pgTable("product_alias", {
   check("product_alias_length_check", sql`char_length(${t.alias}) between 1 and 160 and char_length(${t.normalized}) between 1 and 160`)]);
 
 export const authSchema = { user, session, account, verification, organization, member, invitation, twoFactor };
+/**
+ * Code d'accès commercial (2026-11-16, docs/commercial-access-codes.md) : remis par Qadr Agency après un
+ * paiement vérifié à la main. Jamais stocké en clair : `code_hash` = HMAC-SHA256 (clé du serveur) du code
+ * normalisé ; `code_hint` = 4 derniers caractères pour la console. Usage unique, révocable avant usage,
+ * date limite d'activation distincte de la durée d'accès (qui ne court qu'à l'activation). Table de la
+ * plateforme : la colonne du commerce s'appelle `consumed_business_id` (aucune ligne n'appartient à un
+ * commerce avant l'activation). Distinct des codes promotionnels et des codes d'invitation d'employés.
+ */
+export const commercialAccessCode = pgTable("commercial_access_code", {
+  id: text("id").primaryKey(), codeHash: text("code_hash").notNull().unique(), codeHint: text("code_hint").notNull(),
+  planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }),
+  durationUnit: text("duration_unit").notNull(), durationValue: integer("duration_value").notNull(),
+  activationDeadline: timestamp("activation_deadline", { withTimezone: true }).notNull(),
+  /** Confirmation explicite, par le propriétaire de la plateforme, que le paiement a été vérifié hors ligne. */
+  paymentVerifiedAt: timestamp("payment_verified_at", { withTimezone: true }).notNull(),
+  /** Note interne facultative (référence du paiement, nom du client) ; jamais affichée au commerçant. */
+  note: text("note"),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }), revokedByUserId: text("revoked_by_user_id").references(() => user.id, { onDelete: "restrict" }), revokeReason: text("revoke_reason"),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }), consumedByUserId: text("consumed_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+  consumedBusinessId: text("consumed_business_id").references(() => businessProfile.businessId, { onDelete: "restrict" }), subscriptionId: text("subscription_id"),
+}, (t) => [
+  check("commercial_code_duration_check", sql`(${t.durationUnit} = 'day' and ${t.durationValue} between 1 and 365) or (${t.durationUnit} = 'month' and ${t.durationValue} between 1 and 12)`),
+  check("commercial_code_deadline_check", sql`${t.activationDeadline} > ${t.createdAt}`),
+  check("commercial_code_single_end_check", sql`num_nonnulls(${t.revokedAt}, ${t.consumedAt}) <= 1`),
+  check("commercial_code_revoked_check", sql`(${t.revokedAt} is null) = (${t.revokedByUserId} is null)`),
+  check("commercial_code_consumed_check", sql`(${t.consumedAt} is null and ${t.consumedByUserId} is null and ${t.consumedBusinessId} is null and ${t.subscriptionId} is null)
+    or (${t.consumedAt} is not null and ${t.consumedByUserId} is not null and ${t.consumedBusinessId} is not null and ${t.subscriptionId} is not null)`),
+  foreignKey({ columns: [t.consumedBusinessId, t.subscriptionId], foreignColumns: [businessSubscription.businessId, businessSubscription.id], name: "commercial_code_subscription_tenant_fk" }),
+  index("commercial_code_created_idx").on(t.createdAt), index("commercial_code_business_idx").on(t.consumedBusinessId).where(sql`${t.consumedBusinessId} is not null`),
+]);
+/**
+ * Code d'invitation d'un employé (2026-11-16, docs/team-invite-codes.md) : créé par le propriétaire ou un
+ * administrateur pour SON commerce, avec un rôle fixé côté serveur (jamais `owner`). Usage unique, expirant,
+ * révocable, jamais stocké en clair. N'accorde aucun abonnement. Distinct des codes commerciaux.
+ */
+export const businessInviteCode = pgTable("business_invite_code", {
+  id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }),
+  codeHash: text("code_hash").notNull().unique(), codeHint: text("code_hint").notNull(), role: text("role").notNull(), displayName: text("display_name"),
+  createdByUserId: text("created_by_user_id").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }), revokedByUserId: text("revoked_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }), consumedByUserId: text("consumed_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+}, (t) => [
+  unique("invite_code_business_id_unique").on(t.businessId, t.id),
+  foreignKey({ columns: [t.businessId, t.createdByUserId], foreignColumns: [member.organizationId, member.userId], name: "invite_code_creator_membership_fk" }),
+  check("invite_code_role_check", sql`${t.role} in ('admin','cashier','stock_manager','accountant','member')`),
+  check("invite_code_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`),
+  check("invite_code_single_end_check", sql`num_nonnulls(${t.revokedAt}, ${t.consumedAt}) <= 1`),
+  check("invite_code_revoked_check", sql`(${t.revokedAt} is null) = (${t.revokedByUserId} is null)`),
+  check("invite_code_consumed_check", sql`(${t.consumedAt} is null) = (${t.consumedByUserId} is null)`),
+  index("invite_code_business_created_idx").on(t.businessId, t.createdAt),
+]);
+
 export const databaseSchema = {
   ...authSchema, rateLimitBucket, businessProfile, businessMemberAccess, platformAdmin, platformSession, receiptSettings, cashSession, cashMovement, productCategory, product, productVariant,
   customer, sale, saleLine, payment, paymentRefund, receivablePayment, supplier, purchase, purchaseLine,
   purchasePayment, openingBalance, openingBalancePayment, inventorySession, inventoryScopeVariant, inventoryLine, stockOpening, stockOpeningLine, stockMovement, expense, subscriptionPlan,
   promotionCode, promotionEligibleBusiness, promotionEligiblePlan, businessSubscription, subscriptionInvoice, subscriptionPayment, promotionRedemption, auditEvent, paymentProviderEvent, idempotencyRecord,
-  storedFile, importBatch, importRow, productAlias,
+  storedFile, importBatch, importRow, productAlias, commercialAccessCode, businessInviteCode,
 };

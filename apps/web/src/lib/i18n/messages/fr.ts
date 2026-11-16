@@ -9,6 +9,7 @@ import { pwaFr } from "./pwa";
 import { importsFr } from "./imports";
 import { exportsFr } from "./exports";
 import { wizardFr } from "./wizard";
+import { accessFr } from "./access";
 import { platformFr } from "./platform";
 import { suiteFr } from "./suite";
 /** Source des clés de traduction. `en.ts` et `ar.ts` doivent reprendre exactement la même structure. */
@@ -750,6 +751,7 @@ export const fr = {
     footer: "Confidentialité",
   },
   wizard: wizardFr,
+  access: accessFr,
   meta: metaFr,
   landing: landingFr,
   subscription: subscriptionFr,

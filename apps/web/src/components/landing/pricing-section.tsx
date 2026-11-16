@@ -5,19 +5,20 @@ import { getPublicPlans, type PublicPlan } from "@/lib/domain/public-plans";
 import { intlLocale, type Locale } from "@/lib/i18n/config";
 import { formatXof } from "@/lib/i18n/format";
 import type { Translate } from "@/lib/i18n/translate";
+import { whatsappHref, whatsappNumber } from "@/lib/commercial/mode";
 import { readContactChannel, type ContactChannel } from "@/lib/landing/contact";
 
 /*
  * Tarifs lus dans `subscription_plan` (formules actives en XOF), jamais écrits dans le code : le prix affiché
- * est celui qui sera facturé. Sans formule publiée, la section le dit et renvoie vers l'inscription. Le code
- * Qadr Agency se saisit pendant la création du commerce (assistant d'inscription,
- * `/api/public/campaigns/check`) : la page n'en simule pas la validation.
+ * est celui qui sera facturé. Modèle commercial du 2026-11-16 : seule la formule STANDARD est montrée ; on la
+ * commande auprès de Qadr Agency (WhatsApp, numéro `QADR_WHATSAPP_NUMBER`), qui remet un code d'accès vérifié sur
+ * /redeem-code. Aucun lien n'ouvre l'inscription sans code. Sans numéro configuré, aucun lien WhatsApp n'est inventé.
  *
  * L'offre Business (« sur devis ») n'est pas une formule facturée : elle ne vient pas de la base et n'a pas de
  * prix. Son bouton ouvre le canal de contact de `QADR_CONTACT_URL` ; sans ce canal, l'offre n'est pas montrée
  * en production (hors production elle reste visible, avec la mention du réglage manquant).
  */
-function PlanCard({ plan, t, locale }: { plan: PublicPlan; t: Translate; locale: Locale }) {
+function PlanCard({ plan, t, locale, whatsapp }: { plan: PublicPlan; t: Translate; locale: Locale; whatsapp: string | null }) {
   const count = (value: number) => new Intl.NumberFormat(intlLocale[locale]).format(value);
   return (
     <li className="flex min-w-0 flex-col rounded-[1.75rem] border border-line bg-surface p-6 text-ink sm:p-7">
@@ -32,7 +33,10 @@ function PlanCard({ plan, t, locale }: { plan: PublicPlan; t: Translate; locale:
         <li className="flex items-start gap-2"><Icon name="check" className="mt-0.5 size-4 shrink-0 text-ok" />{plan.userLimit ? t("landing.pricing.users", { count: count(plan.userLimit) }) : t("landing.pricing.unlimitedUsers")}</li>
       </ul>
       <div className="mt-auto pt-7">
-        <Link href="/register" className="flex min-h-12 items-center justify-center rounded-full bg-brand px-5 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.pricing.start")}</Link>
+        {whatsapp
+          ? <a href={whatsappHref(whatsapp, t("landing.access.whatsappMessage")) ?? undefined} target="_blank" rel="noopener noreferrer" className="flex min-h-12 items-center justify-center rounded-full bg-brand px-5 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.pricing.order")}</a>
+          : <Link href="/redeem-code" className="flex min-h-12 items-center justify-center rounded-full bg-brand px-5 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.haveCode")}</Link>}
+        <p className="m-0 mt-3 text-[0.86rem] leading-relaxed text-fg-muted">{t("landing.access.steps")}</p>
       </div>
     </li>
   );
@@ -66,7 +70,9 @@ function BusinessCard({ t, contact }: { t: Translate; contact: ContactChannel | 
 
 export async function PricingSection({ t, locale, container }: { t: Translate; locale: Locale; container: string }) {
   const result = await getPublicPlans();
-  const plans = result.status === "ok" ? result.plans : [];
+  // Une seule formule publique (2026-11-16) : les autres restent en base, invisibles ici.
+  const plans = result.status === "ok" ? result.plans.filter((plan) => plan.code === "STANDARD") : [];
+  const whatsapp = whatsappNumber();
   const contact = readContactChannel();
   // Sans canal de contact, l'offre Business ne promet rien de joignable : elle est retirée en production.
   const showBusiness = contact !== null || process.env.NODE_ENV !== "production";
@@ -93,12 +99,14 @@ export async function PricingSection({ t, locale, container }: { t: Translate; l
                 <span aria-hidden="true" className="qadr-links absolute inset-0 -z-10 text-qadr-200/60" />
                 <h3 className="m-0 font-display text-[1.6rem] leading-tight font-bold text-ink">{result.status === "ok" ? t("landing.pricing.emptyTitle") : t("landing.pricing.unavailable")}</h3>
                 {result.status === "ok" && <p className="m-0 mt-3 max-w-lg leading-relaxed text-fg-muted">{t("landing.pricing.emptyBody")}</p>}
-                <Link href="/register" className="mt-7 inline-flex min-h-12 w-fit items-center justify-center rounded-full bg-brand px-6 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.pricing.start")}</Link>
+                {whatsapp
+                  ? <a href={whatsappHref(whatsapp, t("landing.access.whatsappMessage")) ?? undefined} target="_blank" rel="noopener noreferrer" className="mt-7 inline-flex min-h-12 w-fit items-center justify-center rounded-full bg-brand px-6 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.access.whatsapp")}</a>
+                  : <Link href="/redeem-code" className="mt-7 inline-flex min-h-12 w-fit items-center justify-center rounded-full bg-brand px-6 font-semibold text-white no-underline transition-colors hover:bg-brand-strong">{t("landing.haveCode")}</Link>}
               </div>
             )}
             {cards > 0 && (
               <ul className={cn("m-0 grid list-none gap-5 p-0", cards > 1 && "md:grid-cols-2", wide && "lg:grid-cols-3")}>
-                {plans.map((plan) => <PlanCard key={plan.code} plan={plan} t={t} locale={locale} />)}
+                {plans.map((plan) => <PlanCard key={plan.code} plan={plan} t={t} locale={locale} whatsapp={whatsapp} />)}
                 {showBusiness && <BusinessCard t={t} contact={contact} />}
               </ul>
             )}
@@ -108,7 +116,7 @@ export async function PricingSection({ t, locale, container }: { t: Translate; l
             <span className="grid size-11 place-items-center rounded-2xl bg-brand-soft text-brand"><Icon name="tag" /></span>
             <h3 id="promo-title" className="m-0 mt-5 font-display text-[1.25rem] font-bold text-ink">{t("landing.pricing.promoTitle")}</h3>
             <p className="m-0 mt-2 leading-relaxed text-fg-muted">{t("landing.pricing.promoBody")}</p>
-            <Link href="/register" className="mt-6 inline-flex min-h-11 w-fit items-center gap-1.5 rounded-full px-1 font-semibold text-brand-strong underline decoration-qadr-300 decoration-2 underline-offset-4 hover:decoration-brand">{t("landing.pricing.promoCta")}</Link>
+            <Link href="/redeem-code" className="mt-6 inline-flex min-h-11 w-fit items-center gap-1.5 rounded-full px-1 font-semibold text-brand-strong underline decoration-qadr-300 decoration-2 underline-offset-4 hover:decoration-brand">{t("landing.pricing.promoCta")}</Link>
           </aside>
         </div>
       </div>

@@ -19,7 +19,7 @@ type Overview = {
   lifecycle: Lifecycle; canRedeem: boolean;
   subscription: { status: string; inForce: boolean; planCode: string; planName: string; origin: string; startsAt: string; endsAt: string; remainingDays: number } | null;
   pending: { id: string; planName: string; priceXof: string; amountDueXof?: string; durationDays: number } | null;
-  canPay?: boolean; onlinePayment?: boolean;
+  canPay?: boolean; onlinePayment?: boolean; commercialMode?: "manual_code" | "geniuspay"; contact?: { whatsapp: string | null };
   plans?: { code: string; name: string; priceXof: string; durationDays: number; description: string | null }[];
   openInvoice?: { id: string; planCode: string; planName: string; amountXof: string; durationDays: number; pendingAttemptId: string | null } | null;
 };
@@ -27,7 +27,7 @@ type LoadState = { overview: Overview | null; failure: "load" | "forbiddenView" 
 
 const lifecycleTone: Record<Lifecycle, "success" | "brand" | "warning" | "danger" | "neutral"> = { active: "success", trial: "brand", pending: "warning", expired: "danger", suspended: "danger" };
 const statusKeys = new Set(["trialing", "active", "pending", "expired", "suspended", "canceled"]);
-const originKeys = new Set(["promotion", "payment", "manual"]);
+const originKeys = new Set(["promotion", "payment", "manual", "access_code"]);
 
 function useSubscriptionOverview() {
   const [state, setState] = useState<LoadState>({ overview: null, failure: null });
@@ -195,6 +195,7 @@ function RedeemResult({ result, onAnother }: { result: RedeemSuccess; onAnother:
   if (result.plan) rows.push([t("subscription.result.plan"), result.plan.name]);
   if (result.kind === "access") {
     if (result.grantDays) rows.push([t("subscription.result.duration"), t("subscription.result.days", { count: result.grantDays })]);
+    else if (result.duration) rows.push([t("subscription.result.duration"), t(result.duration.unit === "month" ? "subscription.result.months" : "subscription.result.days", { count: result.duration.value })]);
     if (result.endsAt) rows.push([t("subscription.result.endsAt"), new Date(result.endsAt).toLocaleDateString(intlLocale[locale], { dateStyle: "long" })]);
     if (result.status && statusKeys.has(result.status)) rows.push([t("subscription.result.state"), t(`subscription.result.status.${result.status as "trialing"}`)]);
   } else {

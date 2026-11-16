@@ -5,12 +5,14 @@ import { Icon, type IconName } from "@/components/ui/icon";
 import type { Locale } from "@/lib/i18n/config";
 import type { Translate } from "@/lib/i18n/translate";
 import { DaySection } from "./day-section";
+import { InterfaceScreens } from "./interface-screens";
 import { displayFont } from "./fonts";
 import { LandingHeader } from "./landing-header";
 import { LandingMotion } from "./landing-motion";
 import { BrandLogo, BrandMascot } from "@/components/brand/brand-logo";
 import { VideoEmbed } from "@/components/video/video-embed";
 import { readDemoVideo } from "@/lib/landing/demo-video";
+import { whatsappHref, whatsappNumber } from "@/lib/commercial/mode";
 import { providerName } from "@/lib/video/source";
 import { PricingSection } from "./pricing-section";
 import type { ReceiptData } from "./receipt";
@@ -24,8 +26,10 @@ const landingName = "font-display text-[1.2rem] font-bold tracking-[-0.02em] whi
  * Page publique officielle (2026-11-10). Direction artistique : docs/design/direction-artistique.md ;
  * état livré, preuves et limites : docs/product/landing-page.md.
  * Composant serveur ; seuls l'en-tête, le ticket 3D et le mouvement sont des composants client isolés.
- * Aucune capture ni donnée inventée (mission CTO du 2026-11-14) : le téléphone, le ticket et les écrans de la journée
- * sont schématiques — libellés réels, valeurs remplacées par des traits. `landing-content.test.ts` y veille.
+ * Aucune donnée inventée (mission CTO du 2026-11-14) : le téléphone, le ticket et les écrans de la journée sont
+ * schématiques — libellés réels, valeurs remplacées par des traits. Seule exception, voulue par la mission du 2026-11-16 :
+ * la section « Les vrais écrans » (interface-screens.tsx), captures de l'application dans un commerce de test, annoncées
+ * comme telles. `landing-content.test.ts` y veille.
  */
 
 const container = "mx-auto w-full max-w-[76rem] px-5 sm:px-8";
@@ -96,10 +100,10 @@ function Hero({ t, locale }: { t: Translate; locale: Locale }) {
           </h1>
           <p data-hero-fade style={delay(380)} className="m-0 mt-7 max-w-[34rem] text-[1.08rem] leading-relaxed text-night-fg sm:text-[1.15rem]">{t("landing.hero.lede")}</p>
           <div data-hero-fade style={delay(460)} className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <Link href="/register" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-7 font-semibold text-qadr-900 no-underline shadow-[0_14px_30px_-12px_rgb(0_0_0/0.45)] transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">
-              {t("landing.register")}<Icon name="forward" className="size-4.5 rtl:-scale-x-100" />
-            </Link>
-            <Link href="/login" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/35 px-7 font-semibold text-white no-underline transition-colors hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.login")}</Link>
+            <a href="#pricing" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-7 font-semibold text-qadr-900 no-underline shadow-[0_14px_30px_-12px_rgb(0_0_0/0.45)] transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">
+              {t("landing.access.standard")}<Icon name="forward" className="size-4.5 rtl:-scale-x-100" />
+            </a>
+            <Link href="/redeem-code" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/35 px-7 font-semibold text-white no-underline transition-colors hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.haveCode")}</Link>
           </div>
           <ul data-hero-fade style={delay(540)} className="m-0 mt-9 flex list-none flex-wrap gap-x-6 gap-y-2.5 p-0 text-[0.92rem] text-qadr-100">
             {points.map(([key, icon]) => <li key={key} className="inline-flex items-center gap-2"><Icon name={icon} className="size-4 text-qadr-300" />{t(`landing.hero.points.${key}`)}</li>)}
@@ -304,7 +308,7 @@ function Faq({ t }: { t: Translate }) {
   );
 }
 
-function Closing({ t }: { t: Translate }) {
+function Closing({ t, whatsapp }: { t: Translate; whatsapp: string | null }) {
   const year = new Date().getFullYear();
   const linkClass = "inline-flex min-h-11 items-center text-qadr-100 no-underline hover:text-white";
   return (
@@ -315,8 +319,10 @@ function Closing({ t }: { t: Translate }) {
           <h2 id="cta-title" className="m-0 max-w-3xl font-display text-[clamp(2.3rem,5.6vw,4.4rem)] leading-[1] font-extrabold tracking-[-0.035em] rtl:leading-[1.25] rtl:tracking-normal">{t("landing.cta.title")}</h2>
           <p className="m-0 mt-5 max-w-xl text-[1.08rem] leading-relaxed text-night-fg">{t("landing.cta.body")}</p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <Link href="/register" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-7 font-semibold text-qadr-900 no-underline transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.cta.primary")}<Icon name="forward" className="size-4.5 rtl:-scale-x-100" /></Link>
-            <Link href="/login" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/35 px-7 font-semibold text-white no-underline transition-colors hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.cta.secondary")}</Link>
+            {whatsapp
+              ? <a href={whatsappHref(whatsapp, t("landing.access.whatsappMessage")) ?? undefined} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-7 font-semibold text-qadr-900 no-underline transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.access.whatsapp")}</a>
+              : <a href="#pricing" className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-white px-7 font-semibold text-qadr-900 no-underline transition-colors hover:bg-qadr-100 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.access.standard")}<Icon name="forward" className="size-4.5 rtl:-scale-x-100" /></a>}
+            <Link href="/redeem-code" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/35 px-7 font-semibold text-white no-underline transition-colors hover:bg-white/10 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-qadr-300">{t("landing.haveCode")}</Link>
           </div>
         </div>
         <BrandMascot className="mx-auto h-auto w-44 md:w-60" />
@@ -330,7 +336,7 @@ function Closing({ t }: { t: Translate }) {
           <ul className="m-0 mt-2 list-none p-0">{(["features", "day", "pricing", "faq"] as const).map((key) => <li key={key}><a href={`#${key}`} className={linkClass}>{t(`landing.nav.${key}`)}</a></li>)}</ul>
         </nav>
         <nav aria-labelledby="footer-account"><h2 id="footer-account" className="m-0 text-[0.95rem] font-semibold text-white">{t("landing.footer.account")}</h2>
-          <ul className="m-0 mt-2 list-none p-0"><li><Link href="/register" className={linkClass}>{t("landing.register")}</Link></li><li><Link href="/login" className={linkClass}>{t("landing.login")}</Link></li></ul>
+          <ul className="m-0 mt-2 list-none p-0"><li><Link href="/redeem-code" className={linkClass}>{t("landing.haveCode")}</Link></li><li><Link href="/login" className={linkClass}>{t("landing.login")}</Link></li><li><Link href="/join-business" className={linkClass}>{t("landing.joinTeam")}</Link></li></ul>
         </nav>
         <nav aria-labelledby="footer-info"><h2 id="footer-info" className="m-0 text-[0.95rem] font-semibold text-white">{t("landing.footer.info")}</h2>
           <ul className="m-0 mt-2 list-none p-0"><li><Link href="/privacy" className={linkClass}>{t("landing.footer.privacy")}</Link></li></ul>
@@ -356,12 +362,13 @@ export function LandingPage({ t, locale }: { t: Translate; locale: Locale }) {
         <Sectors t={t} />
         <DaySection t={t} container={container} />
         <Features t={t} />
+        <InterfaceScreens t={t} locale={locale} container={container} />
         <Testimonials t={t} />
         <Integrations t={t} />
         <PricingSection t={t} locale={locale} container={container} />
         <Faq t={t} />
       </main>
-      <Closing t={t} />
+      <Closing t={t} whatsapp={whatsappNumber()} />
       <LandingMotion />
     </div>
   );

@@ -14,6 +14,9 @@ export const FAKE_GENIUSPAY_ENV = {
   GENIUSPAY_API_SECRET: "sk_sandbox_test_harnais",
   GENIUSPAY_WEBHOOK_SECRET: FAKE_WEBHOOK_SECRET,
   GENIUSPAY_BASE_URL: FAKE_GENIUSPAY_BASE,
+  // Depuis le 2026-11-16, le paiement en ligne est en pause par défaut (`manual_code`) : ces tests l'exercent
+  // explicitement en mode `geniuspay`. Le mode pause a ses propres tests (geniuspay-pause.http.test.ts).
+  QADR_COMMERCIAL_MODE: "geniuspay",
 };
 
 export type FakePayment = {

@@ -9,6 +9,7 @@ import { pwaAr } from "./pwa";
 import { importsAr } from "./imports";
 import { exportsAr } from "./exports";
 import { wizardAr } from "./wizard";
+import { accessAr } from "./access";
 import { platformAr } from "./platform";
 import { suiteAr } from "./suite";
 import type { Messages } from "./fr";
@@ -752,6 +753,7 @@ export const ar: Messages = {
     footer: "الخصوصية",
   },
   wizard: wizardAr,
+  access: accessAr,
   meta: metaAr,
   landing: landingAr,
   subscription: subscriptionAr,

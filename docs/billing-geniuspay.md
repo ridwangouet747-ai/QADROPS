@@ -6,6 +6,30 @@ Ce parcours ne concerne que l'abonnement. Il ne touche ni aux ventes ni aux paie
 
 **État (mission 16, 2026-11-10)** : le parcours a été exercé **une fois en sandbox réelle** le 2026-11-09 (succès, échec, en attente, double clic, retour falsifié, webhook perdu ; `docs/engineering/geniuspay-sandbox-tunnel.md` § 0 bis), puis relu en lecture seule le 2026-11-10 (§ 0 ter du même document). **Rien n'a été fait en live.** Les autres cas (montant ou devise faux, signature falsifiée, panne, délai dépassé, autre environnement) ne sont vérifiés qu'avec le GeniusPay simulé (`src/test/fake-geniuspay.ts`). Correspondance scénario → test, différences sandbox/production et cycle de vie : `docs/engineering/mission-16-geniuspay.md`. Avant la mise en production, il faut lever les points de la section 8 avec GeniusPay.
 
+## 0. Pause (2026-11-16) et réactivation
+
+**GeniusPay est en pause par défaut.** Le modèle commercial est le code d'accès remis après un paiement vérifié à la
+main (`docs/commercial-access-codes.md`). Le mode vient de `QADR_COMMERCIAL_MODE` (serveur seulement) ; toute valeur
+autre que `geniuspay`, absence comprise, vaut `manual_code`.
+
+En `manual_code` :
+
+- `getBillingProvider()` rend `{ available: false, reason: "paused" }` même si les clés sont posées : aucun bouton de
+  paiement, aucune facture ouverte, aucun appel à l'API GeniusPay, aucun rapprochement par le cron ;
+- `/business/subscription` affiche la carte de renouvellement manuel (WhatsApp si `QADR_WHATSAPP_NUMBER` est valide,
+  puis saisie d'un code `QADR-`) ;
+- un retour de paiement n'active jamais rien ;
+- le webhook vérifie **toujours** la signature (`getConfiguredBillingProvider`). Un événement authentique est enregistré
+  dans `payment_provider_event` comme non traité, avec la réponse 200, et n'accorde aucun droit
+  (`recordPausedGeniusPayWebhook`). Une signature fausse donne 401 ; sans configuration, 503.
+
+Les clés GeniusPay de Vercel restent en place, inutilisées ; elles ne sont ni affichées ni supprimées.
+
+**Réactivation** (décision du propriétaire) : poser `QADR_COMMERCIAL_MODE=geniuspay` dans l'environnement voulu,
+vérifier les clés (§ 2) et les points du § 8, redéployer. Au premier passage, le cron relit auprès de l'API chaque
+tentative restée en attente ; un nouvel envoi d'un événement enregistré pendant la pause est traité normalement.
+Tests : `src/test/geniuspay-pause.http.test.ts`.
+
 ## 1. Parcours
 
 1. **Facture.** `POST /api/business/subscription/checkout`, réservé au **propriétaire** (`subscriptionPaymentRoles = ["owner"]`). Il exige une clé d'idempotence fournie par le client et une formule active (`planCode`) en XOF d'au moins 200 F (sinon `422 amount_too_low`). Un commerce suspendu est refusé (`403 business_suspended`) ; un commerce expiré peut payer. La transaction verrouille le profil du commerce (`FOR UPDATE`), puis réutilise la facture `open` ou en crée une (`subscription_invoice`, une seule ouverte par commerce). Le montant, la devise XOF et la durée sont copiés de la formule au moment de la facture. La remise d'une campagne publique est déduite de la première facture (voir § 5 bis). Si une autre formule est choisie (ou si le prix ou la remise ont changé), la facture ouverte est annulée (`void`, audit `subscription.invoice_voided`), à condition qu'aucun paiement n'y soit en cours.

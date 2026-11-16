@@ -9,6 +9,7 @@ import { pwaEn } from "./pwa";
 import { importsEn } from "./imports";
 import { exportsEn } from "./exports";
 import { wizardEn } from "./wizard";
+import { accessEn } from "./access";
 import { platformEn } from "./platform";
 import { suiteEn } from "./suite";
 import type { Messages } from "./fr";
@@ -751,6 +752,7 @@ export const en: Messages = {
     footer: "Privacy",
   },
   wizard: wizardEn,
+  access: accessEn,
   meta: metaEn,
   landing: landingEn,
   subscription: subscriptionEn,

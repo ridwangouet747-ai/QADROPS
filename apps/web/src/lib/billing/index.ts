@@ -1,9 +1,10 @@
+import { commercialMode } from "../commercial/mode";
 import { GeniusPayProvider, readGeniusPayConfig, type FetchLike } from "./geniuspay";
 import type { BillingProvider } from "./provider";
 
 export type BillingAvailability =
   | { available: true; provider: BillingProvider; appUrl: string }
-  | { available: false; reason: "unconfigured" | "invalid" };
+  | { available: false; reason: "unconfigured" | "invalid" | "paused" };
 
 /**
  * Adresse publique de l'application pour les retours `success_url`/`error_url`. On réutilise `BETTER_AUTH_URL`,
@@ -25,6 +26,17 @@ export function billingAppUrl(source: NodeJS.ProcessEnv = process.env): string |
  * configuration invalide part dans les journaux serveur, sans aucune valeur de clé.
  */
 export function getBillingProvider(source: NodeJS.ProcessEnv = process.env, fetchImpl?: FetchLike): BillingAvailability {
+  // Mode « code manuel » (2026-11-16, commercial/mode.ts) : aucun paiement en ligne, aucun appel à GeniusPay,
+  // même si les clés sont posées. Elles restent dans Vercel, inutilisées, jusqu'à la réactivation.
+  if (commercialMode(source) !== "geniuspay") return { available: false, reason: "paused" };
+  return getConfiguredBillingProvider(source, fetchImpl);
+}
+
+/**
+ * Prestataire tel que configuré, SANS tenir compte du mode de commercialisation. Réservé au webhook en pause :
+ * il vérifie la signature d'un événement reçu pour l'enregistrer, jamais pour accorder un droit.
+ */
+export function getConfiguredBillingProvider(source: NodeJS.ProcessEnv = process.env, fetchImpl?: FetchLike): BillingAvailability {
   const result = readGeniusPayConfig(source);
   if (result.status === "unconfigured") return { available: false, reason: "unconfigured" };
   const appUrl = billingAppUrl(source);

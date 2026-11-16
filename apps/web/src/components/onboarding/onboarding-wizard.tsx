@@ -12,7 +12,7 @@ import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { downscaleLogo } from "@/components/auth/account-screens";
 import { PasswordInput, securityHeaders, turnstileRejected } from "@/components/auth/auth-forms";
 import { TurnstileWidget, turnstileSiteKey } from "@/components/auth/turnstile-widget";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Alert } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
@@ -26,6 +26,7 @@ import {
   storeFormats, toCreateBusinessPayload, wizardSteps, type AccountValues, type BusinessValues, type SceneStage, type SignupPromotion, type WizardStep,
 } from "@/lib/onboarding/wizard";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { whatsappHref } from "@/lib/commercial/mode";
 import { OnboardingScene } from "./onboarding-scene";
 import { PromoCodeBox, PromotionOutcome, type SignupOutcome } from "./promo-code-box";
 
@@ -39,6 +40,12 @@ const stepFields: Record<Exclude<WizardStep, "account" | "review">, (keyof Busin
 };
 const activityIcons: Record<(typeof activities)[number], IconName> = { hardware: "box", phones: "store", general: "cart", clothing: "grid" };
 const emptyAccount: AccountValues = { name: "", email: "", password: "", confirm: "" };
+
+/** Laissez-passer du code Qadr Agency vérifié sur /redeem-code (2026-11-16), relu sur le serveur. */
+type AccessGate = {
+  required: boolean; mode: "manual_code" | "geniuspay"; whatsapp: string | null;
+  pass: { plan: { name: string | null }; duration: { unit: "day" | "month"; value: number } } | null;
+};
 
 /** Lecture sûre du stockage de session (bloqué en navigation privée stricte). */
 const storage = {
@@ -73,6 +80,11 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const [restored, setRestored] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
   const [security, setSecurity] = useState<{ token: string | null; resetKey: number }>({ token: null, resetKey: 0 });
+  const [gate, setGate] = useState<AccessGate | null>(null);
+  const [accessFailed, setAccessFailed] = useState(false);
+  const loadGate = useCallback(() => fetch("/api/public/access-codes/pass", { cache: "no-store" })
+    .then((response) => response.ok ? response.json() as Promise<AccessGate> : null).then((body) => { if (body) setGate(body); }).catch(() => undefined), []);
+  useEffect(() => { void loadGate(); }, [loadGate]);
   const root = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -208,18 +220,22 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
       setPhase("form"); setError(t("wizard.errors.network")); return;
     }
     if (response.status !== 201) {
-      const body = await response.json().catch(() => ({})) as { error?: string };
+      const body = await response.json().catch(() => ({})) as { error?: string; code?: string };
       setPhase("form");
+      // Laissez-passer absent ou devenu inutilisable : retour à la vérification du code, rien n’a été créé.
+      if (body.code === "access_code_required") { await loadGate(); setError(t("access.gate.expired")); return; }
       setError(locale === "fr" && body.error ? `${body.error} ${t("wizard.errors.createFailed")}` : t("wizard.errors.createFailed"));
       return;
     }
     // Confirmation du serveur reçue : seulement maintenant, la bienvenue.
     // La route renvoie { business: { id, name, promotion } } : le résultat du code est dans business.promotion.
-    const created = await response.json().catch(() => ({})) as { business?: { promotion?: SignupOutcome } };
+    const created = await response.json().catch(() => ({})) as { business?: { promotion?: SignupOutcome; access?: { status: "activated" | "failed" } | null } };
     const outcome = created.business?.promotion ?? null;
+    const access = created.business?.access ?? null;
+    setAccessFailed(access?.status === "failed");
     // Seul un essai accordé par le serveur ouvre l’espace de gestion ; sinon, le commerçant choisit une formule
     // (la page de tableau de bord le redirigerait de toute façon : requireBusinessPageAccess).
-    const opened = outcome?.status === "applied" && outcome.subscriptionStatus === "trialing";
+    const opened = access?.status === "activated" || (outcome?.status === "applied" && outcome.subscriptionStatus === "trialing");
     setPromotionOutcome(outcome);
     setDestination(opened ? "/business/dashboard" : "/business/subscription");
     storage.clear();
@@ -251,6 +267,9 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const businessErrors = business.formState.errors;
   const accountErrors = account.formState.errors;
   const businessLabel = values.displayName?.trim() || values.businessName?.trim() || "";
+  // Sans code vérifié, ni compte ni commerce : la barrière renvoie vers /redeem-code (le serveur refuse de toute façon).
+  // Une invitation par e-mail reste ouverte : l’invité rejoint un commerce existant, il n’en crée pas.
+  const gated = Boolean(gate?.required && !gate.pass && !next?.startsWith("/invitations/"));
 
   return (
     <div ref={root} className="min-h-dvh overflow-x-clip bg-canvas lg:grid lg:h-dvh lg:grid-cols-[minmax(460px,0.92fr)_minmax(0,1.08fr)] lg:overflow-hidden">
@@ -277,6 +296,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
               <h1 data-welcome className="m-0 mt-5 text-[1.9rem] leading-tight font-bold tracking-[-0.03em] text-ink">{t("wizard.welcome.title")}</h1>
               <p data-welcome className="m-0 mt-2 text-fg-muted">{t(destination === "/business/dashboard" ? "wizard.welcome.body" : "wizard.welcome.bodyPending", { business: `⁨${businessLabel}⁩` })}</p>
               {promotionOutcome && <div data-welcome className="mt-4 text-start"><PromotionOutcome outcome={promotionOutcome} /></div>}
+              {accessFailed && <div data-welcome className="mt-4 text-start"><Alert tone="warning">{t("access.gate.activationFailed")}</Alert></div>}
               <span className="mt-6 block h-1.5 overflow-hidden rounded-full bg-surface-muted"><span data-progress className="block h-full origin-left rounded-full bg-brand rtl:origin-right" /></span>
               <p data-welcome className="m-0 mt-2 text-[0.8rem] text-fg-subtle">{t(destination === "/business/dashboard" ? "wizard.welcome.redirecting" : "wizard.welcome.redirectingPending")}</p>
               <Button data-welcome className="mt-5" size="lg" block onClick={() => router.push(destination)} icon={<Icon name="forward" />}>{t(destination === "/business/dashboard" ? "wizard.actions.goDashboard" : "wizard.actions.choosePlan")}</Button>
@@ -286,9 +306,12 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
                 <Icon name="tag" className="size-4" />{t("wizard.welcome.haveCode")}
               </Link>}
             </div>
+          ) : gated ? (
+            <AccessCodeGate whatsapp={gate?.whatsapp ?? null} />
           ) : (
             <>
               <Stepper current={index} minimum={minimum} />
+              {gate?.pass && <div className="mt-4"><Alert tone="success">{t("access.gate.verified", { plan: `⁨${gate.pass.plan.name ?? "—"}⁩`, duration: t(gate.pass.duration.unit === "month" ? "access.durationMonths" : "access.durationDays", { count: gate.pass.duration.value }) })}</Alert></div>}
               {restored && <div className="mt-4"><Alert tone="info" onDismiss={() => setRestored(false)} dismissLabel={t("common.close")}>{t("wizard.restored")}</Alert></div>}
               <div ref={panel} className="mt-5">
                 <p className="m-0 text-[0.8rem] font-semibold text-brand-strong">{t("wizard.progress", { current: index + 1, total: wizardSteps.length })}</p>
@@ -398,7 +421,8 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
                         </span>
                       </ReviewBlock>
                       <p className="m-0 flex items-center gap-2 text-[0.8rem] text-fg-muted"><Icon name="info" className="size-4" />{t("wizard.review.currency")}</p>
-                      <PromoCodeBox value={promotion} onChange={setPromotion} initialCode={linkedPromo} initialPlan={linkedPlan} disabled={phase === "submitting"} />
+                      {/* Campagnes publiques : seulement en mode de paiement en ligne. En mode code manuel, le code Qadr Agency suffit. */}
+                      {gate?.mode === "geniuspay" && <PromoCodeBox value={promotion} onChange={setPromotion} initialCode={linkedPromo} initialPlan={linkedPlan} disabled={phase === "submitting"} />}
                       <div className="mt-1 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
                         <Button variant="secondary" onClick={() => go("branding")} icon={<Icon name="back" />} disabled={phase === "submitting"}>{t("wizard.actions.back")}</Button>
                         <Button size="lg" loading={phase === "submitting"} onClick={() => void create()} icon={<Icon name="check" />}>{phase === "submitting" ? t("wizard.actions.creating") : t("wizard.actions.create")}</Button>
@@ -475,5 +499,31 @@ function ReviewBlock({ title, onEdit, children }: { title: string; onEdit: () =>
       <div className="min-w-0"><h2 className="m-0 mb-1 text-[0.78rem] font-semibold tracking-wide text-fg-subtle uppercase">{title}</h2>{children}</div>
       <Button variant="ghost" onClick={onEdit} icon={<Icon name="edit" className="size-4" />}>{t("wizard.actions.edit")}</Button>
     </section>
+  );
+}
+
+/** Barrière du modèle commercial (2026-11-16) : aucun compte ni commerce sans code Qadr Agency vérifié. */
+function AccessCodeGate({ whatsapp }: { whatsapp: string | null }) {
+  const { t } = useI18n();
+  const contact = whatsapp ? whatsappHref(whatsapp, t("access.redeem.whatsappMessage")) : null;
+  return (
+    <div className="rounded-xl border border-line bg-surface p-6 shadow-card sm:p-8">
+      <span aria-hidden="true" className="grid size-12 place-items-center rounded-full bg-brand-soft text-brand"><Icon name="shield" className="size-6" /></span>
+      <h1 className="m-0 mt-4 text-[1.7rem] leading-tight font-bold tracking-[-0.03em] text-ink">{t("access.gate.title")}</h1>
+      <p className="m-0 mt-2 text-fg-muted">{t("access.gate.body")}</p>
+      <div className="mt-5 grid gap-2">
+        <Link href="/redeem-code" className={buttonClasses({ variant: "primary", size: "lg", block: true, className: "no-underline" })}>
+          <Icon name="shield" className="size-4" />{t("access.gate.haveCode")}
+        </Link>
+        {contact
+          ? <a href={contact} target="_blank" rel="noopener noreferrer" className={buttonClasses({ variant: "secondary", size: "lg", block: true, className: "no-underline" })}>{t("access.redeem.contact")}</a>
+          : <p className="m-0 text-center text-xs text-fg-subtle">{t("access.redeem.noContact")}</p>}
+      </div>
+      <p className="m-0 mt-5 text-center text-sm text-fg-muted">
+        {t("access.redeem.login")} <Link href="/login" className="font-semibold text-brand-strong no-underline">{t("access.redeem.loginLink")}</Link>
+        <span className="mx-2 text-fg-subtle" aria-hidden="true">·</span>
+        <Link href="/join-business" className="font-semibold text-brand-strong no-underline">{t("access.redeem.employeeLink")}</Link>
+      </p>
+    </div>
   );
 }

@@ -183,6 +183,13 @@
       "when": 1794483933837,
       "tag": "0025_tenant_row_level_security",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794811828550,
+      "tag": "0026_commercial_and_invite_codes",
+      "breakpoints": true
     }
   ]
 }

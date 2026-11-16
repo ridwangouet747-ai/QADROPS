@@ -173,11 +173,11 @@ export async function getPlatformOverview(db: PlatformDb, actorUserId: string, r
 
 /** Premier propriétaire de chaque commerce (nom et e-mail, rien d'autre). */
 async function ownersOf(db: PlatformDb, businessIds: string[]) {
-  if (!businessIds.length) return new Map<string, { name: string; email: string }>();
+  if (!businessIds.length) return new Map<string, { name: string; email: string | null }>();
   const rows = await db.select({ businessId: member.organizationId, name: user.name, email: user.email, createdAt: member.createdAt })
     .from(member).innerJoin(user, eq(user.id, member.userId))
     .where(and(inArray(member.organizationId, businessIds), eq(member.role, "owner"))).orderBy(asc(member.createdAt));
-  const owners = new Map<string, { name: string; email: string }>();
+  const owners = new Map<string, { name: string; email: string | null }>();
   for (const row of rows) if (!owners.has(row.businessId)) owners.set(row.businessId, { name: row.name, email: row.email });
   return owners;
 }

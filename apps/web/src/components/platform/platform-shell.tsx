@@ -13,13 +13,14 @@ import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { localeCookie, locales, isLocale } from "@/lib/i18n/config";
 import { PfAvatar, PfDialog, PfIconButton, pfFocus, pfRequest } from "./pf-ui";
 
-export type PlatformSection = "overview" | "businesses" | "subscriptions" | "plans" | "promotions" | "notifications" | "audit" | "settings";
+export type PlatformSection = "overview" | "businesses" | "subscriptions" | "plans" | "access" | "promotions" | "notifications" | "audit" | "settings";
 
 const items: { key: PlatformSection; href: string; icon: IconName }[] = [
   { key: "overview", href: "/platform", icon: "grid" },
   { key: "businesses", href: "/platform/businesses", icon: "store" },
   { key: "subscriptions", href: "/platform/subscriptions", icon: "receipt" },
   { key: "plans", href: "/platform/plans", icon: "layers" },
+  { key: "access", href: "/platform/access", icon: "shield" },
   { key: "promotions", href: "/platform/promotions", icon: "tag" },
   { key: "notifications", href: "/platform/notifications", icon: "bell" },
   { key: "audit", href: "/platform/audit", icon: "activity" },

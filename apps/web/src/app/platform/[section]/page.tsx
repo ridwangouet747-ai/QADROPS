@@ -6,7 +6,7 @@ import { getPlatformContext, PlatformReauthRequired } from "@/lib/domain/platfor
 
 export const dynamic = "force-dynamic";
 export const generateMetadata = () => localizedPageMetadata("meta.platform");
-const allowed = ["businesses", "subscriptions", "plans", "promotions", "notifications", "audit", "settings"] as const;
+const allowed = ["businesses", "subscriptions", "plans", "access", "promotions", "notifications", "audit", "settings"] as const;
 
 export default async function PlatformSectionPage({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;

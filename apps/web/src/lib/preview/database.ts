@@ -78,6 +78,8 @@ export async function initializeDemoData(client: PGlite, db: PreviewDatabase) {
   await client.query("insert into subscription_plan (id,code,name,price_xof,duration_days,active,features) values ($1,'STARTER','Essentiel',5000,30,true,$2),($3,'PRO','Équipe',15000,30,true,$4)", [
     "qadr-preview-plan-starter", starterFeatures, "qadr-preview-plan-pro", planFeatures,
   ]);
+  // Formule publique unique du modèle commercial (2026-11-16) : même fiche que scripts/ensure-standard-plan.ts, aperçu seulement.
+  await client.query("insert into subscription_plan (id,code,name,price_xof,duration_days,active,features) values ($1,'STANDARD','Standard',5000,30,true,$2)", ["qadr-preview-plan-standard", planFeatures]);
   const tenantsWithPlans = [
     { id: PREVIEW_BUSINESS_ID, plan: "qadr-preview-plan-starter", status: "active", start: -6, end: 24, trial: 8 },
     ...tenantFixtures.map((tenant) => ({ id: tenant.id, plan: tenant.plan, status: tenant.subStatus, start: tenant.start, end: tenant.end, trial: tenant.trial })),

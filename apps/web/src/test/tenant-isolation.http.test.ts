@@ -47,10 +47,13 @@ import * as subscriptionCheckoutRoute from "@/app/api/business/subscription/chec
 import * as subscriptionPaymentRoute from "@/app/api/business/subscription/payments/[attemptId]/route";
 import * as subscriptionRoute from "@/app/api/business/subscription/route";
 import * as suppliersRoute from "@/app/api/business/suppliers/route";
+import * as teamCodeRevokeRoute from "@/app/api/business/team/codes/[codeId]/revoke/route";
+import * as teamCodesRoute from "@/app/api/business/team/codes/route";
 import * as teamInvitationRoute from "@/app/api/business/team/invitations/[invitationId]/route";
 import * as teamInvitationsRoute from "@/app/api/business/team/invitations/route";
 import * as teamMemberAccessRoute from "@/app/api/business/team/members/[memberId]/access/route";
 import * as teamMemberRoute from "@/app/api/business/team/members/[memberId]/route";
+import * as teamMemberSessionsRoute from "@/app/api/business/team/members/[memberId]/sessions/route";
 import * as teamRoute from "@/app/api/business/team/route";
 import * as notificationPreferencesRoute from "@/app/api/notifications/preferences/route";
 import * as notificationsReadRoute from "@/app/api/notifications/read/route";
@@ -58,6 +61,8 @@ import * as notificationsUnreadRoute from "@/app/api/notifications/unread-count/
 import * as notificationsRoute from "@/app/api/notifications/route";
 import * as pushSubscriptionRoute from "@/app/api/notifications/push-subscriptions/[subscriptionId]/route";
 import * as pushSubscriptionsRoute from "@/app/api/notifications/push-subscriptions/route";
+import * as platformAccessCodeRevokeRoute from "@/app/api/platform/access-codes/[codeId]/revoke/route";
+import * as platformAccessCodesRoute from "@/app/api/platform/access-codes/route";
 import * as platformBusinessRoute from "@/app/api/platform/businesses/[businessId]/route";
 import * as platformPromotionsRoute from "@/app/api/platform/promotions/route";
 import readXlsxFile from "read-excel-file/node";
@@ -168,6 +173,8 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
     b.device = (await ok(h.call(printDevicesRoute.POST, { path: "/api/business/printing/devices", actor: ownerB, body: { name: "Imprimante Bêta", transport: "simulated", paperWidthMm: 80, agentId: null } }))).id;
     b.job = (await ok(h.call(printJobsRoute.POST, { path: "/api/business/printing/jobs", actor: ownerB, body: { deviceId: b.device, kind: "receipt", saleId: b.sale } }))).job.id;
     b.invitation = (await ok(h.call(teamInvitationsRoute.POST, { path: "/api/business/team/invitations", actor: ownerB, body: { email: "futur@beta.test", role: "cashier" } }))).invitation.id;
+    // Code d'invitation d'employé de B (2026-11-16) : ni listé, ni révoqué par A.
+    b.teamCode = (await ok(h.call(teamCodesRoute.POST, { path: "/api/business/team/codes", actor: ownerB, body: { role: "cashier", displayName: "Recrue Bêta" } }))).id;
     const team = await ok(h.call(teamRoute.GET, { path: "/api/business/team", actor: ownerB }), 200);
     b.cashierMember = team.members.find((row: { email: string }) => row.email === "caissier@beta.test").memberId;
     b.ownerMember = team.members.find((row: { email: string }) => row.email === "owner@beta.test").memberId;
@@ -185,6 +192,7 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
     await ok(h.call(platformPromotionsRoute.POST, { path: "/api/platform/promotions", actor: platformAdmin, body: {
       code: "RESERVE-BETA", discountPercent: 10, discountXof: null, startsAt: new Date(Date.now() - 86_400_000).toISOString(), endsAt: null,
       maxRedemptions: null, active: true, eligibleBusinessIds: [businessB] } }));
+    b.commercialCode = (await ok(h.call(platformAccessCodesRoute.POST, { path: "/api/platform/access-codes", actor: platformAdmin, body: { planId: "plan-isolation", duration: "m1", paymentVerified: true } }))).codes[0].id;
 
     // Boîte d'envoi traitée jusqu'au bout : l'état de B ne bouge plus de lui-même pendant les attaques.
     while ((await processNotificationOutbox(h.db, { sender: null, limit: 50 })).processed > 0) { /* vider */ }
@@ -418,6 +426,17 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
       expectSameAsUnknown(
         await h.call(accountInvitationRoute.GET, { path: `/api/account/invitations/${b.invitation}`, actor: ownerA, params: { invitationId: b.invitation } }),
         await h.call(accountInvitationRoute.GET, { path: `/api/account/invitations/${UNKNOWN_ID}`, actor: ownerA, params: { invitationId: UNKNOWN_ID } }));
+      // Codes d'invitation et sessions des employés (2026-11-16) : ni listés, ni révoqués, ni coupées chez B.
+      const codesOfA = await h.call(teamCodesRoute.GET, { path: "/api/business/team/codes", actor: ownerA });
+      expect(codesOfA.status).toBe(200);
+      expect(codesOfA.text).not.toContain(b.teamCode);
+      expectNoLeak(codesOfA);
+      expectSameAsUnknown(
+        await h.call(teamCodeRevokeRoute.POST, { path: `/api/business/team/codes/${b.teamCode}/revoke`, actor: ownerA, params: { codeId: b.teamCode! } }),
+        await h.call(teamCodeRevokeRoute.POST, { path: `/api/business/team/codes/${UNKNOWN_ID}/revoke`, actor: ownerA, params: { codeId: UNKNOWN_ID } }));
+      expectSameAsUnknown(
+        await h.call(teamMemberSessionsRoute.DELETE, { method: "DELETE", path: `/api/business/team/members/${b.cashierMember}/sessions`, actor: ownerA, params: { memberId: b.cashierMember! } }),
+        await h.call(teamMemberSessionsRoute.DELETE, { method: "DELETE", path: `/api/business/team/members/${UNKNOWN_ID}/sessions`, actor: ownerA, params: { memberId: UNKNOWN_ID } }));
       const accept = await h.call(accountInvitationRoute.POST, { path: `/api/account/invitations/${b.invitation}`, actor: ownerA, params: { invitationId: b.invitation } });
       expect(accept.status).toBeGreaterThanOrEqual(400);
       expectNoLeak(accept);
@@ -502,6 +521,14 @@ describe("mission 11, phase 7 : isolation des commerces sur les routes HTTP (PGl
         await h.call(platformBusinessRoute.GET, { path: `/api/platform/businesses/${UNKNOWN_ID}`, actor: ownerA, params: { businessId: UNKNOWN_ID } }));
       const suspend = await h.call(platformBusinessRoute.PATCH, { method: "PATCH", path: `/api/platform/businesses/${businessB}`, actor: ownerA, params: { businessId: businessB }, body: { status: "suspended", reason: "Tentative de A" } });
       expect(suspend.status).toBe(404);
+      // Codes d'accès commerciaux (2026-11-16) : un commerçant ne génère, ne liste ni ne révoque rien.
+      const generated = await h.call(platformAccessCodesRoute.POST, { path: "/api/platform/access-codes", actor: ownerA, body: { planId: "plan-isolation", duration: "m3", paymentVerified: true } });
+      expect(generated.status).toBe(404);
+      expect((await h.call(platformAccessCodesRoute.GET, { path: "/api/platform/access-codes", actor: ownerA })).status).toBe(404);
+      expectSameAsUnknown(
+        await h.call(platformAccessCodeRevokeRoute.POST, { path: `/api/platform/access-codes/${b.commercialCode}/revoke`, actor: ownerA, params: { codeId: b.commercialCode! }, body: { reason: "Tentative de A" } }),
+        await h.call(platformAccessCodeRevokeRoute.POST, { path: `/api/platform/access-codes/${UNKNOWN_ID}/revoke`, actor: ownerA, params: { codeId: UNKNOWN_ID }, body: { reason: "Tentative de A" } }));
+      expect(await h.count("select count(*)::text n from commercial_access_code where id=$1 and revoked_at is null", [b.commercialCode])).toBe(1);
     });
 
     it("un identifiant de commerce glissé dans le corps ou les en-têtes est ignoré : l'écriture reste chez A", async () => {

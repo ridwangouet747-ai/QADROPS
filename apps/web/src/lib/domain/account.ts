@@ -12,6 +12,9 @@ import { assertPlanQuota } from "./plan-limits";
 import { businessLifecycle } from "./subscription-lifecycle";
 import { logoSchema } from "./business-logo";
 import { campaignOutcomeForBusiness, signupCampaignScope, type SignupCampaignScope } from "./public-campaigns";
+import { accessActivationScope, readAccessPass, type AccessActivationScope } from "@/lib/commercial/access-pass";
+import { accessCodeRequired } from "@/lib/commercial/mode";
+import { usableCommercialCodeById } from "./commercial-codes";
 
 export const assignableRoles = ["owner", "admin", "cashier", "stock_manager", "accountant", "member"] as const;
 export type AssignableRole = (typeof assignableRoles)[number];
@@ -90,9 +93,17 @@ export async function createBusiness(auth: QadrAuth, headers: Headers, raw: unkn
     if (existing) {
       await auth.api.setActiveOrganization({ headers, body: { organizationId: existing.id } });
       const claimed = await campaignOutcomeForBusiness(db, existing.id);
-      return { id: existing.id, name: existing.name, replayed: true, promotion: claimed ?? (input.promotion ? { status: "unavailable" as const } : null) };
+      return { id: existing.id, name: existing.name, replayed: true, promotion: claimed ?? (input.promotion ? { status: "unavailable" as const } : null), access: null };
     }
   }
+  // Modèle commercial du 2026-11-16 : un commerce ne s'ouvre qu'avec un code d'accès vérifié (laissez-passer posé
+  // par /api/public/access-codes/check). Le code est relu ici, puis consommé dans la transaction de création.
+  const passCodeId = readAccessPass(headers);
+  const usablePass = passCodeId && db ? await usableCommercialCodeById(db, passCodeId) : null;
+  if (accessCodeRequired() && !usablePass) {
+    throw new BusinessContextError("Un code d’accès Qadr Agency valide est nécessaire pour ouvrir un commerce.", 403, "access_code_required");
+  }
+  const activation: AccessActivationScope | undefined = usablePass ? { codeId: usablePass.id } : undefined;
   const scope: SignupCampaignScope | undefined = input.promotion ? { request: input.promotion } : undefined;
   try {
     const createOrganization = () => auth.api.createOrganization({ headers, body: {
@@ -101,9 +112,13 @@ export async function createBusiness(auth: QadrAuth, headers: Headers, raw: unkn
         activity: input.activity, phone: input.phone ?? "", address: input.address ?? "", storeFormat: input.storeFormat ?? "",
         displayName: input.displayName ?? "", creationKey: input.creationKey ?? "",
       }, keepCurrentActiveOrganization: false } });
-    const created = scope ? await signupCampaignScope.run(scope, createOrganization) : await createOrganization();
+    const withCampaign = () => scope ? signupCampaignScope.run(scope, createOrganization) : createOrganization();
+    const created = activation ? await accessActivationScope.run(activation, withCampaign) : await withCampaign();
     if (!created) throw new BusinessContextError("Le commerce n’a pas pu être créé.", 500);
-    return { id: created.id, name: created.name, replayed: false, promotion: scope ? scope.outcome ?? { status: "unavailable" as const } : null };
+    return {
+      id: created.id, name: created.name, replayed: false, promotion: scope ? scope.outcome ?? { status: "unavailable" as const } : null,
+      access: activation ? activation.outcome ?? { status: "failed" as const, code: "error" } : null,
+    };
   } catch (error) {
     if (error instanceof BusinessContextError) throw error;
     return fromAuthError(error, "Le commerce n’a pas pu être créé.");
@@ -141,7 +156,7 @@ export function roleMatrix() {
 export async function listTeam(db: CommercialDatabase, context: TeamContext) {
   await requireTeamManager(db, context);
   const [members, invitations] = await Promise.all([
-    db.select({ memberId: member.id, userId: member.userId, name: user.name, email: user.email, role: member.role, joinedAt: member.createdAt, disabledAt: businessMemberAccess.disabledAt })
+    db.select({ memberId: member.id, userId: member.userId, name: user.name, email: user.email, username: user.displayUsername, role: member.role, joinedAt: member.createdAt, disabledAt: businessMemberAccess.disabledAt })
       .from(member).innerJoin(user, eq(user.id, member.userId))
       .leftJoin(businessMemberAccess, and(eq(businessMemberAccess.businessId, member.organizationId), eq(businessMemberAccess.userId, member.userId)))
       .where(eq(member.organizationId, context.businessId)).orderBy(asc(user.name)),
@@ -165,6 +180,8 @@ export async function inviteMember(auth: QadrAuth, db: CommercialDatabase, heade
   const actorRole = await requireTeamManager(db, context);
   const input = inviteInput.parse(raw);
   if (input.role === "owner" && actorRole !== "owner") throw new BusinessContextError("Seul un propriétaire peut inviter un autre propriétaire.", 403);
+  // 2026-11-16 : un administrateur ne délègue que les rôles inférieurs au sien (même règle que les codes d'équipe).
+  if (input.role === "admin" && actorRole !== "owner") throw new BusinessContextError("Seul un propriétaire peut nommer un administrateur.", 403, "role_not_delegable");
   const email = input.email.trim().toLowerCase();
   const [existing] = await db.select({ id: member.id }).from(member).innerJoin(user, eq(user.id, member.userId))
     .where(and(eq(member.organizationId, context.businessId), sql`lower(${user.email}) = ${email}`)).limit(1);
@@ -206,6 +223,7 @@ async function targetMember(db: CommercialDatabase, context: TeamContext, member
   if (!target) throw new BusinessContextError("Membre introuvable dans ce commerce.", 404);
   if (target.userId === context.actorUserId) throw new BusinessContextError("Vous ne pouvez pas modifier votre propre accès.", 403);
   if (target.role === "owner" && actorRole !== "owner") throw new BusinessContextError("Seul un propriétaire peut modifier un autre propriétaire.", 403);
+  if (target.role === "admin" && actorRole !== "owner") throw new BusinessContextError("Seul un propriétaire peut modifier un administrateur.", 403, "role_not_delegable");
   return target;
 }
 
@@ -214,6 +232,7 @@ export async function changeMemberRole(auth: QadrAuth, db: CommercialDatabase, h
   const { role } = z.object({ role: z.enum(assignableRoles) }).parse(raw);
   const target = await targetMember(db, context, memberId, actorRole);
   if (role === "owner" && actorRole !== "owner") throw new BusinessContextError("Seul un propriétaire peut nommer un autre propriétaire.", 403);
+  if (role === "admin" && actorRole !== "owner") throw new BusinessContextError("Seul un propriétaire peut nommer un administrateur.", 403, "role_not_delegable");
   try { await auth.api.updateMemberRole({ headers, body: { memberId, role, organizationId: context.businessId } }); } catch (error) { return fromAuthError(error, "Le rôle n’a pas pu être modifié."); }
   await db.insert(auditEvent).values({ id: randomUUID(), businessId: context.businessId, actorUserId: context.actorUserId, eventType: "team.role_changed", entityType: "member", entityId: target.id, metadata: { from: target.role, to: role } });
   return { memberId, role };
@@ -248,11 +267,11 @@ export async function setMemberAccess(db: CommercialDatabase, context: TeamConte
  * Invitation vue par le compte connecté. `needsEmailVerification` : l'adresse doit être confirmée avant
  * d'accepter (Better Auth le refuse de toute façon ; l'écran l'explique au lieu d'échouer).
  */
-export async function getInvitationForUser(db: CommercialDatabase, invitationId: string, userEmail: string, verification = { required: false, emailVerified: true }) {
+export async function getInvitationForUser(db: CommercialDatabase, invitationId: string, userEmail: string | null, verification = { required: false, emailVerified: true }) {
   const [row] = await db.select({ id: invitation.id, email: invitation.email, role: invitation.role, status: invitation.status, expiresAt: invitation.expiresAt, businessName: organization.name, logo: organization.logo })
     .from(invitation).innerJoin(organization, eq(organization.id, invitation.organizationId)).where(eq(invitation.id, invitationId)).limit(1);
   // Une invitation destinée à une autre adresse est traitée comme introuvable : rien n'est révélé.
-  if (!row || row.email.toLowerCase() !== userEmail.toLowerCase()) throw new BusinessContextError("Invitation introuvable pour ce compte.", 404);
+  if (!row || !userEmail || row.email.toLowerCase() !== userEmail.toLowerCase()) throw new BusinessContextError("Invitation introuvable pour ce compte.", 404);
   const state = row.status !== "pending" ? row.status : row.expiresAt <= new Date() ? "expired" : "pending";
   return {
     id: row.id, role: row.role, businessName: row.businessName, logo: row.logo, state, expiresAt: row.expiresAt.toISOString(),

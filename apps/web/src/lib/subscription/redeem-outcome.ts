@@ -5,13 +5,15 @@
 
 export const redeemFailures = [
   "invalid", "expired", "not_active", "revoked", "already_used", "exhausted", "business_suspended", "forbidden",
-  "incompatible_subscription", "rate_limited", "validation", "network", "unavailable",
+  "incompatible_subscription", "invite_code", "rate_limited", "validation", "network", "unavailable",
 ] as const;
 export type RedeemFailure = (typeof redeemFailures)[number];
 
 export type RedeemSuccess = {
   kind: "access" | "discount"; replayed: boolean; plan: { code: string; name: string } | null;
   status?: string | null; endsAt?: string | null; grantDays?: number | null;
+  /** Code d’accès commercial (2026-11-16) : durée accordée en jours ou en mois calendaires. */
+  duration?: { unit: "day" | "month"; value: number };
   discountAmountXof?: string; amountDueXof?: string; paymentStatus?: "pending" | "no_payment_due";
 };
 export type RedeemOutcome = { ok: true; result: RedeemSuccess } | { ok: false; reason: RedeemFailure };

@@ -1,6 +1,7 @@
 import { inflateRawSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as dataExportRoute from "@/app/api/business/data-export/route";
+import * as teamCodesRoute from "@/app/api/business/team/codes/route";
 import { createProduct } from "@/lib/domain/commercial";
 import { buildBusinessDataArchive } from "@/lib/domain/data-export";
 import { HARNESS_ORIGIN, startHttpHarness, type Actor, type HttpHarness } from "./http-harness";
@@ -39,6 +40,7 @@ describe("export complet des données du commerce", () => {
   let h: HttpHarness;
   let awa: Actor; let koffi: Actor; let bakary: Actor;
   let awaBusiness = ""; let bakaryBusiness = "";
+  let awaInvite = { id: "", code: "" };
 
   const exportAs = (actor: Actor | null) => h.call(dataExportRoute.GET, { path: "/api/business/data-export", actor });
 
@@ -51,6 +53,10 @@ describe("export complet des données du commerce", () => {
     bakaryBusiness = await h.createBusiness(bakary, "Bakary Phones");
     await createProduct(h.db, { businessId: awaBusiness, actorUserId: awa.userId, name: "Ciment Awa 50 kg", salePriceXof: "9007199254740993" });
     await createProduct(h.db, { businessId: bakaryBusiness, actorUserId: bakary.userId, name: "Téléphone secret de Bakary", salePriceXof: "125000" });
+    // Code d’invitation d’employé (2026-11-16) : la ligne doit être exportée sans son empreinte ni le code brut.
+    const invite = await h.call(teamCodesRoute.POST, { path: "/api/business/team/codes", actor: awa, body: { role: "cashier" } });
+    expect(invite.status, invite.text).toBe(201);
+    awaInvite = invite.body as { id: string; code: string };
   });
   afterAll(async () => { await h?.close(); });
 
@@ -81,6 +87,7 @@ describe("export complet des données du commerce", () => {
     expect(manifest.tables.map((entry) => entry.table)).toMatchInlineSnapshot(`
       [
         "audit_event",
+        "business_invite_code",
         "business_member_access",
         "business_profile",
         "business_subscription",
@@ -121,6 +128,10 @@ describe("export complet des données du commerce", () => {
         "supplier",
       ]
     `);
+    const invites = JSON.parse(files.get("json/business_invite_code.json")!) as Record<string, unknown>[];
+    expect(invites.map((row) => row.id)).toEqual([awaInvite.id]);
+    expect(invites[0]).not.toHaveProperty("code_hash");
+    expect([...files.values()].join("\n")).not.toContain(awaInvite.code);
     expect(manifest.excludedTables).toEqual(["idempotency_record", "notification", "notification_outbox", "payment_provider_event", "promotion_eligible_business"]);
     for (const entry of manifest.tables) {
       const rows = JSON.parse(files.get(`json/${entry.table}.json`)!) as Record<string, unknown>[];
@@ -129,6 +140,7 @@ describe("export complet des données du commerce", () => {
     const redacted = manifest.tables.flatMap((entry) => entry.redactedColumns.map((column) => `${entry.table}.${column}`));
     expect(redacted).toMatchInlineSnapshot(`
       [
+        "business_invite_code.code_hash",
         "business_profile.creation_key",
         "payment.idempotency_key",
         "payment.provider_payload_hash",

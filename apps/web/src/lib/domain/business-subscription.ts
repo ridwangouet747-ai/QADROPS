@@ -13,7 +13,7 @@ export const promotionRedeemRoles = ["owner", "admin"] as const;
  * abonnement en attente, toujours lus pour le commerce de la session. Aucun prix interne d'un autre
  * commerce ni aucune information sur les codes n'est renvoyé.
  */
-export async function getBusinessSubscriptionOverview(db: Pick<CommercialDatabase, "select">, actorUserId: string, businessId: string, now = new Date(), options: { onlinePayment?: boolean } = {}) {
+export async function getBusinessSubscriptionOverview(db: Pick<CommercialDatabase, "select">, actorUserId: string, businessId: string, now = new Date(), options: { onlinePayment?: boolean; commercialMode?: "manual_code" | "geniuspay"; whatsapp?: string | null } = {}) {
   const [membership] = await db.select({ role: member.role }).from(member).where(and(eq(member.organizationId, businessId), eq(member.userId, actorUserId))).limit(1);
   if (!membership || !hasBusinessPermission(membership.role, "business", "read")) throw new CommercialError("Votre rôle ne permet pas de consulter l’abonnement.", 403, "forbidden");
   const [profile] = await db.select({ status: businessProfile.status }).from(businessProfile).where(eq(businessProfile.businessId, businessId)).limit(1);
@@ -39,6 +39,10 @@ export async function getBusinessSubscriptionOverview(db: Pick<CommercialDatabas
     // Paiement en ligne GeniusPay (mission 12) : réservé au propriétaire, seulement si le serveur est configuré.
     canPay,
     onlinePayment: options.onlinePayment ?? false,
+    // Mode de commercialisation (2026-11-16) : en `manual_code`, le renouvellement passe par Qadr Agency puis un code.
+    commercialMode: options.commercialMode ?? "manual_code",
+    // Numéro WhatsApp PUBLIC de Qadr Agency (configuration serveur), ou null : jamais de numéro inventé.
+    contact: { whatsapp: options.whatsapp ?? null },
     plans,
     campaignDiscount: discountPricing && discountPlan ? { planCode: discountPlan.code, discountXof: discountPricing.discountXof.toString(), amountXof: discountPricing.amountXof.toString() } : null,
     openInvoice: canPay ? await openInvoiceSummary(db, businessId, now) : null,

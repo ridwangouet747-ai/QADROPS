@@ -12,12 +12,13 @@ import { Icon } from "@/components/ui/icon";
 import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { errorMessageFor } from "@/lib/client/errors";
 import { intlLocale, locales, type Locale } from "@/lib/i18n/config";
+import { TeamInviteCodes } from "./team-invite-codes";
 import { RequestError } from "./use-paged-list";
 
 const roles = ["owner", "admin", "cashier", "stock_manager", "accountant", "member"] as const;
 type Role = (typeof roles)[number];
 const resources = ["sale", "payment", "product", "inventory", "customer", "supplier", "purchase", "expense", "report", "invitation", "business"] as const;
-type Member = { memberId: string; userId: string; name: string; email: string; role: string; joinedAt: string; disabled: boolean; self: boolean };
+type Member = { memberId: string; userId: string; name: string; email: string | null; username: string | null; role: string; joinedAt: string; disabled: boolean; self: boolean };
 type Invitation = { id: string; email: string; role: string | null; expiresAt: string; path: string };
 type EmailStatus = "sent" | "failed" | "not_configured";
 type Created = { path: string; email: string; emailStatus: EmailStatus };
@@ -43,6 +44,7 @@ export function TeamWorkspace() {
   const [created, setCreated] = useState<Created | null>(null);
   const [emailConfigured, setEmailConfigured] = useState(false);
   const [disabling, setDisabling] = useState<Member | null>(null);
+  const [signingOut, setSigningOut] = useState<Member | null>(null);
   const [copied, setCopied] = useState("");
 
   const describe = useCallback((caught: unknown) => caught instanceof RequestError ? errorMessageFor({ status: caught.status, serverMessage: caught.message, locale, t }) : t("errors.generic"), [locale, t]);
@@ -96,7 +98,8 @@ export function TeamWorkspace() {
                       <Monogram text={row.name} />
                       <div className="min-w-0">
                         <strong dir="auto" className="block truncate text-sm text-ink">{row.name}</strong>
-                        <small dir="ltr" className="block truncate text-start text-xs text-fg-subtle rtl:text-end">{row.email}</small>
+                        {row.email && <small dir="ltr" className="block truncate text-start text-xs text-fg-subtle rtl:text-end">{row.email}</small>}
+                        {row.username && <small className="block truncate text-xs text-fg-subtle">{t("access.team.username", { username: `⁦${row.username}⁩` })}</small>}
                         <div className="mt-1 flex flex-wrap gap-1">
                           {row.self && <Badge tone="brand">{t("team.you")}</Badge>}
                           <Badge tone={row.disabled ? "danger" : "success"}>{row.disabled ? t("team.disabled") : t("team.active")}</Badge>
@@ -107,9 +110,14 @@ export function TeamWorkspace() {
                       onChange={(event) => void run(() => send(`/api/business/team/members/${encodeURIComponent(row.memberId)}`, "PATCH", { role: event.target.value }), t("team.roleChanged", { name: row.name }))}>
                       {roles.filter((role) => role !== "owner" || isOwner || row.role === "owner").map((role) => <option key={role} value={role}>{t(`roles.${role}`)}</option>)}
                     </Select>
-                    {!locked && (row.disabled
-                      ? <Button variant="secondary" disabled={busy} onClick={() => void run(() => send(`/api/business/team/members/${encodeURIComponent(row.memberId)}/access`, "POST", { disabled: false }), t("team.accessEnabled", { name: row.name }))}>{t("team.enable")}</Button>
-                      : <Button variant="danger" disabled={busy} onClick={() => setDisabling(row)}>{t("team.disable")}</Button>)}
+                    {!locked && (
+                      <div className="flex flex-wrap gap-2">
+                        {row.disabled
+                          ? <Button variant="secondary" disabled={busy} onClick={() => void run(() => send(`/api/business/team/members/${encodeURIComponent(row.memberId)}/access`, "POST", { disabled: false }), t("team.accessEnabled", { name: row.name }))}>{t("team.enable")}</Button>
+                          : <Button variant="danger" disabled={busy} onClick={() => setDisabling(row)}>{t("team.disable")}</Button>}
+                        <Button variant="secondary" disabled={busy} onClick={() => setSigningOut(row)}>{t("access.team.sessions")}</Button>
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -139,6 +147,8 @@ export function TeamWorkspace() {
           </ul>
         </Card>
       </div>
+
+      <TeamInviteCodes onChanged={() => void load()} />
 
       {team && (
         <Card className="mt-4" aria-labelledby="team-permissions-title">
@@ -201,6 +211,12 @@ export function TeamWorkspace() {
         title={disabling ? t("team.disableTitle", { name: disabling.name }) : ""}
         onConfirm={() => { const row = disabling; if (row) void run(() => send(`/api/business/team/members/${encodeURIComponent(row.memberId)}/access`, "POST", { disabled: true }), t("team.accessDisabled", { name: row.name })).then(() => setDisabling(null)); }}>
         {disabling ? t("team.disableBody", { name: disabling.name }) : ""}
+      </ConfirmDialog>
+
+      <ConfirmDialog open={signingOut !== null} busy={busy} tone="danger" onClose={() => !busy && setSigningOut(null)} confirmLabel={t("access.team.sessions")}
+        title={signingOut ? t("access.team.sessionsTitle", { name: signingOut.name }) : ""}
+        onConfirm={() => { const row = signingOut; if (row) void run(() => send(`/api/business/team/members/${encodeURIComponent(row.memberId)}/sessions`, "DELETE"), t("access.team.sessionsDone", { name: row.name })).then(() => setSigningOut(null)); }}>
+        {signingOut ? t("access.team.sessionsBody", { name: signingOut.name }) : ""}
       </ConfirmDialog>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { PlatformAccessCodes } from "./platform-access-codes";
 import { PlatformAudit } from "./platform-audit";
 import { PlatformBusinesses } from "./platform-businesses";
 import { PlatformOverview } from "./platform-overview";
@@ -15,6 +16,7 @@ const views: Record<PlatformSection, (preview: boolean) => React.ReactNode> = {
   businesses: () => <PlatformBusinesses />,
   subscriptions: () => <PlatformSubscriptions />,
   plans: () => <PlatformPlans />,
+  access: () => <PlatformAccessCodes />,
   promotions: () => <PlatformPromotions />,
   notifications: () => <PlatformNotifications />,
   audit: () => <PlatformAudit />,

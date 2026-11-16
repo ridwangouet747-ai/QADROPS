@@ -56,7 +56,7 @@ export function LandingHeader() {
         <div className="ms-auto flex items-center gap-2">
           <LanguageSwitcher />
           <Link href="/login" className={cn("hidden min-h-11 items-center rounded-full px-3.5 text-[0.92rem] font-semibold whitespace-nowrap no-underline sm:inline-flex", light ? "text-brand-strong hover:bg-brand-soft" : "text-white hover:bg-white/10")}>{t("landing.login")}</Link>
-          <Link href="/register" className={cn("hidden min-h-11 items-center rounded-full px-5 text-[0.92rem] font-semibold whitespace-nowrap no-underline transition-colors sm:inline-flex", light ? "bg-brand text-white hover:bg-brand-strong" : "bg-white text-qadr-900 hover:bg-qadr-100")}>{t("landing.register")}</Link>
+          <Link href="/redeem-code" className={cn("hidden min-h-11 items-center rounded-full px-5 text-[0.92rem] font-semibold whitespace-nowrap no-underline transition-colors sm:inline-flex", light ? "bg-brand text-white hover:bg-brand-strong" : "bg-white text-qadr-900 hover:bg-qadr-100")}>{t("landing.haveCode")}</Link>
           <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((value) => !value)}
             className={cn("grid size-11 shrink-0 cursor-pointer place-items-center rounded-full border xl:hidden", light ? "border-line bg-surface text-ink" : "border-white/30 bg-white/10 text-white")}>
             <Icon name={open ? "close" : "menu"} label={open ? t("landing.nav.close") : t("landing.nav.menu")} />
@@ -71,7 +71,7 @@ export function LandingHeader() {
             ))}
           </ul>
           <div className="mt-3 grid gap-2 border-t border-line pt-3 sm:hidden">
-            <Link href="/register" className="flex min-h-12 items-center justify-center rounded-full bg-brand font-semibold text-white no-underline">{t("landing.register")}</Link>
+            <Link href="/redeem-code" className="flex min-h-12 items-center justify-center rounded-full bg-brand font-semibold text-white no-underline">{t("landing.haveCode")}</Link>
             <Link href="/login" className="flex min-h-12 items-center justify-center rounded-full border border-line font-semibold text-brand-strong no-underline">{t("landing.login")}</Link>
           </div>
         </nav>

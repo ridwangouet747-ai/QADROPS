@@ -49,6 +49,19 @@ export const rateRules = {
    */
   passwordChangeAccount: { name: "auth.change_password.account", limit: 5, windowMs: 15 * MINUTE },
   passwordChangeIp: { name: "auth.change_password.ip", limit: 20, windowMs: 15 * MINUTE },
+  /**
+   * Codes d'accès commerciaux et codes d'invitation d'employés (2026-11-16). Chaque tentative est comptée puis
+   * rendue si le code est reconnu : seuls les échecs restent. Par adresse IP, par compte connecté, et au total
+   * (essais répartis sur beaucoup d'adresses).
+   */
+  accessCodeIp: { name: "code.commercial.ip", limit: 10, windowMs: 15 * MINUTE },
+  accessCodeAccount: { name: "code.commercial.account", limit: 10, windowMs: 15 * MINUTE },
+  accessCodeGlobal: { name: "code.commercial.global", limit: 300, windowMs: 15 * MINUTE },
+  inviteCodeIp: { name: "code.invite.ip", limit: 10, windowMs: 15 * MINUTE },
+  inviteCodeGlobal: { name: "code.invite.global", limit: 300, windowMs: 15 * MINUTE },
+  /** Connexion d'un employé par nom d'utilisateur (route serveur, la route HTTP du plugin reste fermée). */
+  usernameSignInIp: { name: "auth.username_sign_in.ip", limit: 60, windowMs: 15 * MINUTE },
+  usernameSignInAccount: { name: "auth.username_sign_in.account", limit: 10, windowMs: 15 * MINUTE },
 } as const satisfies Record<string, RateRule>;
 
 export type RateDecision = { allowed: boolean; hits: number; retryAfterSeconds: number; key: string };

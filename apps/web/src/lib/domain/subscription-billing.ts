@@ -252,6 +252,7 @@ export async function startSubscriptionCheckout(db: CommercialDatabase, billing:
   await assertOwner(db, input.businessId, input.actorUserId);
   const existing = await findAttemptByKey(db, input.businessId, idempotencyKey);
   if (existing) return replayAttempt(db, existing, planCode);
+  if (!billing.available && billing.reason === "paused") throw new CommercialError("Le paiement en ligne est en pause : contactez Qadr Agency pour recevoir un code d’accès.", 409, "billing_paused");
   if (!billing.available) throw new CommercialError("Le paiement en ligne n’est pas disponible pour le moment.", 503, "billing_unavailable");
   const { provider, appUrl } = billing;
 
@@ -517,6 +518,38 @@ export async function refreshSubscriptionPayment(db: CommercialDatabase, billing
 /* ------------------------------------------------------------------ Webhook */
 
 const referencePattern = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Webhook reçu pendant la pause de GeniusPay (mode `manual_code`, 2026-11-16) : la signature est vérifiée avec la
+ * configuration posée, l'événement authentique est ENREGISTRÉ (résultat `paused`, non traité) et la réponse est
+ * 200, pour que GeniusPay n'insiste pas en boucle. Aucun droit n'est accordé, aucune relecture n'est faite.
+ * À la réactivation, le cron relit chaque tentative restée en attente auprès de l'API (source de vérité), et un
+ * nouvel envoi du même événement est retraité normalement (`processed_at` nul). Rien n'est perdu en silence.
+ */
+export async function recordPausedGeniusPayWebhook(db: CommercialDatabase, billing: BillingAvailability, rawBody: string, headers: Headers, now = new Date()): Promise<WebhookResult> {
+  if (!billing.available) return { status: 503, body: { error: "billing_unavailable" } };
+  const verification = billing.provider.verifyWebhook(rawBody, headers, now);
+  if (!verification.ok) {
+    console.warn(`[facturation] webhook GeniusPay refusé (pause) : ${verification.reason}`);
+    return { status: 401, body: { error: "invalid_signature" } };
+  }
+  let payload: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(rawBody);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    payload = parsed as Record<string, unknown>;
+  } catch { return { status: 400, body: { error: "invalid_payload" } }; }
+  const payloadHash = createHash("sha256").update(rawBody, "utf8").digest("hex");
+  const eventType = typeof payload.event === "string" ? payload.event.slice(0, 64) : null;
+  const eventId = typeof payload.id === "string" && payload.id.trim() ? payload.id.trim().slice(0, 128) : `sha256:${payloadHash}`;
+  const data = payload.data && typeof payload.data === "object" ? payload.data as Record<string, unknown> : {};
+  const reference = typeof data.reference === "string" && referencePattern.test(data.reference) ? data.reference : null;
+  const environment = payload.environment === "sandbox" || payload.environment === "live" ? payload.environment : null;
+  await db.insert(paymentProviderEvent).values({ id: randomUUID(), businessId: null, provider: "geniuspay", eventId, payloadHash, eventType,
+    providerReference: reference, environment, outcome: "paused", receivedAt: now }).onConflictDoNothing({ target: [paymentProviderEvent.provider, paymentProviderEvent.eventId] });
+  console.warn("[facturation] webhook GeniusPay reçu pendant la pause : enregistré, non traité");
+  return { status: 200, body: { received: true, paused: true } };
+}
 
 export type WebhookResult = { status: number; body: Record<string, unknown> };
 

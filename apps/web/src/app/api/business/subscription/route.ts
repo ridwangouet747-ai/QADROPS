@@ -1,4 +1,5 @@
 import { getBillingProvider } from "@/lib/billing";
+import { commercialMode, whatsappNumber } from "@/lib/commercial/mode";
 import { getBusinessSubscriptionOverview } from "@/lib/domain/business-subscription";
 import { errorResponse, getBusinessContext, jsonSafe } from "@/lib/domain/business-context";
 
@@ -8,6 +9,6 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     const context = await getBusinessContext(request.headers, { allowWithoutSubscription: true });
-    return new Response(jsonSafe(await getBusinessSubscriptionOverview(context.db, context.actorUserId, context.businessId, new Date(), { onlinePayment: getBillingProvider().available })), { headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+    return new Response(jsonSafe(await getBusinessSubscriptionOverview(context.db, context.actorUserId, context.businessId, new Date(), { onlinePayment: getBillingProvider().available, commercialMode: commercialMode(), whatsapp: whatsappNumber() })), { headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }

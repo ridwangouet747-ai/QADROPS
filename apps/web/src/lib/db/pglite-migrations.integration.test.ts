@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies every committed migration (0000-0025) and creates the expected tables", async () => {
+  it("applies every committed migration (0000-0026) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,13 +24,13 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("26");
-    expect(tables.rows[0]?.count).toBe("63");
+    expect(applied.rows[0]?.count).toBe("27");
+    expect(tables.rows[0]?.count).toBe("65");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
     );
     expect(names.rows.map((row) => row.table_name)).toEqual([
-      "account", "audit_event", "business_member_access", "business_profile", "business_subscription", "cash_movement", "cash_session", "customer", "expense", "idempotency_record", "import_batch", "import_row",
+      "account", "audit_event", "business_invite_code", "business_member_access", "business_profile", "business_subscription", "cash_movement", "cash_session", "commercial_access_code", "customer", "expense", "idempotency_record", "import_batch", "import_row",
       "inventory_line", "inventory_scope_variant", "inventory_session", "invitation", "member", "notification", "notification_campaign", "notification_delivery", "notification_outbox",
       "notification_preference", "notification_template", "opening_balance", "opening_balance_payment", "organization", "payment",
       "payment_provider_event", "payment_refund", "platform_admin", "platform_session", "print_device", "print_job", "printer_settings", "product", "product_alias", "product_category",
@@ -89,6 +89,13 @@ describe("versioned migrations on isolated PGlite", () => {
       "select column_default from information_schema.columns where table_schema='public' and table_name='promotion_code' and column_name='audience'",
     );
     expect(audience.rows[0]?.column_default).toBe("'private'::text");
+    // Migration 0026 (2026-11-16) : employés sans adresse e-mail ; codes stockés en empreinte unique ; RLS sur les codes d'équipe.
+    const email = await client.query<{ is_nullable: string }>("select is_nullable from information_schema.columns where table_schema='public' and table_name='user' and column_name='email'");
+    expect(email.rows[0]?.is_nullable).toBe("YES");
+    const codeUniques = await client.query<{ conname: string }>("select conname from pg_constraint where contype='u' and conname in ('commercial_access_code_code_hash_unique','business_invite_code_code_hash_unique') order by conname");
+    expect(codeUniques.rows.map((row) => row.conname)).toEqual(["business_invite_code_code_hash_unique", "commercial_access_code_code_hash_unique"]);
+    const inviteRls = await client.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class where relname='business_invite_code'");
+    expect(inviteRls.rows[0]?.relrowsecurity).toBe(true);
   });
 
   it("does not reapply migrations on a second migrate() call", async () => {
@@ -96,6 +103,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("26");
+    expect(applied.rows[0]?.count).toBe("27");
   });
 });

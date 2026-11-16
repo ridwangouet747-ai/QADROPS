@@ -1,12 +1,15 @@
 import { betterAuth } from "better-auth";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { organization, twoFactor, username } from "better-auth/plugins";
 import { after } from "next/server";
 import { z } from "zod";
 import { getDatabase } from "@/lib/db/client";
-import { authSchema, businessProfile, platformAdmin, receiptSettings, user } from "@/lib/db/schema";
+import { authSchema, businessProfile, invitation, platformAdmin, receiptSettings, user } from "@/lib/db/schema";
+import { accessActivationScope, readAccessPass } from "@/lib/commercial/access-pass";
+import { accessCodeRequired } from "@/lib/commercial/mode";
+import { activateCommercialCode, usableCommercialCodeById } from "@/lib/domain/commercial-codes";
 import { assertProductionAuthUrl, readEnvironment, socialProviders as configuredSocialProviders } from "@/lib/env";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
 import { claimPublicCampaignSafely, signupCampaignScope } from "@/lib/domain/public-campaigns";
@@ -139,6 +142,8 @@ type AuthOptions = {
   social?: ReturnType<typeof configuredSocialProviders>;
   /** Qui peut créer un compte par requête HTTP (`registration.ts`) ; ouvert par défaut. */
   registration?: RegistrationPolicy;
+  /** Code d'accès commercial exigé à l'inscription ; lu dans l'environnement à chaque requête par défaut (`commercial/mode.ts`). */
+  accessCodeRequired?: () => boolean;
 };
 
 /**
@@ -269,6 +274,18 @@ export function createQadrAuth(options: AuthOptions) {
             if (campaign && inserted.length) {
               campaign.outcome = await claimPublicCampaignSafely(tx, { businessId: created.id, userId: user.id, request: campaign.request });
             }
+            // Code d'accès commercial (2026-11-16) : activé dans CETTE transaction, sous un point de sauvegarde.
+            // Échec (code utilisé entre-temps, révoqué, expiré) : le code reste intact et le commerce reste fermé
+            // tant qu'un code valide n'est pas saisi ; aucun abonnement partiel.
+            const activation = accessActivationScope.getStore();
+            if (activation && inserted.length) {
+              try {
+                const result = await tx.transaction((savepoint) => activateCommercialCode(savepoint as unknown as CommercialDatabase, { codeId: activation.codeId, businessId: created.id, actorUserId: user.id }));
+                activation.outcome = { status: "activated", endsAt: result.endsAt, replayed: result.replayed };
+              } catch (error) {
+                activation.outcome = { status: "failed", code: (error as { code?: string }).code ?? "error" };
+              }
+            }
           });
         },
       },
@@ -285,6 +302,12 @@ export function createQadrAuth(options: AuthOptions) {
       // générique par le hook `after` : même statut et même corps qu'une adresse déjà inscrite.
       user: { create: { before: async (created, context) => {
         if (context?.request && !registrationAllows(registration, created.email)) {
+          throw new APIError("UNPROCESSABLE_ENTITY", { message: "FAILED_TO_CREATE_USER", code: "FAILED_TO_CREATE_USER" });
+        }
+        // Modèle commercial du 2026-11-16 (commercial/mode.ts) : sans code d'accès vérifié (laissez-passer en
+        // cours de validité, code toujours utilisable en base) ni invitation par e-mail en attente pour cette
+        // adresse, aucun compte n'est créé par requête HTTP. Même refus générique que ci-dessus.
+        if (context?.request && (options.accessCodeRequired ?? accessCodeRequired)() && !(await signUpHasAccessRight(db, context.request.headers, created.email))) {
           throw new APIError("UNPROCESSABLE_ENTITY", { message: "FAILED_TO_CREATE_USER", code: "FAILED_TO_CREATE_USER" });
         }
       } } },
@@ -422,6 +445,16 @@ let authInstance: Promise<QadrAuth> | undefined;
  * fonctionne sur la base PGlite en mémoire avec un secret de développement : les vrais parcours
  * (inscription, connexion, invitations) sont donc testables sans Neon.
  */
+/** Inscription autorisée en mode code : laissez-passer valide, ou invitation par e-mail en attente pour cette adresse. */
+async function signUpHasAccessRight(db: CommercialDatabase, headers: Headers, email: unknown) {
+  const codeId = readAccessPass(headers);
+  if (codeId && await usableCommercialCodeById(db, codeId)) return true;
+  if (typeof email !== "string" || !email) return false;
+  const [pending] = await db.select({ id: invitation.id }).from(invitation)
+    .where(and(eq(invitation.email, email.trim().toLowerCase()), eq(invitation.status, "pending"), gt(invitation.expiresAt, new Date()))).limit(1);
+  return Boolean(pending);
+}
+
 export function getAuth(): Promise<QadrAuth> {
   if (!authInstance) {
     authInstance = (async () => {

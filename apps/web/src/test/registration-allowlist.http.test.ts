@@ -101,7 +101,7 @@ describe("ouverture des inscriptions", () => {
       for (let index = 0; index < 30; index += 1) expect((await attempt(index)).status).toBe(422);
       expect((await attempt(30)).status).toBe(429);
       const accounts = await h.db.select({ email: user.email }).from(user);
-      expect(accounts.some((row) => row.email.startsWith("rafale-"))).toBe(false);
+      expect(accounts.some((row) => row.email?.startsWith("rafale-"))).toBe(false);
     });
 
     async function tableCounts() {

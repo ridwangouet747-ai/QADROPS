@@ -100,6 +100,9 @@ export function LoginForm() {
   const params = useSearchParams();
   const next = safeNext(params.get("next"));
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+  // Employé invité par code (2026-11-16) : compte sans adresse e-mail, connexion par nom d'utilisateur.
+  const [mode, setMode] = useState<"email" | "username">(params.get("mode") === "username" ? "username" : "email");
   const [password, setPassword] = useState("");
   const socialError = params.get("social_error") ? (params.get("error") === "account_not_linked" ? t("auth.social.notLinked") : t("auth.social.failed")) : "";
   const [error, setError] = useState(params.get("expired") ? t("auth.login.expired") : socialError);
@@ -113,6 +116,19 @@ export function LoginForm() {
     event.preventDefault();
     if (!security.ready) { setError(t("auth.turnstile.required")); return; }
     setBusy(true); setError("");
+    if (mode === "username") {
+      const status = await fetch("/api/account/sign-in/username", {
+        method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...(security.token ? { [turnstileHeader]: security.token } : {}) },
+        body: JSON.stringify({ username: username.trim().toLowerCase(), password }),
+      }).then(async (response) => response.ok ? 200 : (await response.json().catch(() => ({})) as { code?: string }).code === "turnstile_failed" ? -1 : response.status).catch(() => 0);
+      if (status !== 200) {
+        track("login_failed", { reason: status === -1 ? "turnstile" : status === 401 ? "credentials" : "other" });
+        setError(status === -1 ? t("auth.turnstile.failed") : status === 429 ? t("auth.login.throttled") : status === 401 ? t("auth.login.failed") : t("errors.generic")); setBusy(false); security.renew(); return;
+      }
+      track("login_succeeded");
+      await routeAfterSignIn(router.push, next);
+      return;
+    }
     const { error: failure } = await authClient.signIn.email({ email: email.trim(), password, fetchOptions: securityHeaders(security.token) });
     if (failure) {
       track("login_failed", { reason: turnstileRejected(failure) ? "turnstile" : failure.status === 403 ? "verification" : failure.status === 401 ? "credentials" : "other" });
@@ -124,17 +140,28 @@ export function LoginForm() {
   };
   return (
     <AuthShell title={t("auth.login.title")} intro={t("auth.login.intro")}
-      footer={<>{t("auth.login.noAccount")} <Link href={`/register${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.login.register")}</Link>
+      footer={<>{t("auth.login.noAccount")} <Link href={next?.startsWith("/invitations/") ? `/register?next=${encodeURIComponent(next)}` : "/redeem-code"} className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.login.register")}</Link>
+        <span className="block">{t("access.redeem.employee")} <Link href="/join-business" className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("access.redeem.employeeLink")}</Link></span>
         {/* Accès discret à l'espace d'administration : seule la page de connexion dédiée est exposée. */}
         <span className="mt-1 flex flex-wrap justify-center gap-x-4"><Link href="/privacy" className="inline-flex min-h-11 items-center px-1 text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("privacy.footer")}</Link><Link href="/platform/login" className="inline-flex min-h-11 items-center px-1 text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("auth.login.adminAccess")}</Link></span></>}>
       <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
         {error && <Alert tone="danger">{error}</Alert>}
-        <SocialButtons next={next} onError={setError} />
-        <Field label={t("auth.email")}>{(props) => <Input {...props} type="email" dir="ltr" required autoComplete="email" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} />}</Field>
+        {mode === "email" && <SocialButtons next={next} onError={setError} />}
+        <div role="radiogroup" aria-label={t("access.signIn.mode")} className="grid grid-cols-2 gap-1 rounded-full bg-paper p-1">
+          {(["email", "username"] as const).map((value) => (
+            <button key={value} type="button" role="radio" aria-checked={mode === value} onClick={() => { setMode(value); setError(""); }}
+              className={cn("min-h-10 cursor-pointer rounded-full border-0 px-3 text-sm font-semibold", mode === value ? "bg-surface text-ink shadow-sm" : "bg-transparent text-fg-muted hover:text-ink")}>
+              {value === "email" ? t("access.signIn.withEmail") : t("access.signIn.withUsername")}
+            </button>
+          ))}
+        </div>
+        {mode === "email"
+          ? <Field label={t("auth.email")}>{(props) => <Input {...props} type="email" dir="ltr" required autoComplete="email" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} />}</Field>
+          : <Field label={t("access.signIn.username")} hint={t("access.signIn.employeeHint")}>{(props) => <Input {...props} dir="ltr" required autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={30} value={username} onChange={(event) => setUsername(event.target.value)} />}</Field>}
         <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-2">
             <label htmlFor="login-password" className="text-sm font-semibold text-ink">{t("auth.password")}</label>
-            <Link href="/forgot-password" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>
+            {mode === "email" && <Link href="/forgot-password" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>}
           </div>
           <PasswordInput id="login-password" value={password} onChange={setPassword} autoComplete="current-password" />
         </div>

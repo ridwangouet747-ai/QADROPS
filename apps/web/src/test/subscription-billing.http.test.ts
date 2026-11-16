@@ -88,6 +88,8 @@ describe("mission 12 : paiement d'abonnement GeniusPay (PGlite, vraie session, G
   it("sans configuration GeniusPay : paiement indisponible annoncé, aucun faux succès, webhook fermé", async () => {
     const { owner, businessId } = await merchant();
     unconfigureGeniusPay();
+    // Mode « paiement en ligne » choisi mais clés absentes : indisponible (503), à distinguer de la pause (409, geniuspay-pause.http.test.ts).
+    (process.env as Record<string, string | undefined>).QADR_COMMERCIAL_MODE = "geniuspay";
     try {
       const overview = await h.call(subscriptionRoute.GET, { path: "/api/business/subscription", actor: owner });
       expect(overview.body).toMatchObject({ onlinePayment: false, canPay: true });

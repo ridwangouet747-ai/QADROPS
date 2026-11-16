@@ -8,6 +8,7 @@ import { cn } from "@/components/ui/cn";
 import { Alert, Badge, EmptyState, Skeleton } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icon";
 import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
+import { whatsappHref } from "@/lib/commercial/mode";
 import { intlLocale } from "@/lib/i18n/config";
 import { formatXof } from "@/lib/i18n/format";
 
@@ -21,6 +22,7 @@ import { formatXof } from "@/lib/i18n/format";
 type Plan = { code: string; name: string; priceXof: string; durationDays: number; description: string | null };
 export type PayOverview = {
   lifecycle: string; canPay?: boolean; onlinePayment?: boolean; plans?: Plan[];
+  commercialMode?: "manual_code" | "geniuspay"; contact?: { whatsapp: string | null };
   openInvoice?: { planCode: string; pendingAttemptId: string | null } | null;
   /** Remise de la campagne d'inscription, déjà calculée par le serveur (montant net = celui de la facture). */
   campaignDiscount?: { planCode: string; discountXof: string; amountXof: string } | null;
@@ -39,6 +41,32 @@ function safeCheckoutUrl(value: unknown) {
 }
 
 export function PayCard({ overview }: { overview: PayOverview | null }) {
+  if (overview && overview.commercialMode !== "geniuspay") return <ManualRenewalCard overview={overview} />;
+  return <OnlinePayCard overview={overview} />;
+}
+
+/**
+ * Mode `manual_code` (2026-11-16) : aucun bouton de paiement, aucune redirection. Le commerçant contacte Qadr Agency
+ * (WhatsApp si le numéro est configuré côté serveur), paie hors de l’application, puis saisit le code reçu.
+ */
+function ManualRenewalCard({ overview }: { overview: PayOverview }) {
+  const { t } = useI18n();
+  const href = overview.contact?.whatsapp ? whatsappHref(overview.contact.whatsapp, t("subscription.manual.message")) : null;
+  return (
+    <Card aria-labelledby="subscription-manual-title" className="grid gap-4">
+      <CardTitle id="subscription-manual-title" title={t("subscription.manual.title")} aside={<span aria-hidden="true" className="grid size-10 place-items-center rounded-full bg-brand-soft text-brand"><Icon name="wallet" /></span>} />
+      <p className="m-0 text-sm text-fg-muted">{t("subscription.manual.lead")}</p>
+      {href ? (
+        <a href={href} target="_blank" rel="noopener noreferrer" className={buttonClasses({ variant: "primary", size: "lg", block: true, className: "no-underline" })}>
+          <Icon name="forward" className="size-4" />{t("subscription.manual.whatsapp")}
+        </a>
+      ) : <Alert tone="info">{t("subscription.manual.noContact")}</Alert>}
+      <p className="m-0 text-xs text-fg-subtle">{t("subscription.manual.safety")}</p>
+    </Card>
+  );
+}
+
+function OnlinePayCard({ overview }: { overview: PayOverview | null }) {
   const { t, locale } = useI18n();
   const plans = overview?.plans ?? [];
   const [selected, setSelected] = useState<string | null>(null);
