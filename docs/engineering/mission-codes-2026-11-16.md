@@ -135,7 +135,16 @@ relance tout (§ H).
 
 ## H. Déploiement
 
-<<H>>
+| Point | État constaté |
+| --- | --- |
+| Dépôt | `ridwangouet747-ai/QADROPS` (encore **public**) |
+| Branche, commit | `feat/mission-codes-2026-11-16`, `95c303a` (poussée sans forçage) ; ce rapport est complété par le commit suivant |
+| CI GitHub | run `43933258031` « Intégration continue » : **succès**. Étapes réussies : installation `npm ci`, TypeScript, ESLint, schéma et migrations, Vitest (suite complète, PGlite), build, audit des dépendances de production |
+| Projet Vercel | `web` (canonique), équipe `qadragency` ; statut GitHub « Vercel » **success** sur `95c303a` |
+| Aperçu | `https://web-git-feat-mission-codes-2026-11-16-qadragency.vercel.app`, protégé par l’authentification Vercel (302 vers `vercel.com/sso-api`). L’API Vercel par MCP ne voit pas l’équipe (404), la CLI n’est pas installée et le navigateur demande une connexion : **aucun contrôle fonctionnel distant n’a été fait**. Sans les variables Preview (L-1), ses API répondraient 500 |
+| Environnement Neon | aucun accès : ni `main` ni staging n’ont été modifiés ; migration 0026 **non appliquée** |
+| Production | inchangée : `https://web-phi-beryl-45.vercel.app` répond 200, `/redeem-code` 404 (ancienne version) |
+| Fusion dans `main` | **non faite**. Fusionner déclencherait la production sur une base sans la migration 0026 : l’inscription et la création de commerce échoueraient |
 
 ## I. Actions du propriétaire
 
@@ -170,4 +179,12 @@ Checklist complète : `docs/engineering/owner-action-checklist.md` (sections P, 
 
 ## J. Verdict
 
-<<J>>
+**PREVIEW VALIDÉE, PRODUCTION BLOQUÉE.**
+
+« Preview validée » veut dire ici : CI complète verte, build Vercel réussi sur le projet `web`, et suite locale (945 réussis ; l’unique échec, une liste figée, a été corrigé et revérifié). Le parcours n’a **pas** été exercé sur l’aperçu distant, faute d’accès à l’aperçu protégé et de variables Preview.
+
+Ce qui bloque la production, dans l’ordre :
+1. migration 0026 sur Neon `main` (sauvegarde restaurée, répétition sur une copie de `main`, puis `migrate-production.ts`), à autoriser explicitement ;
+2. offre Vercel Hobby : usage commercial interdit, donc pas de vente par WhatsApp tant que C-1 n’est pas fait ;
+3. `QADR_WHATSAPP_NUMBER` et formule Standard publiée (sans eux, aucun code ne peut être émis ni commandé) ;
+4. dépôt public.
