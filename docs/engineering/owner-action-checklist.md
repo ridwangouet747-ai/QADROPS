@@ -56,7 +56,7 @@ Rien de cette section n'est encore déployé ni migré (migration `0026` locale 
 
 | # | Action | Type | Où | Détail |
 | --- | --- | --- | --- | --- |
-| M-1 | `QADR_WHATSAPP_NUMBER` (format international, sans « + »), Production et Preview | clé | Vercel | l'agent n'invente aucun numéro ; sans lui, aucun lien WhatsApp n'apparaît |
+| M-1 | ~~`QADR_WHATSAPP_NUMBER`~~ | fait | — | numéro fourni par le propriétaire le 2026-11-16, posé par l'agent sur le projet `web` (Production et Preview, format international `225…`) ; le bouton n'apparaît en production qu'après le déploiement de cette version |
 | M-2 | `QADR_CODE_SECRET` (48 caractères aléatoires, *Sensitive*), une valeur différente par environnement | clé | Vercel | à défaut, `BETTER_AUTH_SECRET` sert de clé ; le changer plus tard rend inutilisables les codes non utilisés (`../commercial-access-codes.md` § 3) |
 | M-3 | Laisser `QADR_COMMERCIAL_MODE` **absent** (mode `manual_code`, GeniusPay en pause) ; `geniuspay` seulement sur décision | décision | Vercel | `../billing-geniuspay.md` § 0 |
 | M-4 | Migration `0026` sur Neon `main` par `scripts/migrate-production.ts`, après sauvegarde restaurée et répétition sur une branche copiée de `main` | validation | votre poste ou l'agent avec accord explicite | additive (deux tables, `user.email` nullable) |

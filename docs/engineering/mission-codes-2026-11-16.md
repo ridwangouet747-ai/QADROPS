@@ -156,7 +156,8 @@ relance tout (§ H).
 4. Variables Preview du projet `web` (L-1) pour qu'un aperçu Vercel réponde aux API.
 
 **Indispensable à la première activation**
-5. `QADR_WHATSAPP_NUMBER` (M-1) ; sans lui, la page publique n'affiche que « J'ai un code ».
+5. ~~`QADR_WHATSAPP_NUMBER`~~ : fait le 2026-11-16 (numéro fourni par le propriétaire, posé en Production et Preview sur
+   `web` au format international `225…`, lien `wa.me` vérifié).
 6. Créer et publier la formule Standard (P-5 bis, M-5) : un code ne se génère que sur une formule active.
 7. `QADR_OWNER_USERNAME` / `QADR_OWNER_PASSWORD` pour ouvrir la console de la plateforme (P-3), puis les retirer.
 8. Ajouter votre adresse à `QADR_REGISTRATION_ALLOWLIST` (P-3 bis) : en production, il faut **à la fois** cette liste et
@@ -186,5 +187,5 @@ Checklist complète : `docs/engineering/owner-action-checklist.md` (sections P, 
 Ce qui bloque la production, dans l’ordre :
 1. migration 0026 sur Neon `main` (sauvegarde restaurée, répétition sur une copie de `main`, puis `migrate-production.ts`), à autoriser explicitement ;
 2. offre Vercel Hobby : usage commercial interdit, donc pas de vente par WhatsApp tant que C-1 n’est pas fait ;
-3. `QADR_WHATSAPP_NUMBER` et formule Standard publiée (sans eux, aucun code ne peut être émis ni commandé) ;
+3. formule Standard publiée (sans elle, aucun code ne peut être émis) ; le numéro WhatsApp est posé depuis le 2026-11-16 ;
 4. dépôt public.
