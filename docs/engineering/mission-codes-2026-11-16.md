@@ -142,17 +142,17 @@ relance tout (§ H).
 | CI GitHub | run `43933258031` « Intégration continue » : **succès**. Étapes réussies : installation `npm ci`, TypeScript, ESLint, schéma et migrations, Vitest (suite complète, PGlite), build, audit des dépendances de production |
 | Projet Vercel | `web` (canonique), équipe `qadragency` ; statut GitHub « Vercel » **success** sur `95c303a` |
 | Aperçu | `https://web-git-feat-mission-codes-2026-11-16-qadragency.vercel.app`, protégé par l’authentification Vercel (302 vers `vercel.com/sso-api`). L’API Vercel par MCP ne voit pas l’équipe (404), la CLI n’est pas installée et le navigateur demande une connexion : **aucun contrôle fonctionnel distant n’a été fait**. Sans les variables Preview (L-1), ses API répondraient 500 |
-| Environnement Neon | aucun accès : ni `main` ni staging n’ont été modifiés ; migration 0026 **non appliquée** |
-| Production | inchangée : `https://web-phi-beryl-45.vercel.app` répond 200, `/redeem-code` 404 (ancienne version) |
-| Fusion dans `main` | **non faite**. Fusionner déclencherait la production sur une base sans la migration 0026 : l’inscription et la création de commerce échoueraient |
+| Environnement Neon | sur accord du propriétaire (« migrate then merge », 2026-11-16) : point de retour = branche `sauvegarde-main-avant-0026-2026-11-16` (même LSN que `main` ; pas de `pg_dump`, outils absents du poste, et l’unique instantané de l’offre Free est déjà pris) ; répétition sur `repetition-0026-2026-11-16` (copie de `main`) : 27 migrations, schéma comparé identique à l’intention de 0026 (seul écart, `neon_auth.auth_logs_export_enabled`, géré par Neon et absent de la migration) ; puis `migrate-production.ts` sur `main` : « 26 appliquées, 1 en attente … Terminé en une transaction : 27 ». Contrôle en lecture seule de `main` après coup : 27 migrations, `business_invite_code` sous RLS (1 politique), `commercial_access_code` présente, `user.email` nullable, 45 tables sous RLS, 0 compte, 0 commerce. Une table d’exemple Neon `playing_with_neon` (10 lignes, hors du dépôt) existe sur `main` ; laissée intacte. Les deux branches sont conservées |
+| Fusion dans `main` | avance rapide sans forçage `f6573d1..b3dbc64` (2026-11-16) ; CI sur `main` : run `43939264928` **succès** |
+| Production | déploiement Vercel `web` : statut GitHub **success** sur `b3dbc64`. `https://web-phi-beryl-45.vercel.app` : `/`, `/redeem-code`, `/join-business`, `/login`, `/register`, `/platform/login` répondent 200 ; la page publique contient la section `#screens` et 4 liens `wa.me/2250508145011` ; aucune erreur dans les journaux de production sur les 15 minutes suivant le déploiement. **Non vérifié** : un parcours complet code → inscription → commerce (Turnstile, aucun code émis, aucune formule publiée) |
 
 ## I. Actions du propriétaire
 
 **Indispensable au fonctionnement technique**
 1. Rendre le dépôt GitHub `QADROPS` **privé** (il est public ; le code de cette mission y est poussé).
 2. `QADR_CODE_SECRET` (48 caractères aléatoires, *Sensitive*), une valeur par environnement (checklist M-2).
-3. Migration `0026` sur Neon `main` par `scripts/migrate-production.ts`, après sauvegarde restaurée et répétition sur
-   une branche copiée de `main` (M-4). Tant qu'elle n'est pas appliquée, la production ne doit pas recevoir ce code.
+3. ~~Migration `0026` sur Neon `main`~~ : faite le 2026-11-16 par l'agent sur votre accord (M-4, § H), puis fusion
+   dans `main` et déploiement.
 4. Variables Preview du projet `web` (L-1) pour qu'un aperçu Vercel réponde aux API.
 
 **Indispensable à la première activation**
@@ -180,12 +180,12 @@ Checklist complète : `docs/engineering/owner-action-checklist.md` (sections P, 
 
 ## J. Verdict
 
-**PREVIEW VALIDÉE, PRODUCTION BLOQUÉE.**
+**DÉPLOYÉ EN PRODUCTION, PAS ENCORE OUVERT À LA VENTE.**
 
-« Preview validée » veut dire ici : CI complète verte, build Vercel réussi sur le projet `web`, et suite locale (945 réussis ; l’unique échec, une liste figée, a été corrigé et revérifié). Le parcours n’a **pas** été exercé sur l’aperçu distant, faute d’accès à l’aperçu protégé et de variables Preview.
+Le code de la mission tourne en production depuis le 2026-11-16 (`b3dbc64`, migration 0026 appliquée sur `main`, § H). Pages publiques et lien WhatsApp vérifiés ; le parcours code → inscription → commerce n’a **pas** été exercé en production (Turnstile, aucun code émis).
 
-Ce qui bloque la production, dans l’ordre :
-1. migration 0026 sur Neon `main` (sauvegarde restaurée, répétition sur une copie de `main`, puis `migrate-production.ts`), à autoriser explicitement ;
-2. offre Vercel Hobby : usage commercial interdit, donc pas de vente par WhatsApp tant que C-1 n’est pas fait ;
-3. formule Standard publiée (sans elle, aucun code ne peut être émis) ; le numéro WhatsApp est posé depuis le 2026-11-16 ;
+Ce qui empêche encore de vendre, dans l’ordre :
+1. offre Vercel Hobby : usage commercial interdit, donc pas de vente par WhatsApp tant que C-1 n’est pas fait ;
+2. formule Standard publiée (sans elle, aucun code ne peut être émis), puis console ouverte (P-3) ;
+3. `QADR_CODE_SECRET` propre à la production (M-2) avant d’émettre le premier code, sinon `BETTER_AUTH_SECRET` sert de clé ;
 4. dépôt public.

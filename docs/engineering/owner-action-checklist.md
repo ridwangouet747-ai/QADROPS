@@ -52,14 +52,14 @@ d'*Actions* ou un fichier hors Git pendant la période publique.
 
 ## M. Modèle commercial par codes (mission du 2026-11-16)
 
-Rien de cette section n'est encore déployé ni migré (migration `0026` locale seulement).
+Déployé en production le 2026-11-16 (`b3dbc64`, migration `0026` appliquée sur `main`) ; rien n'est encore émis ni vendu.
 
 | # | Action | Type | Où | Détail |
 | --- | --- | --- | --- | --- |
 | M-1 | ~~`QADR_WHATSAPP_NUMBER`~~ | fait | — | numéro fourni par le propriétaire le 2026-11-16, posé par l'agent sur le projet `web` (Production et Preview, format international `225…`) ; le bouton n'apparaît en production qu'après le déploiement de cette version |
 | M-2 | `QADR_CODE_SECRET` (48 caractères aléatoires, *Sensitive*), une valeur différente par environnement | clé | Vercel | à défaut, `BETTER_AUTH_SECRET` sert de clé ; le changer plus tard rend inutilisables les codes non utilisés (`../commercial-access-codes.md` § 3) |
 | M-3 | Laisser `QADR_COMMERCIAL_MODE` **absent** (mode `manual_code`, GeniusPay en pause) ; `geniuspay` seulement sur décision | décision | Vercel | `../billing-geniuspay.md` § 0 |
-| M-4 | Migration `0026` sur Neon `main` par `scripts/migrate-production.ts`, après sauvegarde restaurée et répétition sur une branche copiée de `main` | validation | votre poste ou l'agent avec accord explicite | additive (deux tables, `user.email` nullable) |
+| M-4 | ~~Migration `0026` sur Neon `main`~~ | fait | — | 2026-11-16, sur votre accord : répétition réussie sur `repetition-0026-2026-11-16` (copie de `main`), point de retour `sauvegarde-main-avant-0026-2026-11-16` (branche Neon, pas un `pg_dump` : outils absents du poste, emplacement d'instantané Free déjà pris), puis `migrate-production.ts` : 27 migrations, une transaction. Les deux branches sont conservées ; à supprimer seulement sur votre décision |
 | M-5 | Publier la formule Standard (`ensure-standard-plan.ts --publish` ou `/platform/plans`) | décision | console | un code ne se génère que sur une formule active |
 | M-6 | En production, un compte de commerçant exige **à la fois** un code valide et l'adresse dans `QADR_REGISTRATION_ALLOWLIST` (tant que C-3 n'est pas fait). Ouvrir aux commerçants = C-1 puis C-3 | décision | Vercel | les comptes d'employés créés par code `EQP-` ne passent pas par cette liste |
 
