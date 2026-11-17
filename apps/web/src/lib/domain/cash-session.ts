@@ -50,6 +50,8 @@ export async function attachOpenCashSession(tx: CommercialTransaction, businessI
 export type CashBreakdown = {
   openingFloatXof: bigint; cashSalesXof: bigint; receivableCashXof: bigint; openingDebtCashXof: bigint; movementsInXof: bigint;
   expensesCashXof: bigint; supplierCashXof: bigint; refundsCashXof: bigint; movementsOutXof: bigint;
+  /** Détail des ventes en espèces, hors calcul : billets reçus et monnaie rendue (leur différence = cashSalesXof). */
+  cashTenderedXof?: bigint; changeGivenXof?: bigint;
 };
 
 /**
@@ -78,6 +80,8 @@ async function computeBreakdown(db: CommercialDatabase | CommercialTransaction, 
     (select coalesce(sum(p.amount_xof), 0) from payment p where p.business_id = ${businessId} and p.cash_session_id = ${sessionId}
       and p.method = 'cash' and p.status not in ('pending','failed')
       and not exists (select 1 from receivable_payment r where r.business_id = p.business_id and r.payment_id = p.id))::text as "cashSales",
+    (select coalesce(sum(coalesce(p.change_xof, 0)), 0) from payment p where p.business_id = ${businessId} and p.cash_session_id = ${sessionId}
+      and p.method = 'cash' and p.status not in ('pending','failed'))::text as "changeGiven",
     (select coalesce(sum(p.amount_xof), 0) from payment p where p.business_id = ${businessId} and p.cash_session_id = ${sessionId}
       and p.method = 'cash' and p.status not in ('pending','failed')
       and exists (select 1 from receivable_payment r where r.business_id = p.business_id and r.payment_id = p.id))::text as "receivableCash",
@@ -97,6 +101,7 @@ async function computeBreakdown(db: CommercialDatabase | CommercialTransaction, 
   return {
     openingFloatXof, cashSalesXof: n("cashSales"), receivableCashXof: n("receivableCash"), openingDebtCashXof: n("openingDebtCash"), movementsInXof: n("movementsIn"),
     expensesCashXof: n("expensesCash"), supplierCashXof: n("purchaseCash") + n("openingSupplierCash"), refundsCashXof: n("refundsCash"), movementsOutXof: n("movementsOut"),
+    cashTenderedXof: n("cashSales") + n("changeGiven"), changeGivenXof: n("changeGiven"),
   };
 }
 

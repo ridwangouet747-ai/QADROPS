@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, FormDialog, SearchField, Segmented } from "@/components/ui/controls";
@@ -19,7 +19,7 @@ import { RequestError, useDebounced, usePagedList } from "./use-paged-list";
 type ProductRow = { id: string; name: string; description: string | null; categoryId: string | null; categoryName: string | null; baseUnit: string; variantId: string; variantLabel: string; sku: string | null; salePriceXof: string; onHand: string; averageCostXof: string; costKnown: boolean; lowStockThreshold: string };
 type Category = { id: string; name: string };
 type Availability = "all" | StockStatus;
-type Draft = { name: string; categoryId: string; baseUnit: string; variantLabel: string; sku: string; salePriceXof: string; lowStockThreshold: string };
+type Draft = { name: string; categoryId: string; baseUnit: string; variantLabel: string; sku: string; salePriceXof: string; lowStockThreshold: string; initialQuantity: string };
 type DraftErrors = Partial<Record<keyof Draft, string>>;
 
 const PAGE_SIZE = 24;
@@ -57,6 +57,8 @@ export function ProductsWorkspace() {
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [categoryName, setCategoryName] = useState("");
   const [archiving, setArchiving] = useState<ProductRow | null>(null);
+  /** Clé du stock de départ saisi à la création : gardée pour un nouvel essai du même formulaire (jamais deux ouvertures). */
+  const openingKey = useRef("");
 
   const describe = useCallback((caught: unknown) => caught instanceof RequestError
     ? errorMessageFor({ status: caught.status, serverMessage: caught.message, locale, t })
@@ -73,10 +75,11 @@ export function ProductsWorkspace() {
 
   const openForm = (target: ProductRow | "new") => {
     setDraftErrors({});
+    openingKey.current = `product-opening-${crypto.randomUUID()}`;
     setDraft(target === "new"
-      ? { name: "", categoryId: categoryId, baseUnit: t("products.form.defaultUnit"), variantLabel: "", sku: "", salePriceXof: "", lowStockThreshold: "0" }
+      ? { name: "", categoryId: categoryId, baseUnit: t("products.form.defaultUnit"), variantLabel: "", sku: "", salePriceXof: "", lowStockThreshold: "0", initialQuantity: "" }
       : { name: target.name, categoryId: target.categoryId ?? "", baseUnit: target.baseUnit, variantLabel: target.variantLabel === "Standard" ? "" : target.variantLabel,
-          sku: target.sku ?? "", salePriceXof: target.salePriceXof, lowStockThreshold: formatQuantity(target.lowStockThreshold, locale) });
+          sku: target.sku ?? "", salePriceXof: target.salePriceXof, lowStockThreshold: formatQuantity(target.lowStockThreshold, locale), initialQuantity: "" });
     setEditing(target);
   };
 
@@ -86,6 +89,7 @@ export function ProductsWorkspace() {
     if (!value.baseUnit.trim()) errors.baseUnit = t("products.form.unitRequired");
     if (!/^(0|[1-9]\d*)$/.test(value.salePriceXof.trim())) errors.salePriceXof = t("products.form.priceInvalid");
     if (editing !== "new" && parseQuantityInput(value.lowStockThreshold) === null) errors.lowStockThreshold = t("products.form.thresholdInvalid");
+    if (editing === "new" && value.initialQuantity.trim() && !((parseQuantityInput(value.initialQuantity) ?? 0n) > 0n)) errors.initialQuantity = t("products.form.initialQtyInvalid");
     return errors;
   };
 
@@ -99,10 +103,22 @@ export function ProductsWorkspace() {
     const name = draft.name.trim();
     try {
       if (editing === "new") {
-        await request("/api/business/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        const created = await request<{ product: { id: string; variantId: string } }>("/api/business/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
           name, categoryId: draft.categoryId || undefined, baseUnit: draft.baseUnit.trim(), variantLabel: draft.variantLabel.trim() || "Standard",
           salePriceXof: draft.salePriceXof.trim(), sku: draft.sku.trim() }) });
-        setNotice(t("products.notices.created", { product: name }));
+        const initialQuantity = draft.initialQuantity.trim();
+        if (!initialQuantity) setNotice(t("products.notices.created", { product: name }));
+        else {
+          // Quantité déjà en boutique = stock de départ (même service que l'écran « Stock de départ »), jamais un faux achat.
+          try {
+            await request("/api/business/stock/opening", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+              idempotencyKey: openingKey.current, referenceDate: new Date().toISOString().slice(0, 10),
+              lines: [{ variantId: created.product.variantId, quantity: toApiQuantity(initialQuantity) }] }) });
+            setNotice(t("products.notices.createdWithStock", { product: name, quantity: formatQuantity(toApiQuantity(initialQuantity), locale), unit: draft.baseUnit.trim() }));
+          } catch {
+            setError(t("products.notices.stockNotRecorded", { product: name }));
+          }
+        }
       } else {
         await request(`/api/business/products/${encodeURIComponent(editing.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({
           productId: editing.id, variantId: editing.variantId, name, description: editing.description, categoryId: draft.categoryId || null,
@@ -190,15 +206,15 @@ export function ProductsWorkspace() {
           <div className="p-2"><EmptyState icon="search" title={t("products.list.noMatch")} /></div>
         ) : (
           <>
-            <div aria-hidden="true" className="hidden grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_96px] gap-3 rounded-[14px] bg-paper px-4 py-2.5 text-xs font-semibold text-fg-muted md:grid">
+            <div aria-hidden="true" className="hidden grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_96px] gap-3 rounded-[14px] bg-paper px-4 py-2.5 text-xs font-semibold text-fg-muted lg:grid">
               <span>{t("products.list.product")}</span><span>{t("products.list.category")}</span><span>{t("products.list.stock")}</span><span>{t("products.list.price")}</span><span className="text-end">{t("products.list.actions")}</span>
             </div>
-            <ul className="m-0 grid list-none gap-2 p-0 md:mt-1 md:gap-0">
+            <ul className="m-0 grid list-none gap-2 p-0 lg:mt-1 lg:gap-0">
               {filtered.map(({ item, status }) => {
                 const cost = item.costKnown ? roundXof(item.averageCostXof) : null;
                 return (
                   <li key={item.variantId}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-[18px] border border-line p-3 md:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_96px] md:rounded-none md:border-0 md:border-b md:px-4 md:py-3 md:last:border-b-0 md:hover:bg-paper">
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-[18px] border border-line p-3 lg:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_96px] lg:rounded-none lg:border-0 lg:border-b lg:px-4 lg:py-3 lg:last:border-b-0 lg:hover:bg-paper">
                     <div className="flex min-w-0 items-center gap-3">
                       <Monogram text={item.name} className="size-11 rounded-[14px]" />
                       <div className="min-w-0">
@@ -209,19 +225,23 @@ export function ProductsWorkspace() {
                         </small>
                       </div>
                     </div>
-                    <div className="row-start-2 md:row-start-auto">
-                      {item.categoryName ? <Badge tone="brand"><span dir="auto">{item.categoryName}</span></Badge> : <span className="text-xs text-fg-subtle">{t("products.list.noCategory")}</span>}
+                    <div className="row-start-2 min-w-0 lg:row-start-auto">
+                      {item.categoryName ? <Badge tone="brand"><span dir="auto" className="min-w-0 truncate">{item.categoryName}</span></Badge> : <span className="text-xs text-fg-subtle">{t("products.list.noCategory")}</span>}
                     </div>
-                    <div className="col-start-2 row-start-2 flex flex-col items-end gap-1 md:col-start-auto md:row-start-auto md:items-start">
-                      <span className="text-sm font-semibold text-ink"><span className="numeric">{formatQuantity(item.onHand, locale)}</span> <span className="font-normal text-fg-subtle">{item.baseUnit}</span></span>
+                    <div className="col-start-2 row-start-2 flex min-w-0 flex-col items-end gap-1 lg:col-start-auto lg:row-start-auto lg:items-start">
+                      {/* Quantité et unité dans deux éléments distincts : la quantité ne se coupe jamais, l'unité passe à la ligne si elle est longue. */}
+                      <span className="flex max-w-full flex-wrap items-baseline justify-end gap-x-1 text-sm font-semibold text-ink lg:justify-start">
+                        <span className="numeric whitespace-nowrap">{formatQuantity(item.onHand, locale)}</span>
+                        <span dir="auto" className="min-w-0 max-w-40 break-words font-normal text-fg-subtle">{item.baseUnit}</span>
+                      </span>
                       <Badge tone={statusTone[status]}>{t(`products.status.${status}`)}</Badge>
                     </div>
-                    <div className="col-start-2 row-start-1 text-end md:col-start-auto md:row-start-auto md:text-start">
+                    <div className="col-start-2 row-start-1 min-w-0 text-end lg:col-start-auto lg:row-start-auto lg:text-start">
                       <strong className="numeric block text-[0.95rem] text-ink">{money(item.salePriceXof)}</strong>
                       <small className="hidden text-xs text-fg-subtle sm:block">{cost ? t("products.list.avgCost", { amount: money(cost) }) : t("products.list.costUnknown")}</small>
                     </div>
                     {canManage && (
-                      <div className="col-span-2 flex justify-end gap-2 border-t border-line pt-2 md:col-span-1 md:border-0 md:pt-0">
+                      <div className="col-span-2 flex justify-end gap-2 border-t border-line pt-2 lg:col-span-1 lg:border-0 lg:pt-0">
                         <IconButton icon="edit" label={t("products.list.edit", { product: item.name })} onClick={() => openForm(item)} />
                         <IconButton icon="trash" label={t("products.list.archive", { product: item.name })} onClick={() => setArchiving(item)} className="hover:border-danger-line hover:text-danger" />
                       </div>
@@ -256,9 +276,17 @@ export function ProductsWorkspace() {
                 {(props) => <Input {...props} dir="auto" maxLength={40} value={draft.baseUnit} disabled={editing !== "new"} onChange={(event) => set({ baseUnit: event.target.value })} />}
               </Field>
             </div>
-            <Field label={t("products.form.price")} error={draftErrors.salePriceXof}>
-              {(props) => <Input {...props} inputMode="numeric" pattern="[0-9]*" placeholder="0" className="numeric" value={draft.salePriceXof} onChange={(event) => set({ salePriceXof: event.target.value.replace(/\s/g, "") })} />}
-            </Field>
+            {/* Prix et quantité de départ : deux champs séparés, chacun son libellé ; l'unité est rappelée dans l'aide, jamais dans le champ. */}
+            <div className={editing === "new" ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>
+              <Field label={t("products.form.price")} error={draftErrors.salePriceXof}>
+                {(props) => <Input {...props} inputMode="numeric" pattern="[0-9]*" placeholder="0" className="numeric" value={draft.salePriceXof} onChange={(event) => set({ salePriceXof: event.target.value.replace(/\s/g, "") })} />}
+              </Field>
+              {editing === "new" && (
+                <Field label={t("products.form.initialQty")} hint={t("products.form.initialQtyHint", { unit: draft.baseUnit.trim() || t("products.form.defaultUnit") })} error={draftErrors.initialQuantity}>
+                  {(props) => <Input {...props} inputMode="decimal" autoComplete="off" placeholder="0" className="numeric" value={draft.initialQuantity} onChange={(event) => set({ initialQuantity: event.target.value.replace(/\s/g, "") })} />}
+                </Field>
+              )}
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label={t("products.form.variant")} hint={t("products.form.variantHint")}>
                 {(props) => <Input {...props} dir="auto" maxLength={100} value={draft.variantLabel} onChange={(event) => set({ variantLabel: event.target.value })} />}

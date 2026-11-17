@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { landingAr, landingEn, landingFr } from "@/lib/i18n/messages/landing";
 import { locales } from "@/lib/i18n/config";
+import { ambianceFiles, ambiancePhoto, ambianceRoomFile, ambianceSectors } from "@/lib/landing/ambiance";
 import { interfaceScreen, interfaceScreenFiles, interfaceScreenKeys } from "@/lib/landing/interface-screens";
 
 /*
@@ -49,6 +50,40 @@ describe("page publique : aucun contenu de démonstration en production", () => 
     const publicLanding = resolve(process.cwd(), "public/landing");
     const images = existsSync(publicLanding) ? readdirSync(publicLanding).filter((file) => /\.(png|jpe?g|webp|avif)$/i.test(file)) : [];
     expect(images).toEqual([]);
+  });
+});
+
+/*
+ * 2026-11-17 : images d'ambiance (photos de boutiques générées par IA, fond « salle quadrillée »). Elles ne sont servies
+ * que depuis public/landing/ambiance, listées dans lib/landing/ambiance.ts, et chaque photo est annoncée comme une
+ * illustration (texte alternatif + mention visible), dans les trois langues.
+ */
+describe("page publique : images d'ambiance annoncées comme illustrations", () => {
+  const ambianceDir = resolve(process.cwd(), "public/landing/ambiance");
+  const served = existsSync(ambianceDir) ? readdirSync(ambianceDir, { recursive: true, encoding: "utf8" }).filter((file) => /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(file)).map((file) => file.replaceAll("\\", "/")).sort() : [];
+
+  it("chaque image servie est déclarée dans le manifeste, et chaque image déclarée existe", () => {
+    expect(served).toEqual([...ambianceFiles()].sort());
+    for (const sector of ambianceSectors) {
+      const photo = ambiancePhoto(sector);
+      for (const candidate of photo.srcSet.split(", ").map((entry) => entry.split(" ")[0]!)) expect(served).toContain(candidate.replace("/landing/ambiance/", ""));
+      expect(photo.width).toBeGreaterThan(0);
+      expect(photo.height).toBeGreaterThan(0);
+    }
+  });
+
+  it("le fond de salle utilisé par la feuille de style est bien servi", () => {
+    const css = readFileSync(resolve(landingDir, "landing.css"), "utf8");
+    expect(css).toContain(`/landing/ambiance/${ambianceRoomFile}`);
+    expect(existsSync(resolve(process.cwd(), "public/patterns/qadr-room-grid.svg"))).toBe(true);
+  });
+
+  it("chaque photo a un texte alternatif « Illustration » et la section dit qu'aucune ne montre un client", () => {
+    for (const [messages, mention, client] of [[landingFr, /^Illustration : /, /client/], [landingEn, /^Illustration: /, /customer/], [landingAr, /^صورة تعبيرية: /, /العملاء/]] as const) {
+      expect(Object.keys(messages.sectors.illustration).sort()).toEqual([...ambianceSectors].sort());
+      for (const sector of ambianceSectors) expect(messages.sectors.illustration[sector]).toMatch(mention);
+      expect(messages.sectors.illustrationNote).toMatch(client);
+    }
   });
 });
 

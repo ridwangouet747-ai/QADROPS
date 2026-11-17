@@ -80,7 +80,7 @@ export async function PricingSection({ t, locale, container }: { t: Translate; l
   // Jusqu'à deux cartes, l'encart du code tient à côté ; au-delà il passe dessous pour laisser leur largeur aux prix.
   const wide = cards > 2;
   return (
-    <section id="pricing" aria-labelledby="pricing-title" className="scroll-mt-20 bg-surface py-20 sm:py-28">
+    <section id="pricing" aria-labelledby="pricing-title" className="scroll-mt-20 py-20 sm:py-28">
       <div className={container}>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-2xl">
@@ -110,7 +110,7 @@ export async function PricingSection({ t, locale, container }: { t: Translate; l
                 {showBusiness && <BusinessCard t={t} contact={contact} />}
               </ul>
             )}
-            {plans.length > 0 && <p className="m-0 text-[0.9rem] text-fg-subtle">{t("landing.pricing.currency")}</p>}
+            {plans.length > 0 && <p className="m-0 text-[0.9rem] text-fg-muted">{t("landing.pricing.currency")}</p>}
           </div>
           <aside aria-labelledby="promo-title" className={cn("flex min-w-0 flex-col rounded-[1.75rem] border border-dashed border-qadr-300 bg-surface p-6 sm:p-7", wide && "lg:max-w-xl")}>
             <span className="grid size-11 place-items-center rounded-2xl bg-brand-soft text-brand"><Icon name="tag" /></span>

@@ -125,13 +125,13 @@ type Business = { id: string; name: string; logo: string | null; role: string; d
 export function BusinessPicker() {
   const { t } = useI18n();
   const router = useRouter();
-  const [data, setData] = useState<{ businesses: Business[]; isPlatformAdmin: boolean } | null>(null);
+  const [data, setData] = useState<{ businesses: Business[] } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   useEffect(() => {
     fetch("/api/account/me", { cache: "no-store" }).then(async (response) => {
       if (response.status === 401) { router.replace("/login?expired=1"); return; }
-      setData(await response.json() as { businesses: Business[]; isPlatformAdmin: boolean });
+      setData(await response.json() as { businesses: Business[] });
     }).catch(() => setError(t("errors.network")));
   }, [router, t]);
   const choose = async (business: Business) => {
@@ -164,7 +164,6 @@ export function BusinessPicker() {
           </ul>
         )}
         <Link href="/onboarding" className={buttonClasses({ variant: "secondary", block: true, className: "no-underline" })}><Icon name="plus" className="size-4" />{t("selectBusiness.create")}</Link>
-        {data?.isPlatformAdmin && <Link href="/platform" className={buttonClasses({ variant: "ghost", block: true, className: "no-underline" })}>{t("selectBusiness.platform")}</Link>}
       </div>
     </AuthShell>
   );

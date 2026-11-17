@@ -118,7 +118,7 @@ describe("mission 07 : authentification, commerces et équipes (Better Auth sur 
       const awaId = await userId(awa);
       const overview = await getAccountOverview(commercial, awaId, ids.a2);
       expect(overview.businesses.map((row) => row.name)).toEqual(["Boutique Mode Awa", "Kiosque Awa", "Quincaillerie du Plateau"]);
-      expect(overview.isPlatformAdmin).toBe(false);
+      expect(overview).not.toHaveProperty("isPlatformAdmin");
       await expect(setActiveBusiness(auth, commercial, awa, awaId, { businessId: ids.a1 })).resolves.toEqual({ businessId: ids.a1 });
       // Un identifiant de commerce fourni par le navigateur ne suffit jamais.
       await expect(setActiveBusiness(auth, commercial, awa, awaId, { businessId: ids.b1 })).rejects.toMatchObject({ status: 403 });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { manualPaymentMethods } from "@/lib/payment-methods";
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "@/lib/auth/permissions";
@@ -17,7 +18,7 @@ const contextShape = { businessId: z.string().min(1), actorUserId: z.string().mi
 const xof = z.string().regex(/^(0|[1-9]\d{0,17})$/);
 const quantity = z.string().regex(/^(0|[1-9]\d{0,17})(?:\.\d{1,6})?$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const methods = ["cash", "wave", "orange_money", "mtn_momo", "other"] as const;
+const methods = manualPaymentMethods;
 
 async function requirePermission(db: CommercialDatabase, context: Context, resource: Parameters<typeof hasBusinessPermission>[1], action: string) {
   const [membership] = await db.select({ role: member.role }).from(member).where(and(eq(member.organizationId, context.businessId), eq(member.userId, context.actorUserId))).limit(1);
@@ -184,11 +185,48 @@ export async function createOpeningBalance(db: CommercialDatabase, raw: unknown,
     const [existing] = await tx.select({ id: openingBalance.id }).from(openingBalance).where(and(eq(openingBalance.businessId, input.businessId),
       isCustomer ? eq(openingBalance.customerId, input.partyId) : eq(openingBalance.supplierId, input.partyId))).limit(1);
     if (existing) throw new CommercialError(isCustomer ? "Ce client a déjà un solde d’ouverture." : "Ce fournisseur a déjà un solde d’ouverture.", 409);
-    await tx.insert(openingBalance).values({ id, businessId: input.businessId, partyType: input.partyType, customerId: isCustomer ? input.partyId : null,
-      supplierId: isCustomer ? null : input.partyId, amountXof: BigInt(input.amountXof), asOfDate: input.asOfDate, note: input.note || null, createdByUserId: input.actorUserId });
-    await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "opening_balance.created",
-      entityType: isCustomer ? "customer" : "supplier", entityId: input.partyId, metadata: { amountXof: input.amountXof, asOfDate: input.asOfDate } });
-    return { id, amountXof: input.amountXof, remainingXof: input.amountXof };
+    return insertOpeningBalance(tx, input, id);
+  });
+}
+
+/** Écrit le solde d'ouverture et sa trace d'audit (partie existence et doublon vérifiée par l'appelant). */
+async function insertOpeningBalance(tx: CommercialTransaction, input: Context & { partyType: PartyType; partyId: string; amountXof: string; asOfDate: string; note?: string }, id: string) {
+  const isCustomer = input.partyType === "customer";
+  await tx.insert(openingBalance).values({ id, businessId: input.businessId, partyType: input.partyType, customerId: isCustomer ? input.partyId : null,
+    supplierId: isCustomer ? null : input.partyId, amountXof: BigInt(input.amountXof), asOfDate: input.asOfDate, note: input.note || null, createdByUserId: input.actorUserId });
+  await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "opening_balance.created",
+    entityType: isCustomer ? "customer" : "supplier", entityId: input.partyId, metadata: { amountXof: input.amountXof, asOfDate: input.asOfDate } });
+  return { id, amountXof: input.amountXof, remainingXof: input.amountXof };
+}
+
+const customerWithDebtInput = z.object({ ...contextShape, idempotencyKey: idempotencyKeySchema,
+  name: z.string().trim().min(1).max(160), phone: z.string().trim().max(60).optional(), notes: z.string().trim().max(1000).optional(),
+  openingBalance: z.object({ amountXof: xof, asOfDate: isoDate, note: z.string().trim().max(500).optional() }) });
+
+/**
+ * Nouveau client qui doit DÉJÀ de l'argent (dette de départ, docs/stock-initial.md) : la fiche et le solde
+ * d'ouverture sont écrits dans une seule transaction idempotente. Ce n'est jamais une vente à crédit : aucune
+ * vente, aucun chiffre d'affaires ; les remboursements passent par `recordOpeningBalancePayment`.
+ * Exige les deux droits : créer un client et modifier sa situation (le même que pour `createOpeningBalance`).
+ */
+export async function createCustomerWithOpeningBalance(db: CommercialDatabase, raw: unknown, now = new Date()) {
+  const input = customerWithDebtInput.parse(raw);
+  if (BigInt(input.openingBalance.amountXof) <= 0n) throw new CommercialError("Le montant dû doit être supérieur à zéro.");
+  assertReferenceDate(input.openingBalance.asOfDate, now);
+  await requirePermission(db, input, "customer", "create");
+  await requirePermission(db, input, ...createPermission.customer);
+  const customerId = randomUUID();
+  const balanceId = randomUUID();
+  const request = { customer: { name: input.name, phone: input.phone || null, notes: input.notes || null },
+    amountXof: input.openingBalance.amountXof, asOfDate: input.openingBalance.asOfDate, note: input.openingBalance.note || null };
+  return runIdempotent(db, { ...input, operation: "opening_balance.create", request }, async (tx) => {
+    await tx.insert(customer).values({ id: customerId, businessId: input.businessId, name: input.name, phone: input.phone || null, notes: input.notes || null });
+    await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "customer.created",
+      entityType: "customer", entityId: customerId, metadata: { withOpeningBalance: true } });
+    const balance = await insertOpeningBalance(tx, { businessId: input.businessId, actorUserId: input.actorUserId, partyType: "customer", partyId: customerId,
+      amountXof: input.openingBalance.amountXof, asOfDate: input.openingBalance.asOfDate, note: input.openingBalance.note }, balanceId);
+    // Résultat à plat : il est conservé tel quel par runIdempotent pour être rejoué.
+    return { customerId, openingBalanceId: balance.id, amountXof: balance.amountXof, remainingXof: balance.remainingXof };
   });
 }
 

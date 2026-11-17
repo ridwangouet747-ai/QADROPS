@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { manualPaymentMethods } from "@/lib/payment-methods";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQLWrapper } from "drizzle-orm";
 import { z } from "zod";
 import { hasBusinessPermission } from "@/lib/auth/permissions";
@@ -310,7 +311,7 @@ export async function createBusinessCustomer(db: CommercialDatabase, raw: unknow
 }
 
 export async function recordCustomerPayment(db: CommercialDatabase, raw: unknown) {
-  const input = z.object({ ...contextShape, idempotencyKey: idempotencyKeySchema, saleId: z.string().min(1), amountXof: xof, method: z.enum(["cash", "wave", "orange_money", "mtn_momo", "other"]) }).parse(raw);
+  const input = z.object({ ...contextShape, idempotencyKey: idempotencyKeySchema, saleId: z.string().min(1), amountXof: xof, method: z.enum(manualPaymentMethods) }).parse(raw);
   if (BigInt(input.amountXof) <= 0n) throw new CommercialError("Le montant doit être supérieur à zéro.");
   await requirePermission(db, input, "payment", "record");
   return runIdempotent(db, { ...input, operation: "receivable.payment",
@@ -405,7 +406,7 @@ export async function createBusinessSupplier(db: CommercialDatabase, raw: unknow
 
 const purchaseInput = z.object({ ...contextShape, idempotencyKey: idempotencyKeySchema, supplierId: z.string().min(1), reference: z.string().trim().min(1).max(80),
   lines: z.array(z.object({ variantId: z.string().min(1), quantity, unitCostXof: xof })).min(1).max(100),
-  paidXof: xof.default("0"), paymentMethod: z.enum(["cash", "wave", "orange_money", "mtn_momo", "other"]).default("cash"),
+  paidXof: xof.default("0"), paymentMethod: z.enum(manualPaymentMethods).default("cash"),
 });
 
 function roundedLineAmount(unitCost: bigint, qtyMicros: bigint) {
@@ -516,7 +517,7 @@ export async function listBusinessExpensesPage(db: CommercialDatabase, context: 
 export async function createBusinessExpense(db: CommercialDatabase, raw: unknown) {
   const input = z.object({ ...contextShape, idempotencyKey: idempotencyKeySchema, category: z.string().trim().min(1).max(80), description: z.string().trim().min(1).max(240), amountXof: xof,
     // Facultatif pour les anciens clients ; une dépense en espèces sort de la caisse ouverte de la personne qui l'enregistre.
-    paymentMethod: z.enum(["cash", "wave", "orange_money", "mtn_momo", "other"]).optional() }).parse(raw);
+    paymentMethod: z.enum(manualPaymentMethods).optional() }).parse(raw);
   if (BigInt(input.amountXof) <= 0n) throw new CommercialError("Le montant doit être supérieur à zéro.");
   await requirePermission(db, input, "expense", "create");
   const id = randomUUID();

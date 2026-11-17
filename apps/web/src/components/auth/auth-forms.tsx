@@ -28,10 +28,10 @@ function useSecurityCheck() {
 }
 
 
-/** Après connexion : invitation ou page demandée, sinon commerce actif, choix du commerce, création ou plateforme. */
+/** Après connexion : invitation ou page demandée, sinon commerce actif, choix du commerce, ou création. */
 export async function routeAfterSignIn(push: (url: string) => void, next: string | null) {
   const response = await fetch("/api/account/me", { cache: "no-store" });
-  const me = await response.json() as { businesses?: { id: string; disabled: boolean }[]; activeBusinessId?: string | null; isPlatformAdmin?: boolean };
+  const me = await response.json() as { businesses?: { id: string; disabled: boolean }[]; activeBusinessId?: string | null };
   const usable = (me.businesses ?? []).filter((row) => !row.disabled);
   if (next && (next.startsWith("/invitations/") || next.startsWith("/platform"))) return push(next);
   if (me.activeBusinessId) return push(next ?? "/business/dashboard");
@@ -40,7 +40,6 @@ export async function routeAfterSignIn(push: (url: string) => void, next: string
     return push(next ?? "/business/dashboard");
   }
   if (usable.length > 1) return push("/select-business");
-  if (me.isPlatformAdmin) return push("/platform");
   return push("/onboarding");
 }
 

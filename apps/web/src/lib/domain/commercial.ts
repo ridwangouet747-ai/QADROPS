@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { manualPaymentMethods } from "@/lib/payment-methods";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { z } from "zod";
@@ -95,16 +96,22 @@ export async function listProducts(db: CommercialDatabase, input: { businessId: 
     .orderBy(asc(product.name));
 }
 
-const paymentMethods = ["cash", "wave", "orange_money", "mtn_momo", "other"] as const;
 const saleInputSchema = z.object({
   businessId: z.string().min(1), actorUserId: z.string().min(1), idempotencyKey: z.string().min(8).max(128),
   customerId: z.string().min(1).optional(),
   lines: z.array(z.object({ variantId: z.string().min(1), quantity: z.string().min(1).max(32) })).min(1).max(100),
-  payments: z.array(z.object({ method: z.enum(paymentMethods), amountXof: z.string().regex(/^[1-9]\d{0,17}$/) })).max(20).default([]),
+  // amountXof : part affectée à la vente. tenderedXof (espèces seulement) : somme remise par le client, monnaie comprise.
+  payments: z.array(z.object({ method: z.enum(manualPaymentMethods), amountXof: z.string().regex(/^[1-9]\d{0,17}$/), tenderedXof: z.string().regex(/^[1-9]\d{0,17}$/).optional() })
+    .refine((part) => part.tenderedXof === undefined || (part.method === "cash" && BigInt(part.tenderedXof) >= BigInt(part.amountXof)),
+      { message: "La somme remise ne concerne que les espèces et ne peut pas être inférieure à la part payée en espèces." })).max(20).default([]),
 });
 
 type SaleInput = z.infer<typeof saleInputSchema>;
-type SaleResult = { id: string; reference: string; subtotalXof: bigint; totalXof: bigint; paidXof: bigint; dueXof: bigint; replayed: boolean };
+type SaleResult = { id: string; reference: string; subtotalXof: bigint; totalXof: bigint; paidXof: bigint; dueXof: bigint; tenderedXof: bigint; changeXof: bigint; replayed: boolean };
+
+/** Empreinte d'un règlement pour comparer une requête rejouée avec celle déjà enregistrée. */
+const paymentFingerprint = (part: { method: string; amountXof: string | bigint; tenderedXof?: string | bigint | null }) =>
+  `${part.method}:${BigInt(part.amountXof)}:${part.tenderedXof == null ? "" : BigInt(part.tenderedXof)}`;
 
 function parseScaledDecimal(value: string, scale: number): bigint {
   const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(value);
@@ -137,13 +144,15 @@ async function findIdempotentSale(db: CommercialDatabase, input: SaleInput): Pro
   const savedPayments = await db.select().from(payment).where(and(eq(payment.businessId, input.businessId), eq(payment.saleId, existing.id)));
   const normalizedLines = input.lines.map((line) => `${line.variantId}:${parseQuantityMicros(line.quantity)}`).sort();
   const storedLines = savedLines.map((line) => `${line.variantId}:${parseQuantityMicros(line.quantity)}`).sort();
-  const normalizedPayments = input.payments.map((part) => `${part.method}:${BigInt(part.amountXof)}`).sort();
-  const storedPayments = savedPayments.map((part) => `${part.method}:${part.amountXof}`).sort();
+  const normalizedPayments = input.payments.map(paymentFingerprint).sort();
+  const storedPayments = savedPayments.map(paymentFingerprint).sort();
   if (normalizedLines.join("|") !== storedLines.join("|") || normalizedPayments.join("|") !== storedPayments.join("|") || (input.customerId ?? null) !== existing.customerId) {
     throw new CommercialError("Cette clé d’idempotence a déjà été utilisée pour une requête différente.", 409);
   }
   const paidXof = savedPayments.filter((part) => part.status === "confirmed").reduce((total, part) => total + part.amountXof, 0n);
-  return { id: existing.id, reference: existing.reference, subtotalXof: existing.subtotalXof, totalXof: existing.totalXof, paidXof, dueXof: existing.totalXof - paidXof, replayed: true };
+  const cash = savedPayments.filter((part) => part.method === "cash");
+  return { id: existing.id, reference: existing.reference, subtotalXof: existing.subtotalXof, totalXof: existing.totalXof, paidXof, dueXof: existing.totalXof - paidXof,
+    tenderedXof: cash.reduce((sum, part) => sum + (part.tenderedXof ?? part.amountXof), 0n), changeXof: cash.reduce((sum, part) => sum + (part.changeXof ?? 0n), 0n), replayed: true };
 }
 
 export async function createSale(db: CommercialDatabase, rawInput: unknown): Promise<SaleResult> {
@@ -153,8 +162,12 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
   if (replay) return replay;
   const parsedLines = input.lines.map((line) => ({ ...line, quantityMicros: parseQuantityMicros(line.quantity) }));
   if (parsedLines.some((line) => line.quantityMicros <= 0n)) throw new CommercialError("Chaque quantité doit être supérieure à zéro.");
+  // Tout règlement saisi est confirmé : c'est le caissier qui constate la réception (espèces comptées, transfert reçu
+  // sur le téléphone du commerce). La monnaie rendue ne compte jamais dans le chiffre d'affaires ni dans le payé.
   const paymentTotal = input.payments.reduce((total, part) => total + BigInt(part.amountXof), 0n);
-  const confirmedTotal = input.payments.filter((part) => part.method === "cash").reduce((total, part) => total + BigInt(part.amountXof), 0n);
+  const cashParts = input.payments.filter((part) => part.method === "cash");
+  const tenderedTotal = cashParts.reduce((total, part) => total + BigInt(part.tenderedXof ?? part.amountXof), 0n);
+  const changeTotal = cashParts.reduce((total, part) => total + (part.tenderedXof ? BigInt(part.tenderedXof) - BigInt(part.amountXof) : 0n), 0n);
   let result: SaleResult;
 
   try {
@@ -185,7 +198,7 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
       });
       const subtotal = lines.reduce((sum, line) => sum + line.amount, 0n);
       if (paymentTotal > subtotal) throw new CommercialError("Le montant encaissé dépasse le total de la vente.");
-      if (confirmedTotal < subtotal && !input.customerId) throw new CommercialError("Associez un client à toute vente avec un solde restant dû ou un paiement mobile en attente.");
+      if (paymentTotal < subtotal && !input.customerId) throw new CommercialError("Associez un client à toute vente avec un solde restant dû.");
       // Vérifié ici plutôt que laissé à la FK composée : un client d'un autre commerce répond comme un client inconnu, sans 500.
       if (input.customerId) {
         const [buyer] = await tx.select({ id: customer.id }).from(customer)
@@ -209,22 +222,20 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
         onHand: formatQuantity(parseQuantityMicros(line.row.variant.onHand) - line.quantityMicros), stockRevision: line.row.variant.stockRevision + 1n })));
       await tx.insert(stockMovement).values(lines.map((line, index) => ({ id: randomUUID(), businessId: input.businessId, variantId: line.row.variant.id,
         quantityDelta: `-${line.quantity}`, reason: "sale", saleLineId: lineIds[index]!, unitCostXof: line.row.variant.averageCostXof, createdByUserId: input.actorUserId })));
-      // Les espèces vont dans la caisse ouverte du vendeur (s'il en a une) ; le Mobile Money reste en attente, hors caisse.
+      // Les espèces vont dans la caisse ouverte du vendeur (s'il en a une), pour leur part nette ; le Mobile Money reste hors caisse.
       const cashSessionId = input.payments.some((part) => part.method === "cash") ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
       if (input.payments.length) {
         const confirmedAt = new Date();
         await tx.insert(payment).values(input.payments.map((part, index) => ({ id: randomUUID(), businessId: input.businessId, saleId, method: part.method,
-          amountXof: BigInt(part.amountXof), status: part.method === "cash" ? "confirmed" : "pending", recordedByUserId: input.actorUserId,
-          idempotencyKey: `${input.idempotencyKey}:${index}`, confirmedAt: part.method === "cash" ? confirmedAt : null,
+          amountXof: BigInt(part.amountXof), status: "confirmed", recordedByUserId: input.actorUserId,
+          idempotencyKey: `${input.idempotencyKey}:${index}`, confirmedAt,
+          tenderedXof: part.tenderedXof ? BigInt(part.tenderedXof) : null, changeXof: part.tenderedXof ? BigInt(part.tenderedXof) - BigInt(part.amountXof) : null,
           cashSessionId: part.method === "cash" ? cashSessionId : null })));
       }
       await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
         eventType: "sale.created", entityType: "sale", entityId: saleId, metadata: { lineCount: lines.length, paymentPartCount: input.payments.length } });
       // Boîte d'envoi : écrite dans la transaction de la vente, envoyée plus tard ; aucun montant n'y figure.
       await enqueueNotification(tx, { businessId: input.businessId, eventType: "sale.created", payload: { saleId, actorUserId: input.actorUserId }, dedupKey: `sale.created:${saleId}` });
-      if (input.payments.some((part) => part.method !== "cash")) {
-        await enqueueNotification(tx, { businessId: input.businessId, eventType: "payment.pending", payload: { saleId, actorUserId: input.actorUserId }, dedupKey: `payment.pending:${saleId}` });
-      }
       for (const line of lines) {
         const before = parseQuantityMicros(line.row.variant.onHand);
         const after = before - line.quantityMicros;
@@ -233,8 +244,8 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
         if (crossed) await enqueueNotification(tx, { businessId: input.businessId, eventType: crossed,
           payload: { variantId: line.row.variant.id, productName: line.row.productName, actorUserId: input.actorUserId }, dedupKey: `${crossed}:${line.row.variant.id}:${saleId}` });
       }
-      return { id: saleId, reference, subtotalXof: subtotal, totalXof: subtotal, paidXof: confirmedTotal,
-        dueXof: subtotal - confirmedTotal, replayed: false };
+      return { id: saleId, reference, subtotalXof: subtotal, totalXof: subtotal, paidXof: paymentTotal,
+        dueXof: subtotal - paymentTotal, tenderedXof: tenderedTotal, changeXof: changeTotal, replayed: false };
     });
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {

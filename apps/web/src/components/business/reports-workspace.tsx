@@ -1,5 +1,6 @@
 "use client";
 
+import { manualPaymentMethods } from "@/lib/payment-methods";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ type Report = {
   trend: { date: string; revenueXof: string; saleCount: string; collectionsXof: string; expensesXof: string }[];
 };
 
-const methodKeys = new Set(["cash", "wave", "orange_money", "mtn_momo", "other"]);
+const methodKeys = new Set<string>(manualPaymentMethods);
 const reasonKeys = new Set(["sale", "purchase", "inventory_adjustment", "manual_adjustment", "return", "opening_stock"]);
 
 /* Navigation d'une période à l'autre : calcul de dates civiles (affichage seulement, le serveur fixe les bornes). */

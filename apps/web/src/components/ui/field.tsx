@@ -19,7 +19,8 @@ export function Field({ label, hint, error, children, className }: {
   const errorId = error ? `${id}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   return (
-    <div className={cn("grid gap-1.5", className)}>
+    // content-start : dans une rangée de deux champs, celui qui n'a pas d'aide ne s'étire pas (le contrôle garde sa hauteur).
+    <div className={cn("grid content-start gap-1.5", className)}>
       <label htmlFor={id} className="text-sm font-semibold text-ink">{label}</label>
       {children({ id, "aria-describedby": describedBy, "aria-invalid": error ? true : undefined })}
       {hint && <p id={hintId} className="m-0 text-sm text-fg-muted">{hint}</p>}

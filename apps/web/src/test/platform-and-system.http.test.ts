@@ -35,6 +35,7 @@ vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 describe("mission 11, phase 7 : console plateforme et routes techniques", () => {
   let h: HttpHarness;
   let merchant: Actor; let newcomer: Actor; let admin: Actor;
+  let staff: Actor[] = [];
   let business = "";
   const ID = "00000000-0000-4000-8000-000000000000";
 
@@ -74,17 +75,20 @@ describe("mission 11, phase 7 : console plateforme et routes techniques", () => 
     merchant = await h.signUp("Commerçant Omega", "owner@omega.test");
     business = await h.createBusiness(merchant, "Commerce Omega");
     newcomer = await h.signUp("Sans commerce", "nouveau@omega.test");
+    // Tous les rôles d’une boutique, administrateur de boutique compris : aucun n’est Super Admin.
+    staff = [];
+    for (const role of ["admin", "cashier", "stock_manager", "accountant", "member"] as const) staff.push(await h.addMember(merchant, `Membre ${role}`, `${role}@omega.test`, role));
     admin = await h.signUp("Super Admin", "admin@qadr.test");
     await h.grantPlatformAdmin(admin);
   });
 
   afterAll(async () => { await h?.close(); });
 
-  it("un commerçant ou un compte sans commerce reçoit 404 sur toute la console, sans aucune écriture", async () => {
+  it("propriétaire, administrateur de boutique, employés ou compte sans commerce reçoivent 404 sur toute la console, sans aucune écriture", async () => {
     const counts = async () => Promise.all(["promotion_code", "subscription_plan", "business_subscription", "notification_campaign", "notification_template"]
       .map((table) => h.count(`select count(*)::text n from ${table}`)));
     const before = await counts();
-    for (const actor of [merchant, newcomer]) {
+    for (const actor of [merchant, newcomer, ...staff]) {
       for (const [label, pending] of platformCalls(actor)) {
         const result = await pending;
         expect(result.status, `${actor.email} ${label} : ${result.text}`).toBe(404);

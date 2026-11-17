@@ -29,7 +29,7 @@ describe("ReceiptDocument : modèle unique du ticket", () => {
     expect(document).toMatchObject({ version: 1, language: "fr", direction: "ltr", paperWidthMm: 80 });
     expect(document.business).toEqual({ name: "Koné Matériaux", address: "Treichville, Abidjan", phone: "+225 07 00 00 00", email: "contact@kone.example",
       footer: "Merci de votre visite", logo: "data:image/png;base64,AAAA" });
-    expect(document.totals).toEqual({ subtotalXof: "23000", discountXof: "1500", totalXof: "21500", paidXof: "15000", dueXof: "6500" });
+    expect(document.totals).toEqual({ subtotalXof: "23000", discountXof: "1500", totalXof: "21500", paidXof: "15000", dueXof: "6500", tenderedXof: null, changeXof: null });
     expect(document.lines[0]).toMatchObject({ label: "Ciment Dangote 50 kg", variant: null, quantityText: "2", unitPriceXof: "6500", totalXof: "13000", lineDiscountXof: null });
     expect(document.lines[1]).toMatchObject({ label: expect.stringContaining("(3 m)"), quantityText: "2,5", lineDiscountXof: "500" });
     expect(document.payments.map((payment) => [payment.methodLabel, payment.statusLabel])).toEqual([["Espèces", null], ["Wave", "en attente"], ["Orange Money", "échoué"]]);
@@ -135,5 +135,36 @@ describe("mise en page partagée : texte 58/80 mm et arabe", () => {
     const reference = Buffer.from("V-MH2K-1A2B3C4D");
     expect(Buffer.from(ticket.bytes).indexOf(reference)).toBeGreaterThan(0);
     expect(Buffer.from(ticket.bytes).indexOf(Buffer.from(`?${"V-MH2K"}`))).toBe(-1);
+  });
+});
+
+describe("reçu d'une vente mixte avec monnaie rendue (exemple du mandat)", () => {
+  const mixed: ReceiptSource = {
+    ...source,
+    sale: { id: "vente-2", reference: "V-MIXTE-0001", status: "completed", occurredAt: "2026-11-17T10:00:00Z", totalXof: "2000" },
+    payments: [
+      { method: "wave", amountXof: "1200", status: "confirmed" },
+      { method: "cash", amountXof: "800", status: "confirmed", tenderedXof: "1000", changeXof: "200" },
+    ],
+  };
+
+  it("total 2 000, Wave 1 200, espèces 800 affectées, 1 000 remises, 200 rendues, rien de dû", () => {
+    const document = buildReceiptDocument(mixed);
+    expect(document.totals).toMatchObject({ totalXof: "2000", paidXof: "2000", dueXof: null, tenderedXof: "1000", changeXof: "200" });
+    expect(document.settlement).toBe("Payé");
+    const joined = encodeTicketText(layoutReceipt(document), resolveProfile({ paperWidthMm: 58 })).preview.join("\n");
+    expect(joined).toMatch(/Wave\s+1 200 F/);
+    expect(joined).toMatch(/Espèces\s+800 F/);
+    expect(joined).toMatch(/Espèces remises\s+1 000 F/);
+    expect(joined).toMatch(/Monnaie rendue\s+200 F/);
+    expect(joined).toContain("Statut : Payé");
+    // La somme remise n'est jamais présentée comme le total de la vente.
+    expect(joined).toMatch(/TOTAL\s+2 000 F/);
+  });
+
+  it("statut partiellement payé puis à crédit", () => {
+    expect(buildReceiptDocument({ ...mixed, payments: [{ method: "cash", amountXof: "500", status: "confirmed" }] }).settlement).toBe("Partiellement payé");
+    expect(buildReceiptDocument({ ...mixed, payments: [] }).settlement).toBe("À crédit");
+    expect(buildReceiptDocument({ ...mixed, payments: [{ method: "moov_money", amountXof: "2000", status: "confirmed" }] }, { language: "en" }).payments[0]!.methodLabel).toBe("Moov Money");
   });
 });

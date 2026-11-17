@@ -65,8 +65,14 @@ export function layoutReceipt(document: ReceiptDocument): TicketLayout {
   pair(labels.total, amount(totals.totalXof), { bold: true, size: "tall" });
   for (const payment of document.payments) pair(payment.statusLabel ? `${payment.methodLabel} (${payment.statusLabel})` : payment.methodLabel, amount(payment.amountXof));
   // Total encaissé seulement s'il apporte une information : plusieurs paiements ou un reste à payer.
-  if (document.payments.length > 1 || totals.dueXof) pair(labels.paid, amount(totals.paidXof));
+  if (document.payments.length > 1 || totals.dueXof || totals.changeXof) pair(labels.paid, amount(totals.paidXof));
+  if (totals.tenderedXof && totals.changeXof) {
+    pair(labels.tendered, amount(totals.tenderedXof));
+    pair(labels.change, amount(totals.changeXof), { bold: true });
+  }
   if (totals.dueXof) pair(labels.due, amount(totals.dueXof), { bold: true });
+  // Statut en ligne de texte (pas une paire) : c'est un mot traduit, pas un montant à isoler.
+  if (document.settlement) text(`${labels.settlement} : ${document.settlement}`, "center");
   if (business.footer) { blocks.push({ type: "feed", lines: 1 }); text(business.footer, "center"); }
   blocks.push({ type: "feed", lines: 2 }, { type: "cut" });
   return { language: document.language, direction: document.direction, logo: business.logo, blocks };

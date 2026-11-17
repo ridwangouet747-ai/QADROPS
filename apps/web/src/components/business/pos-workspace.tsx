@@ -18,21 +18,24 @@ import type { MessageKey } from "@/lib/i18n/translate";
 import { printThroughAgent, readPairing } from "@/lib/printing/agent-client";
 import { track } from "@/lib/analytics/client";
 import { countBucket } from "@/lib/analytics/events";
+import { manualPaymentMethods, type ManualPaymentMethod } from "@/lib/payment-methods";
+import { computeSettlement } from "@/lib/pos/settlement";
 
 type Product = { id: string; name: string; categoryId: string | null; categoryName: string | null; baseUnit: string; variantId: string; variantLabel: string; sku: string | null; salePriceXof: string; onHand: string };
 type Customer = { id: string; name: string; phone: string | null; balanceXof: string };
 type CartLine = { product: Product; quantity: string };
-type PayMethod = "cash" | "wave" | "orange_money" | "mtn_momo" | "other";
-type PaymentPart = { method: PayMethod; amountXof: string };
-type SaleResult = { id: string; reference: string; totalXof: string; paidXof: string; dueXof: string };
-const methods: PayMethod[] = ["cash", "wave", "orange_money", "mtn_momo", "other"];
+type PayMethod = ManualPaymentMethod;
+// touched : le caissier a saisi le montant ; sinon une ligne espèces suit le montant restant dû.
+type PaymentPart = { method: PayMethod; amountXof: string; touched: boolean };
+type SaleResult = { id: string; reference: string; totalXof: string; paidXof: string; dueXof: string; tenderedXof?: string; changeXof?: string };
+const methods: readonly PayMethod[] = manualPaymentMethods;
+const freshPayments = (): PaymentPart[] => [{ method: "cash", amountXof: "", touched: false }];
 
 /** Aperçu du montant d'une ligne. Le total de référence reste celui calculé par le serveur. */
 function lineTotal(price: string, quantity: string) {
   const micros = parseQuantityInput(quantity) ?? 0n;
   return (BigInt(price) * micros + MICROS / 2n) / MICROS;
 }
-const wholeAmount = (value: string) => (/^[0-9]+$/.test(value) ? BigInt(value) : 0n);
 /** Variante affichée seulement si elle apporte une information (ni « Standard », ni l'unité répétée). */
 const variantName = (item: Product) => (item.variantLabel === "Standard" || item.variantLabel.toLocaleLowerCase() === item.baseUnit.toLocaleLowerCase() ? "" : item.variantLabel);
 const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase();
@@ -47,7 +50,7 @@ export function PosWorkspace() {
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [customerId, setCustomerId] = useState("");
-  const [payments, setPayments] = useState<PaymentPart[]>([{ method: "cash", amountXof: "" }]);
+  const [payments, setPayments] = useState<PaymentPart[]>(freshPayments);
   const [pending, setPending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -96,11 +99,10 @@ export function PosWorkspace() {
       && (parseQuantityInput(item.onHand) ?? 0n) > 0n);
   }, [products, categoryId, search]);
   const total = cart.reduce((sum, line) => sum + lineTotal(line.product.salePriceXof, line.quantity), 0n);
-  const paymentsTotal = payments.reduce((sum, part) => sum + wholeAmount(part.amountXof), 0n);
-  const confirmedCash = payments.filter((part) => part.method === "cash").reduce((sum, part) => sum + wholeAmount(part.amountXof), 0n);
-  const mobilePartExists = payments.some((part) => part.method !== "cash" && part.amountXof !== "");
-  const customerRequired = confirmedCash < total || mobilePartExists;
-  const balance = total > confirmedCash ? total - confirmedCash : 0n;
+  // Affichage seulement : le serveur recalcule et contrôle tout (part affectée, monnaie, reste dû).
+  const settlement = computeSettlement(total, payments);
+  const declaredPartExists = payments.some((part) => part.method !== "cash" && part.amountXof !== "");
+  const customerRequired = settlement.dueXof > 0n;
   const itemCount = cart.length;
   const quantityInCart = (variantId: string) => cart.find((line) => line.product.variantId === variantId)?.quantity;
 
@@ -122,11 +124,11 @@ export function PosWorkspace() {
       if (!cart.length) throw new Error(t("pos.emptyCartError"));
       const invalid = cart.find((line) => !parseQuantityInput(line.quantity));
       if (invalid) throw new Error(t("pos.invalidQty", { product: invalid.product.name }));
-      if (paymentsTotal > total) throw new Error(t("pos.overpaid"));
+      if (settlement.overpaid) throw new Error(t("pos.overpaid"));
       if (customerRequired && !customerId) throw new Error(t("pos.customerNeeded"));
       const salePayload = { customerId: customerId || undefined,
         lines: cart.map((line) => ({ variantId: line.product.variantId, quantity: toApiQuantity(line.quantity) })),
-        payments: payments.filter((part) => /^[1-9]\d*$/.test(part.amountXof)),
+        payments: settlement.payload,
       };
       // Une même vente répétée (double clic, réseau lent) réutilise la même clé d'idempotence.
       const fingerprint = JSON.stringify(salePayload);
@@ -142,7 +144,7 @@ export function PosWorkspace() {
       track("sale_recorded", { line_count: countBucket(salePayload.lines.length), has_customer: Boolean(salePayload.customerId),
         payment_mix: body.sale.dueXof !== "0" && !salePayload.payments.length ? "credit" : methods.size > 1 ? "mixed" : methods.has("cash") ? "cash" : "mobile" });
       // Impression automatique : seulement après la validation du serveur, en arrière-plan ; une panne ne touche pas la vente.
-      if (printSetup?.enabled && printSetup.autoPrint && readPairing()) void printReceipt(body.sale.id); setCart([]); setCustomerId(""); setPayments([{ method: "cash", amountXof: "" }]); setMobileView("catalog");
+      if (printSetup?.enabled && printSetup.autoPrint && readPairing()) void printReceipt(body.sale.id); setCart([]); setCustomerId(""); setPayments(freshPayments()); setMobileView("catalog");
       const refreshed = await fetch("/api/business/products", { cache: "no-store" }).then((result) => result.json()) as { products?: Product[] };
       if (refreshed.products) setProducts(refreshed.products);
     } catch (caught) { track("sale_failed", { reason: caught instanceof TypeError ? "network" : "other" }); 
@@ -169,6 +171,7 @@ export function PosWorkspace() {
               <p className="m-0 text-sm text-white/80">{t("pos.successTitle")}</p>
               <p className="numeric m-0 text-start text-xl font-bold rtl:text-end"># {success.reference}</p>
               <p className="m-0 text-sm text-white/85">{t("pos.successBody", { total: money(success.totalXof), paid: money(success.paidXof), due: money(success.dueXof) })}</p>
+              {success.changeXof && success.changeXof !== "0" && <p className="m-0 text-sm font-semibold text-white">{t("pos.successChange", { cash: money(success.tenderedXof ?? "0"), change: money(success.changeXof) })}</p>}
               <p className="m-0 mt-1 text-xs text-white/70">{t("pos.stockUpdated")}</p>
               {printState && <p className="m-0 mt-1 text-xs font-semibold text-white" role="status">{printState === "printing" ? t("pos.printing") : printState}</p>}
             </div>
@@ -284,22 +287,35 @@ export function PosWorkspace() {
                     ))}
                   </div>
                   <div className="flex items-end gap-2">
-                    <Field className="min-w-0 flex-1" label={part.method === "cash" ? t("pos.amountReceived") : t("pos.amountPending")}>
-                      {(props) => <Input {...props} inputMode="numeric" pattern="[0-9]*" value={part.amountXof} placeholder="0" className="numeric text-end" onChange={(event) => changePayment(index, { amountXof: event.target.value })} />}
+                    <Field className="min-w-0 flex-1" label={part.method === "cash" ? t("pos.amountReceived") : t("pos.amountDeclared")}>
+                      {(props) => <Input {...props} inputMode="numeric" pattern="[0-9]*" value={part.touched ? part.amountXof : (settlement.rows[index]?.value ? String(settlement.rows[index]!.value) : "")} placeholder="0" className="numeric text-end"
+                        onChange={(event) => changePayment(index, { amountXof: event.target.value.replace(/\D/g, ""), touched: true })}
+                        onFocus={(event) => event.currentTarget.select()} />}
                     </Field>
-                    {total > 0n && <Button variant="secondary" onClick={() => changePayment(index, { amountXof: String(total - (paymentsTotal - wholeAmount(part.amountXof)) > 0n ? total - (paymentsTotal - wholeAmount(part.amountXof)) : 0n) })}>{t("pos.exactAmount")}</Button>}
+                    {total > 0n && <Button variant="secondary" onClick={() => {
+                      // Espèces : la ligne reprend le suivi automatique du reste dû. Autre moyen : le reste dû après les autres lignes.
+                      if (part.method === "cash") return changePayment(index, { amountXof: "", touched: false });
+                      const others = settlement.rows.reduce((sum, row, i) => i === index ? sum : sum + row.applied, 0n);
+                      changePayment(index, { amountXof: String(total > others ? total - others : 0n), touched: true });
+                    }}>{t("pos.exactAmount")}</Button>}
                     {payments.length > 1 && <button type="button" onClick={() => setPayments((current) => current.filter((_, i) => i !== index))} aria-label={t("pos.removeMethod")} className="grid size-12 shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-surface text-fg-subtle hover:text-danger"><Icon name="trash" className="size-4" /></button>}
                   </div>
                 </div>
               ))}
-              <Button variant="ghost" className="justify-self-start" onClick={() => setPayments((current) => [...current, { method: "wave", amountXof: "" }])} icon={<Icon name="plus" className="size-4" />}>{t("pos.addMethod")}</Button>
-              {mobilePartExists && <p className="m-0 rounded-[12px] bg-warn-soft p-2.5 text-xs text-warn">{t("pos.pendingNote")}</p>}
+              <Button variant="ghost" className="justify-self-start" onClick={() => setPayments((current) => [...current, { method: "wave", amountXof: "", touched: false }])} icon={<Icon name="plus" className="size-4" />}>{t("pos.addMethod")}</Button>
+              {declaredPartExists && <p className="m-0 rounded-[12px] bg-brand-soft p-2.5 text-xs text-brand-strong">{t("pos.manualNote")}</p>}
+              {settlement.changeXof > 0n && (
+                <p role="status" className="m-0 flex items-baseline justify-between gap-3 rounded-[12px] bg-ok-soft p-3 text-ok">
+                  <span className="text-sm font-semibold">{t("pos.changeDue")}</span>
+                  <strong className="numeric text-xl">{money(settlement.changeXof)}</strong>
+                </p>
+              )}
             </fieldset>
 
             {/* Totaux en panneau bleu royal, comme le détail de la référence */}
             <div className="grid gap-3 rounded-[20px] bg-brand-glow p-4 text-white shadow-raised">
               <div className="grid gap-1.5 sm:grid-cols-3 sm:gap-2">
-                {[["pos.cashConfirmed", confirmedCash], ["pos.entered", paymentsTotal], ["pos.balanceDue", balance]].map(([key, value]) => (
+                {[["pos.paid", settlement.paidXof], ["pos.cashGiven", settlement.cashGivenXof], ["pos.balanceDue", settlement.dueXof]].map(([key, value]) => (
                   <div key={String(key)} className="flex min-w-0 items-center justify-between gap-2 rounded-[12px] border border-white/20 bg-white/12 px-3 py-1.5 sm:block sm:p-2">
                     <p className="m-0 text-[0.72rem] text-white/80 sm:truncate sm:text-[0.68rem]">{t(key as "pos.total")}</p>
                     <p className="numeric m-0 text-start text-[0.85rem] font-bold sm:mt-0.5 sm:truncate sm:text-[0.82rem] rtl:text-end">{money(value as bigint)}</p>
@@ -310,7 +326,7 @@ export function PosWorkspace() {
                 <span className="text-sm text-white/85">{t("pos.total")}</span>
                 <strong className="numeric text-[1.9rem] leading-none font-bold tracking-[-0.03em]">{money(total)}</strong>
               </div>
-              <button disabled={pending || !cart.length || paymentsTotal > total}
+              <button disabled={pending || !cart.length || settlement.overpaid}
                 className="inline-flex min-h-13 w-full cursor-pointer items-center justify-center gap-2 rounded-full border-0 bg-white px-5 text-base font-bold text-brand-strong shadow-card hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-60">
                 {pending ? t("pos.submitting") : <><Icon name="check" />{t("pos.submit", { amount: money(total) })}</>}
               </button>

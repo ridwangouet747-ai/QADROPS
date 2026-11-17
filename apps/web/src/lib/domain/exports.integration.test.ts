@@ -134,10 +134,11 @@ describe("mission 11, phase 4 : exports XLSX et PDF sur PGlite (deux commerces)"
     expect(sum(sheets.suppliers!.rows.map((row) => row.totalDueXof))).toBe(report.supplierDebt!.totalXof);
     expect(sum(sheets.expenses!.rows.map((row) => row.amountXof))).toBe(report.expenses.totalXof);
     expect(sum(sheets.purchases!.rows.filter((row) => row.status === "received").map((row) => row.totalXof))).toBe(report.purchases.totalXof);
-    // Valeurs attendues, calculées à la main : 8 000 + 2 000 de ventes ; 6 500 encaissés ; dettes 3 000 + 500 + 6 000.
+    // Valeurs attendues, calculées à la main : 8 000 + 2 000 de ventes ; dettes 500 + 6 000.
     expect(report.sales.revenueXof).toBe("10000");
-    expect(report.collections.totalXof).toBe("6500");
-    expect(sheets.receivables!.rows).toEqual([{ name: "Client Awa", phone: "+225 07 00 00 00", unpaidSales: "2", salesDueXof: "3500", openingDueXof: "6000", totalDueXof: "9500" }]);
+    // Depuis 0027, le Wave de 3 000 déclaré à la vente est confirmé à la saisie : 5 000 + 3 000 + 1 500 encaissés, vente de 8 000 soldée.
+    expect(report.collections.totalXof).toBe("9500");
+    expect(sheets.receivables!.rows).toEqual([{ name: "Client Awa", phone: "+225 07 00 00 00", unpaidSales: "1", salesDueXof: "500", openingDueXof: "6000", totalDueXof: "6500" }]);
     expect(sheets.suppliers!.rows[0]).toMatchObject({ name: "Grossiste Awa", purchasedXof: "28000", purchasesDueXof: "18000", openingDueXof: "5000", totalDueXof: "23000" });
     expect(sheets.purchases!.rows[0]).toMatchObject({ reference: "ACH-1", totalXof: "28000", paidXof: "10000", dueXof: "18000" });
     // Les sorties de stock restent des nombres négatifs exacts.

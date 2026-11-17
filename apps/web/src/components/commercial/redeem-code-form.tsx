@@ -6,13 +6,13 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { TurnstileWidget, turnstileSiteKey } from "@/components/auth/turnstile-widget";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button, buttonClasses } from "@/components/ui/button";
-import { Alert, Badge } from "@/components/ui/feedback";
+import { Alert } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { turnstileHeader } from "@/lib/auth/turnstile";
 import { whatsappHref } from "@/lib/commercial/mode";
 import { intlLocale } from "@/lib/i18n/config";
-import { finalizeCode, isPlausibleCode, normalizeCodeInput, redeemPromotionCode } from "@/lib/subscription/redeem-outcome";
+import { finalizeCode, isPlausibleCode, normalizeCommercialCodeInput, redeemPromotionCode } from "@/lib/subscription/redeem-outcome";
 
 /*
  * Page /redeem-code (2026-11-16, docs/commercial-access-codes.md) : « Vous avez un code Qadr Agency ? ».
@@ -92,7 +92,7 @@ export function RedeemCodeForm() {
         </div>
       )}>
       {renewed && checked ? (
-        <div className="grid gap-4" role="status" aria-live="polite">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4" role="status" aria-live="polite">
           <div className="flex items-center gap-3">
             <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-gradient text-white shadow-brand"><Icon name="check" className="size-6" /></span>
             <p className="m-0 text-lg font-bold text-ink">{t("access.redeem.renewedTitle")}</p>
@@ -101,8 +101,8 @@ export function RedeemCodeForm() {
           <Link href="/business/dashboard" className={buttonClasses({ variant: "primary", size: "lg", block: true, className: "no-underline" })}>{t("access.redeem.openSpace")}</Link>
         </div>
       ) : checked ? (
-        <div className="grid gap-4" aria-live="polite">
-          <div className="flex items-center gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4" aria-live="polite">
+          <div className="flex min-w-0 items-center gap-3">
             <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-full bg-brand-soft text-brand"><Icon name="shield" className="size-5" /></span>
             <div className="min-w-0">
               <p className="m-0 text-lg font-bold text-ink">{t("access.redeem.validTitle")}</p>
@@ -116,9 +116,9 @@ export function RedeemCodeForm() {
               [t("access.redeem.duration"), span(checked.duration)],
               [t("access.redeem.deadline"), date(checked.activationDeadline)],
             ].map(([label, value]) => (
-              <div key={label} className="flex items-baseline justify-between gap-3 rounded-[14px] bg-paper px-3.5 py-2.5">
-                <dt className="text-sm text-fg-muted">{label}</dt>
-                <dd dir="auto" className="m-0 text-end text-sm font-bold text-ink">{value}</dd>
+              <div key={label} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-[14px] bg-paper px-3.5 py-2.5">
+                <dt className="min-w-0 text-sm text-fg-muted">{label}</dt>
+                <dd dir="auto" className="m-0 min-w-0 break-words text-end text-sm font-bold text-ink">{value}</dd>
               </div>
             ))}
           </dl>
@@ -138,12 +138,15 @@ export function RedeemCodeForm() {
           <Button variant="secondary" size="lg" block disabled={busy} onClick={restart}>{t("access.redeem.another")}</Button>
         </div>
       ) : (
-        <form method="post" noValidate onSubmit={(event) => void check(event)} className="grid gap-4">
+        <form method="post" noValidate onSubmit={(event) => void check(event)} className="grid grid-cols-[minmax(0,1fr)] gap-4">
           {error && <Alert tone={error === "network" || error === "unavailable" || error === "rate_limited" ? "warning" : "danger"}>{errorText}</Alert>}
+          {/* Taille et marge du champ en style : `cn` ne départage pas deux classes concurrentes (px-4 et text-base de base).
+              Les 24 caractères du code tiennent ainsi en entier dans le champ dès 320 px. */}
           <Field label={t("access.redeem.label")} hint={t("access.redeem.hint")}>
-            {(props) => <Input {...props} autoFocus value={code} onChange={(event) => { setCode(normalizeCodeInput(event.target.value)); if (error) setError(null); }}
-              dir="ltr" inputMode="text" autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={48}
-              placeholder="QADR-XXXX-XXXX-XXXX-XXXX" className="text-center font-mono text-base tracking-[0.08em] sm:text-lg" aria-invalid={error ? true : undefined} />}
+            {(props) => <Input {...props} autoFocus value={code} onChange={(event) => { setCode(normalizeCommercialCodeInput(event.target.value)); if (error) setError(null); }}
+              dir="ltr" inputMode="text" autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={80}
+              placeholder="QADR-XXXX-XXXX-XXXX-XXXX" className="min-w-0 text-center font-mono tracking-[0.04em] sm:tracking-[0.08em]"
+              style={{ fontSize: "clamp(0.85rem, 3.6vw, 1.125rem)", paddingInline: "0.5rem" }} aria-invalid={error ? true : undefined} />}
           </Field>
           <TurnstileWidget action="access-code" resetKey={security.resetKey} onToken={(token) => setSecurity((current) => ({ ...current, token }))} />
           <Button type="submit" size="lg" block loading={busy} disabled={code.length < 3 || (Boolean(turnstileSiteKey) && !security.token)} icon={<Icon name="shield" />}>
@@ -157,7 +160,9 @@ export function RedeemCodeForm() {
               </a>
             ) : <p className="m-0 text-xs text-fg-subtle">{t("access.redeem.noContact")}</p>}
           </div>
-          <Badge tone="neutral" className="justify-self-center"><Icon name="shield" className="size-3.5" />{t("subscription.manual.safety")}</Badge>
+          <p className="m-0 flex items-start justify-center gap-1.5 text-center text-xs text-fg-muted">
+            <Icon name="shield" className="mt-0.5 size-3.5 shrink-0" /><span className="min-w-0">{t("subscription.manual.safety")}</span>
+          </p>
         </form>
       )}
     </AuthShell>

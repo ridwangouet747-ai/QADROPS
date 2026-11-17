@@ -13,7 +13,7 @@ import { formatDateTime, formatTime, formatXof } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
-type Breakdown = Record<"openingFloatXof" | "cashSalesXof" | "receivableCashXof" | "openingDebtCashXof" | "movementsInXof" | "expensesCashXof" | "supplierCashXof" | "refundsCashXof" | "movementsOutXof" | "inflowsXof" | "outflowsXof" | "expectedXof", string>;
+type Breakdown = Record<"openingFloatXof" | "cashSalesXof" | "receivableCashXof" | "openingDebtCashXof" | "movementsInXof" | "expensesCashXof" | "supplierCashXof" | "refundsCashXof" | "movementsOutXof" | "inflowsXof" | "outflowsXof" | "expectedXof", string> & { cashTenderedXof?: string; changeGivenXof?: string };
 type Session = {
   id: string; userId: string; userName: string; status: "open" | "closed" | "validated"; openingFloatXof: string; openedAt: string; closedAt: string | null;
   countedCashXof: string | null; expectedCashXof: string | null; differenceXof: string | null; closingNote: string | null; validationNote: string | null; breakdown: Breakdown | null;
@@ -169,7 +169,12 @@ function CurrentSession({ session, onRefresh, onMovement, onClose }: { session: 
                 <dt className="text-night-fg">{t(line.label)}</dt>
                 <dd className="numeric m-0 font-semibold text-white">{line.sign}{line.sign && " "}{formatXof(breakdown[line.key], locale)}</dd>
               </div>
-            ))}
+            )).flatMap((row) => row.key === "cashSalesXof" && breakdown.changeGivenXof && breakdown.changeGivenXof !== "0" ? [row,
+              // Billets reçus puis monnaie rendue : leur différence est la ligne au-dessus, seule comptée dans les espèces attendues.
+              <div key="tender" className="grid gap-0.5 ps-3 text-xs text-night-fg">
+                <div className="flex items-baseline justify-between gap-3"><dt>{t("cash.current.cashTendered")}</dt><dd className="numeric m-0">{formatXof(breakdown.cashTenderedXof, locale)}</dd></div>
+                <div className="flex items-baseline justify-between gap-3"><dt>{t("cash.current.changeGiven")}</dt><dd className="numeric m-0">− {formatXof(breakdown.changeGivenXof, locale)}</dd></div>
+              </div>] : [row])}
           </dl>
         </details>
       )}

@@ -30,13 +30,15 @@ const localeOverrides: Partial<Record<Locale, Partial<Record<InterfaceScreenKey,
 export type InterfaceScreenKey = keyof typeof screenSizes;
 export const interfaceScreenKeys = Object.keys(screenSizes) as InterfaceScreenKey[];
 
+/* Les six écrans de bureau sont présentés en pages superposées, sur toute la largeur de leur colonne. */
+const deckSize = "(min-width: 1280px) 760px, (min-width: 1024px) 62vw, 100vw";
 const sizes: Record<InterfaceScreenKey, string> = {
-  dashboard: "(min-width: 1024px) 800px, 100vw",
-  pos: "(min-width: 1024px) 380px, (min-width: 640px) 50vw, 100vw",
-  products: "(min-width: 1024px) 380px, (min-width: 640px) 50vw, 100vw",
-  stock: "(min-width: 1024px) 380px, (min-width: 640px) 50vw, 100vw",
-  customers: "(min-width: 1024px) 380px, (min-width: 640px) 50vw, 100vw",
-  reports: "(min-width: 1024px) 380px, (min-width: 640px) 50vw, 100vw",
+  dashboard: deckSize,
+  pos: deckSize,
+  products: deckSize,
+  stock: deckSize,
+  customers: deckSize,
+  reports: deckSize,
   mobile: "272px",
   receipt: "256px",
 };

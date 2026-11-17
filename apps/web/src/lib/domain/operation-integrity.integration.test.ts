@@ -10,7 +10,7 @@ import {
   createReceivedPurchase, listBusinessProducts, recordCustomerPayment, updateBusinessProduct, updateBusinessSettings,
 } from "./business-data";
 import { startInventory } from "./inventory";
-import { createOpeningBalance, postStockOpening } from "./opening";
+import { createCustomerWithOpeningBalance, createOpeningBalance, postStockOpening } from "./opening";
 import { openCashSession } from "./cash-session";
 import { createCatalogImport } from "./imports";
 import { addPrintDevice, archivePrintDevice, createPrintJob, reportPrintResult, updatePrintDevice, updatePrinterSettings } from "./printing";
@@ -149,6 +149,7 @@ describe("operation integrity: idempotent writes and blocked businesses (PGlite)
       ["createOpeningBalance (client)", () => createOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-ob-customer-1", partyType: "customer", partyId: customerA, amountXof: "1000", asOfDate: "2026-01-01" })],
       ["openCashSession", () => openCashSession(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-cash-open-1", openingFloatXof: "1000" })],
       ["createOpeningBalance (fournisseur)", () => createOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-ob-supplier-1", partyType: "supplier", partyId: supplierA, amountXof: "1000", asOfDate: "2026-01-01" })],
+      ["createCustomerWithOpeningBalance", () => createCustomerWithOpeningBalance(db, { businessId: businessA, actorUserId: ownerA, idempotencyKey: "blocked-customer-debt-1", name: "Bloqué", openingBalance: { amountXof: "1000", asOfDate: "2026-01-01" } })],
       ["createCatalogImport", () => createCatalogImport(db, { businessId: businessA, actorUserId: ownerA, fileName: "bloque.csv", bytes: Buffer.from("Nom;Prix\nBloqué;100\n") })],
       ["createPrintJob (test)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "test" })],
       ["createPrintJob (ticket de vente)", () => createPrintJob(db, { businessId: businessA, actorUserId: ownerA }, { deviceId: printDeviceA, kind: "receipt", saleId: printSaleA })],

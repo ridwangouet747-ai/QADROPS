@@ -1,7 +1,9 @@
 "use client";
 
+import { manualPaymentMethods } from "@/lib/payment-methods";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -23,7 +25,7 @@ type Tab = "stock" | "customers" | "suppliers";
 type Candidate = { variantId: string; name: string; variantLabel: string; sku: string | null; baseUnit: string };
 type DraftLine = Candidate & { quantity: string; unitCost: string };
 type Party = { partyId: string; name: string; phone: string | null; balanceId: string | null; amountXof: string | null; paidXof: string | null; remainingXof: string | null; asOfDate: string | null; note: string | null };
-const methods = ["cash", "wave", "orange_money", "mtn_momo", "other"] as const;
+const methods = manualPaymentMethods;
 type Method = (typeof methods)[number];
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -41,7 +43,9 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 
 export function OpeningWorkspace() {
   const { t, locale } = useI18n();
-  const [tab, setTab] = useState<Tab>("stock");
+  // Lien direct depuis la page Clients (`?tab=customers`) : ouvre l'onglet des dettes pour encaisser un remboursement.
+  const requested = useSearchParams().get("tab");
+  const [tab, setTab] = useState<Tab>(requested === "customers" || requested === "suppliers" ? requested : "stock");
   const describe = useCallback((caught: unknown) => caught instanceof RequestError
     ? errorMessageFor({ status: caught.status, serverMessage: caught.message, locale, t }) : t("errors.generic"), [locale, t]);
   return (

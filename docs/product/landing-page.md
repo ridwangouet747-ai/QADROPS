@@ -16,7 +16,9 @@ Jakarta Sans). Elle est remplacée le 2026-11-10 par la version « cahier de la 
 | `components/landing/day-section.tsx` | « Une journée à la boutique » : six moments horodatés, fragments d'écran en HTML |
 | `components/landing/pricing-section.tsx` | Tarifs lus en base (composant serveur asynchrone) |
 | `components/landing/landing-header.tsx` | En-tête fixe, menu sur téléphone et tablette (client) |
-| `components/landing/landing-motion.tsx` | GSAP + ScrollTrigger pour la journée seulement (client) |
+| `components/landing/landing-motion.tsx` | GSAP + ScrollTrigger : journée ; à partir de 1024 px, parallaxe des photos et pages superposées des écrans (client) |
+| `components/landing/interface-screens.tsx`, `lib/landing/interface-screens.ts` | « Les vrais écrans » en pages superposées, manifeste des captures |
+| `lib/landing/ambiance.ts`, `public/landing/ambiance/` | Images d'ambiance (photos de métiers, fond « salle quadrillée »), § 5 bis |
 | `components/landing/receipt*.ts(x)` | Ticket d'exemple : HTML (rendu serveur, repli) et 3D Three.js facultative |
 | `components/brand/brand-logo.tsx`, `lib/brand.ts`, `public/brand/` | Marque et mascotte **provisoires**, source unique (voir `docs/design/direction-artistique.md` § 5) |
 | `components/video/video-embed.tsx`, `lib/video/source.ts` | Lecteur vidéo réutilisable (YouTube, Vimeo, fichier MP4/WebM) |
@@ -24,7 +26,7 @@ Jakarta Sans). Elle est remplacée le 2026-11-10 par la version « cahier de la 
 | `components/landing/landing.css`, `fonts.ts` | Styles propres à la page (motifs, entrée du hero), police Rubik |
 | `lib/domain/public-plans.ts` | Lecture des formules publiées (`subscription_plan`), cache 10 min |
 | `lib/i18n/messages/landing.ts` | Textes fr/en/ar, typés par `Shape` (parité vérifiée par `messages.test.ts`) |
-| `public/patterns/qadr-curves.svg`, `qadr-links.svg` | Points ondulés (export Durves fourni) et maillons entrelacés |
+| `public/patterns/qadr-curves.svg`, `qadr-links.svg`, `qadr-room-grid.svg` | Points ondulés (export Durves fourni), maillons entrelacés, salle quadrillée vectorielle (§ 5 bis) |
 | `src/lib/landing/landing-content.test.ts` | Garde-fou : aucune mention de démonstration, aucun chiffre ni nom inventé, aucune capture servie |
 | `app/robots.ts` | Tout interdit hors `VERCEL_ENV=production` |
 
@@ -149,7 +151,9 @@ bandeau « Prévisualisation · données fictives ». La page de production ne d
 
 `landing-content.test.ts` échoue si un texte public (fr/en/ar) reparle de démonstration, d'exemple ou de
 données fictives, s'il réintroduit un des anciens montants ou noms, si un composant de la page pointe vers
-`/landing/…` ou écrit un montant en dur, ou si une image revient dans `public/landing/`. Seuls les textes
+`/landing/…` ou écrit un montant en dur, ou si une image revient dans `public/landing/`. Les seules images
+servies sont les captures de `public/landing/apercu/` et les images d'ambiance de `public/landing/ambiance/`
+(§ 5 bis), chacune déclarée dans son manifeste. Seuls les textes
 affichés hors production (badge des formules de l'aperçu, emplacement vidéo vide) sont exemptés.
 
 ## 5. Captures de remplacement
@@ -157,10 +161,59 @@ affichés hors production (badge des formules de l'aperçu, emplacement vidéo v
 De vraies captures pourront revenir quand un commerce pilote aura donné son accord écrit et que ses données
 auront été vérifiées : jamais une capture de l'aperçu.
 
+## 5 bis. Fond « salle quadrillée », images d'ambiance et pages superposées (2026-11-17)
+
+Quatre images fournies par le propriétaire, **générées par IA** : une salle blanche quadrillée en perspective
+(fond) et trois boutiques (téléphonie, vêtements, quincaillerie). Fichiers servis : `public/landing/ambiance/`
+uniquement, déclarés dans `src/lib/landing/ambiance.ts` ; recadrage et conversion WebP par un script ponctuel
+(sharp), sources hors dépôt.
+
+**Fond.** Toutes les sections claires (avantages, vidéo, commerces, journée, fonctions, écrans, intégrations,
+tarifs, questions) n'ont plus de fond propre : elles défilent devant un seul décor `.landing-room-backdrop`,
+collé à l'écran (`position: sticky`, hauteur `100lvh`, pas `background-attachment: fixed` que Safari iOS ignore).
+Le hero et le pied de page restent bleu nuit. Deux rendus :
+
+| Écran | Rendu | Raison |
+| --- | --- | --- |
+| portrait de moins de 1024 px | l'image `salle-quadrillee.webp` (736 × 1104, 5 Ko), en `cover` | sur téléphone elle est réduite (≈ 0,7×), sur tablette portrait proche de 1× : nette |
+| paysage, ou ≥ 1024 px | reproduction vectorielle `public/patterns/qadr-room-grid.svg` (2 Ko), lignes blanches en masque sur un dégradé de jetons | à 1280 px l'image serait agrandie 1,7× (lignes floues) et recadrée sur sa bande centrale vide |
+
+Le SVG reprend les mesures relevées sur l'image : colonnes espacées de 128 px au bord (116 dans le SVG),
+horizontales tous les 83 px (51, 134, 217, 299, 380 depuis le haut, en miroir au sol), fuite du plafond à 81 % de
+la hauteur et du sol à 19 %, grille effacée vers 38 % / 62 %, halo flou sous un trait fin. Couleurs : jetons
+seulement (`white`, `canvas`, `surface-muted`, `line`). Contraste : le texte posé directement sur la salle est en
+`ink`, `fg` ou `fg-muted` (≥ 5,3:1 sur le gris le plus sombre) ; la mention de devise des tarifs est passée de
+`fg-subtle` (4,2:1) à `fg-muted`.
+
+**Photos.** Section « Fait pour votre commerce » : chaque carte de métier porte sa photo (bande 16:10 sur
+téléphone et tablette pour ne pas allonger la page, portrait 4:5 à partir de 1024 px, cartes paires décalées).
+La boutique générale, sans photo, reçoit un panneau bleu nuit au motif de maillons. Les photos ne sont jamais
+présentées comme des clients : texte alternatif « Illustration : … » (« صورة تعبيرية: … » en arabe, car
+« توضيحي » est refusé par le test des mots de démonstration) et mention visible sous la grille
+(« Images d'illustration : aucune ne montre le commerce d'un client. »). Chargement différé, dimensions
+réservées, `srcset` en deux largeurs.
+
+| Fichier | Source | Recadrage (px source) | Marques |
+| --- | --- | --- | --- |
+| `telephonie-300/600.webp` | 1.jpg | x 0-600, y 300-1050 | panneau « iPhone 15 / Galaxy S24 / Pixel 8 » (x ≥ 622) hors cadre ; téléphones génériques en vitrine |
+| `vetements-368/736.webp` | 2.jpg | y 675-1245, pleine largeur | enseignes lumineuses GUCCI / LOUIS VUITTON / CHANEL (jusqu'à y ≈ 655) hors cadre ; le filigrane « Meta AI » (y ≈ 1270-1290) sort aussi du cadre, conséquence du recadrage, sans retouche |
+| `quincaillerie-368/736.webp` | 3.jpg | y 300-1220, pleine largeur | grands cartons de marques d'outillage du haut retirés ; restent de petites étiquettes de marques en rayon (décor, aucun gros plan) |
+
+**Pages superposées.** Section « Les vrais écrans » : les six écrans de bureau suivent le parcours (vue
+d'ensemble → produits → stock → caisse → clients → rapports). À partir de 1024 px, chaque page colle un peu plus
+bas que la précédente et la recouvre (CSS `sticky`, sans JavaScript) ; sa largeur est bornée par la hauteur de
+l'écran pour que la légende reste visible. La colonne de gauche indique la page lue. Téléphone et ticket
+ferment la section. En dessous de 1024 px : simple liste.
+
+**Mouvement** (`landing-motion.tsx`, seulement si `prefers-reduced-motion: no-preference` et ≥ 1024 px) : léger
+parallaxe des photos dans leur cadre, cartes des métiers qui se posent une fois, page recouverte qui recule
+(échelle 0,93) et s'assombrit, page suivante qui se pose (bascule de 9° annulée). Rien sur téléphone. La section
+des écrans est exclue de `content-visibility` (comme la journée), car ses positions sont lues par GSAP.
+
 ## 6. Performance
 
-Rendu différé des sections hors écran (`content-visibility: auto` dans `landing.css`, sauf le hero et la
-journée). Sans lui, Chrome mettait en page tout le texte de la page avant le premier affichage : une seule
+Rendu différé des sections hors écran (`content-visibility: auto` dans `landing.css`, sauf le hero, la
+journée et les écrans). Sans lui, Chrome mettait en page tout le texte de la page avant le premier affichage : une seule
 mise en page de 2,3 s, dont 1,5 s de mise en forme du texte, avant le FCP (processeur ×4). Conséquences :
 - le défilement doux est coupé sur cette page (`scroll-behavior: auto`) : Chrome interrompait le défilement
   vers `#faq` dès qu'une section différée prenait sa vraie hauteur ;

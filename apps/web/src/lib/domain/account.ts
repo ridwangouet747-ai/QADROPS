@@ -5,7 +5,7 @@ import { emailRequestScope, type EmailRequestScope } from "@/lib/auth/email";
 import { businessActivities, storeFormats, type QadrAuth } from "@/lib/auth/server";
 import { locales } from "@/lib/i18n/config";
 import { hasBusinessPermission } from "@/lib/auth/permissions";
-import { auditEvent, businessMemberAccess, businessProfile, businessSubscription, invitation, member, organization, platformAdmin, session, user } from "@/lib/db/schema";
+import { auditEvent, businessMemberAccess, businessProfile, businessSubscription, invitation, member, organization, session, user } from "@/lib/db/schema";
 import { assertActiveMembership, BusinessContextError } from "./business-context";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { assertPlanQuota } from "./plan-limits";
@@ -28,14 +28,14 @@ function fromAuthError(error: unknown, fallback: string): never {
 /* ------------------------------------------------------------------ Compte */
 
 export async function getAccountOverview(db: CommercialDatabase, userId: string, activeBusinessId: string | null) {
-  const [memberships, admin] = await Promise.all([
+  // L’espace commerçant ne révèle jamais si le compte détient aussi le droit plateforme (aucun raccourci vers la console).
+  const [memberships] = await Promise.all([
     db.select({ id: organization.id, name: organization.name, logo: organization.logo, role: member.role, activity: businessProfile.activity,
       status: businessProfile.status, timezone: businessProfile.timezone, disabledAt: businessMemberAccess.disabledAt })
       .from(member).innerJoin(organization, eq(organization.id, member.organizationId))
       .leftJoin(businessProfile, eq(businessProfile.businessId, organization.id))
       .leftJoin(businessMemberAccess, and(eq(businessMemberAccess.businessId, member.organizationId), eq(businessMemberAccess.userId, member.userId)))
       .where(eq(member.userId, userId)).orderBy(asc(organization.name)),
-    db.select({ userId: platformAdmin.userId }).from(platformAdmin).where(and(eq(platformAdmin.userId, userId), isNull(platformAdmin.revokedAt))).limit(1),
   ]);
   const visible = memberships.filter((row) => row.activity !== null);
   // État commercial de chaque commerce : l’interface masque les modules d’un commerce sans droit d’usage ;
@@ -48,7 +48,7 @@ export async function getAccountOverview(db: CommercialDatabase, userId: string,
     lifecycle: businessLifecycle(row.status ?? "active", subscriptions.filter((item) => item.businessId === row.id), now),
     disabled: row.disabledAt !== null, active: row.id === activeBusinessId,
   }));
-  return { businesses, isPlatformAdmin: admin.length > 0, activeBusinessId: businesses.some((row) => row.active && !row.disabled) ? activeBusinessId : null };
+  return { businesses, activeBusinessId: businesses.some((row) => row.active && !row.disabled) ? activeBusinessId : null };
 }
 
 export { logoBytesMatch } from "./business-logo";

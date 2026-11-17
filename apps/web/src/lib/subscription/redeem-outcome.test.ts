@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { finalizeCode, interpretRedeemResponse, isPlausibleCode, normalizeCodeInput, redeemPromotionCode } from "./redeem-outcome";
+import { finalizeCode, interpretRedeemResponse, isPlausibleCode, normalizeCodeInput, normalizeCommercialCodeInput, redeemPromotionCode } from "./redeem-outcome";
 
 const success = { kind: "access", replayed: false, plan: { code: "ESSAI", name: "Essentiel" }, status: "trialing", endsAt: "2026-11-21T10:00:00.000Z", grantDays: 21 };
 
@@ -12,6 +12,17 @@ describe("saisie et résultat d’un code Qadr Agency", () => {
     expect(isPlausibleCode("QADR-7K2M-9PQR-XW3A")).toBe(true);
     expect(isPlausibleCode("AB")).toBe(false);
     expect(isPlausibleCode("QADR/../../")).toBe(false);
+  });
+
+  it("code commercial collé depuis un message : seul le code QADR est gardé, les séparateurs deviennent des tirets", () => {
+    expect(normalizeCommercialCodeInput("Votre code Qadr Agency : qadr-7k2m-9pqr-xw3a-b4c5. Merci !")).toBe("QADR-7K2M-9PQR-XW3A-B4C5");
+    expect(normalizeCommercialCodeInput("QADR–7K2M–9PQR–XW3A–B4C5\n")).toBe("QADR-7K2M-9PQR-XW3A-B4C5");
+    expect(normalizeCommercialCodeInput("qadr7k2m9pqrxw3ab4c5")).toBe("QADR-7K2M-9PQR-XW3A-B4C5");
+    expect(normalizeCommercialCodeInput(" qadr.7k2m 9pqr")).toBe("QADR-7K2M-9PQR");
+    // Pendant la frappe, rien n'est inventé ni retiré : un code incomplet ou trop long reste tel quel.
+    expect(normalizeCommercialCodeInput("QADR-7K2M-9PQR-XW3A-B4C5X")).toBe("QADR-7K2M-9PQR-XW3A-B4C5X");
+    expect(normalizeCommercialCodeInput("qadr ")).toBe("QADR-");
+    expect(finalizeCode(normalizeCommercialCodeInput("qadr-7k2m-9pqr- "))).toBe("QADR-7K2M-9PQR");
   });
 
   it("n’affiche une activation que si le serveur l’a confirmée", () => {

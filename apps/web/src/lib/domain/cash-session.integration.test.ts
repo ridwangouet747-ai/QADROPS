@@ -122,7 +122,9 @@ describe("sessions de caisse sur PGlite isolé", () => {
     sessionA = (await openCashSession(db, { businessId: biz, actorUserId: cashierA, idempotencyKey: key("open"), openingFloatXof: "10000" })).id;
     // Paiement mixte : 10 000 en espèces + 5 000 Wave en attente.
     const sale = await createSale(db, { businessId: biz, actorUserId: cashierA, idempotencyKey: key("sale"), customerId: customer, lines: [{ variantId: variant, quantity: "4" }],
-      payments: [{ method: "cash", amountXof: "10000" }, { method: "wave", amountXof: "5000" }] });
+      payments: [{ method: "cash", amountXof: "10000", tenderedXof: "12000" }, { method: "wave", amountXof: "5000" }] });
+    // Wave saisi avant la migration 0027, alors enregistré « en attente » : l'historique garde ce statut et reste exclu des encaissements.
+    await client.query("update payment set status='pending', confirmed_at=null where sale_id=$1 and method='wave'", [sale.id]);
     await recordCustomerPayment(db, { businessId: biz, actorUserId: cashierA, idempotencyKey: key("receivable"), saleId: sale.id, amountXof: "2000", method: "cash" });
     const balance = await createOpeningBalance(db, { businessId: biz, actorUserId: owner, idempotencyKey: key("ob"), partyType: "customer", partyId: customer, amountXof: "8000", asOfDate: "2026-10-01" });
     await recordOpeningBalancePayment(db, { businessId: biz, actorUserId: cashierA, idempotencyKey: key("obpay"), openingBalanceId: balance.id, amountXof: "3000", method: "cash" });
@@ -135,6 +137,8 @@ describe("sessions de caisse sur PGlite isolé", () => {
     expect(detail.session.breakdown).toMatchObject({
       openingFloatXof: "10000", cashSalesXof: "10000", receivableCashXof: "2000", openingDebtCashXof: "3000", movementsInXof: "5000",
       refundsCashXof: "1000", movementsOutXof: "4000", expensesCashXof: "0", expectedXof: "25000",
+      // 12 000 F remis pour 10 000 F affectés : 2 000 F rendus, seuls les 10 000 F nets comptent dans les espèces attendues.
+      cashTenderedXof: "12000", changeGivenXof: "2000",
     });
     expect(detail.movements).toHaveLength(2);
     // L'ancienne dette réglée en espèces n'est pas du chiffre d'affaires.

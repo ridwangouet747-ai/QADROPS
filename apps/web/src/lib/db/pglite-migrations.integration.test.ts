@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies every committed migration (0000-0026) and creates the expected tables", async () => {
+  it("applies every committed migration (0000-0027) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,7 +24,7 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("27");
+    expect(applied.rows[0]?.count).toBe("28");
     expect(tables.rows[0]?.count).toBe("65");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
@@ -96,6 +96,11 @@ describe("versioned migrations on isolated PGlite", () => {
     expect(codeUniques.rows.map((row) => row.conname)).toEqual(["business_invite_code_code_hash_unique", "commercial_access_code_code_hash_unique"]);
     const inviteRls = await client.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class where relname='business_invite_code'");
     expect(inviteRls.rows[0]?.relrowsecurity).toBe(true);
+    // Migration 0027 (2026-11-17) : Moov Money parmi les moyens déclaratifs ; espèces remises et monnaie rendue sur le paiement.
+    const tender = await client.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema='public' and table_name='payment' and column_name in ('tendered_xof','change_xof') order by column_name");
+    expect(tender.rows.map((row) => row.column_name)).toEqual(["change_xof", "tendered_xof"]);
+    const moov = await client.query<{ conname: string }>("select conname from pg_constraint where conname in ('payment_method_check','opening_payment_method_check','expense_payment_method_check') and pg_get_constraintdef(oid) like '%moov_money%' order by conname");
+    expect(moov.rows).toHaveLength(3);
   });
 
   it("does not reapply migrations on a second migrate() call", async () => {
@@ -103,6 +108,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("27");
+    expect(applied.rows[0]?.count).toBe("28");
   });
 });

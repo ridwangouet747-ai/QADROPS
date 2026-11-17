@@ -56,7 +56,7 @@ export const reportsFr = {
     openingHint: "Dettes d’avant Qadr Ops : de l’argent reçu, mais pas une vente.",
     none: "Aucun paiement confirmé sur cette période.",
   },
-  methods: { cash: "Espèces", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "Autre", unknown: "Non précisé" },
+  methods: { cash: "Espèces", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", moov_money: "Moov Money", other: "Autre", unknown: "Non précisé" },
   credit: {
     title: "Crédits clients",
     granted: "Nouveaux crédits accordés", settlements: "Remboursements reçus", outstandingSales: "Reste à payer sur les ventes",
@@ -155,7 +155,7 @@ export const reportsEn: typeof reportsFr = {
     openingHint: "Debts from before Qadr Ops: money received, but not a sale.",
     none: "No confirmed payment in this period.",
   },
-  methods: { cash: "Cash", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "Other", unknown: "Not specified" },
+  methods: { cash: "Cash", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", moov_money: "Moov Money", other: "Other", unknown: "Not specified" },
   credit: {
     title: "Customer credit",
     granted: "New credit granted", settlements: "Repayments received", outstandingSales: "Still due on sales",
@@ -254,7 +254,7 @@ export const reportsAr: typeof reportsFr = {
     openingHint: "ديون سابقة لـ Qadr Ops: مال مستلم، لكنه ليس عملية بيع.",
     none: "لا توجد مدفوعات مؤكَّدة في هذه الفترة.",
   },
-  methods: { cash: "نقدًا", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", other: "أخرى", unknown: "غير محدَّد" },
+  methods: { cash: "نقدًا", wave: "Wave", orange_money: "Orange Money", mtn_momo: "MTN MoMo", moov_money: "Moov Money", other: "أخرى", unknown: "غير محدَّد" },
   credit: {
     title: "ديون الزبائن",
     granted: "ائتمان جديد ممنوح", settlements: "تسديدات مستلمة", outstandingSales: "المتبقي على المبيعات",

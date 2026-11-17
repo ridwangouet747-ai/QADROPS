@@ -144,7 +144,7 @@ function Clock() {
 
 export function DaySection({ t, container }: { t: Translate; container: string }) {
   return (
-    <section id="day" aria-labelledby="day-title" className="scroll-mt-20 bg-qadr-50 py-20 sm:py-28">
+    <section id="day" aria-labelledby="day-title" className="scroll-mt-20 py-20 sm:py-28">
       <div className={cn(container, "grid gap-12 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16")}>
         <div className="lg:sticky lg:top-28 lg:self-start">
           <h2 id="day-title" className="landing-h2">{t("landing.day.title")}</h2>

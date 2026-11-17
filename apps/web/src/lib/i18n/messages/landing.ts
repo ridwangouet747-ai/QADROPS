@@ -44,6 +44,8 @@ export const landingFr = {
     phones: { title: "Téléphonie", example: "128 Go, noir", body: "Chaque modèle et ses déclinaisons ont leur propre stock et leur référence." },
     general: { title: "Boutique générale", example: "Riz, savon, piles", body: "Rangez un catalogue varié par catégorie et retrouvez un article en tapant son nom." },
     clothing: { title: "Vêtements", example: "Taille M, bleu", body: "Tailles et couleurs restent rattachées au même article, chacune avec son stock." },
+    illustration: { hardware: "Illustration : quincaillerie, outils au mur et rayonnages", phones: "Illustration : boutique de téléphones, vitrine lumineuse", clothing: "Illustration : boutique de vêtements, portants de chemises et de robes" },
+    illustrationNote: "Images d’illustration : aucune ne montre le commerce d’un client.",
   },
   day: {
     title: "Une journée à la boutique.",
@@ -193,6 +195,8 @@ export const landingEn: LandingMessages = {
     phones: { title: "Phone shop", example: "128 GB, black", body: "Each model and its variants have their own stock and their own reference." },
     general: { title: "General store", example: "Rice, soap, batteries", body: "Sort a varied catalogue into categories and find any item by typing its name." },
     clothing: { title: "Clothing shop", example: "Size M, blue", body: "Sizes and colours stay attached to the same item, each with its own stock." },
+    illustration: { hardware: "Illustration: hardware store, tools on the wall and shelving", phones: "Illustration: phone shop, lit display case", clothing: "Illustration: clothing shop, rails of shirts and dresses" },
+    illustrationNote: "Illustrative images: none of them shows a customer’s shop.",
   },
   day: {
     title: "A day at the shop.",
@@ -339,6 +343,8 @@ export const landingAr: LandingMessages = {
     phones: { title: "هواتف", example: "128 جيجا، أسود", body: "لكل طراز ونسخه مخزونه الخاص ومرجعه." },
     general: { title: "محل عام", example: "أرز، صابون، بطاريات", body: "رتّب قائمة منتجات متنوعة حسب الفئات، وابحث عن أي منتج بكتابة اسمه." },
     clothing: { title: "ملابس", example: "مقاس M، أزرق", body: "تبقى المقاسات والألوان مرتبطة بالمنتج نفسه، ولكل منها مخزونه." },
+    illustration: { hardware: "صورة تعبيرية: محل أدوات وخردوات، أدوات معلّقة ورفوف", phones: "صورة تعبيرية: محل هواتف، واجهة عرض مضيئة", clothing: "صورة تعبيرية: محل ملابس، قمصان وفساتين معلّقة" },
+    illustrationNote: "صور تعبيرية: لا تُظهر أيٌّ منها محلَّ أحد العملاء.",
   },
   day: {
     title: "يوم في المحل.",

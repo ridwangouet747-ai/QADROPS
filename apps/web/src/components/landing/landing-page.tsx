@@ -11,6 +11,7 @@ import { LandingHeader } from "./landing-header";
 import { LandingMotion } from "./landing-motion";
 import { BrandLogo, BrandMascot } from "@/components/brand/brand-logo";
 import { VideoEmbed } from "@/components/video/video-embed";
+import { ambiancePhoto } from "@/lib/landing/ambiance";
 import { readDemoVideo } from "@/lib/landing/demo-video";
 import { whatsappHref, whatsappNumber } from "@/lib/commercial/mode";
 import { providerName } from "@/lib/video/source";
@@ -135,7 +136,7 @@ function Hero({ t, locale }: { t: Translate; locale: Locale }) {
 function Benefits({ t }: { t: Translate }) {
   const items = ["stock", "credit", "cash"] as const;
   return (
-    <section aria-labelledby="benefits-title" className="bg-surface py-20 sm:py-28">
+    <section aria-labelledby="benefits-title" className="py-20 sm:py-28">
       <div className={container}>
         <h2 id="benefits-title" className="landing-h2 max-w-xl">{t("landing.benefits.title")}</h2>
         <ul className="m-0 mt-12 list-none border-t border-line p-0">
@@ -162,7 +163,7 @@ function Demo({ t }: { t: Translate }) {
   const source = demo.status === "ready" ? demo.source : null;
   const provider = source && source.kind !== "file" ? providerName[source.kind] : null;
   return (
-    <section id="demo" aria-labelledby="demo-title" className="scroll-mt-20 bg-canvas py-20 sm:py-28">
+    <section id="demo" aria-labelledby="demo-title" className="scroll-mt-20 py-20 sm:py-28">
       <div className={cn(container, "grid gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.6fr)] lg:items-center")}>
         <div className="min-w-0">
           <h2 id="demo-title" className="landing-h2">{t("landing.video.title")}</h2>
@@ -179,24 +180,58 @@ function Demo({ t }: { t: Translate }) {
   );
 }
 
+/*
+ * Commerces visés. Trois cartes portent une photo d'ambiance de leur métier (lib/landing/ambiance.ts) : bande paysage
+ * sur téléphone (pas de défilement inutile), portrait 4:5 en colonnes à partir de 1024 px, cartes décalées pour la
+ * profondeur. La boutique générale n'a pas de photo : panneau bleu nuit au motif de maillons. Les photos sont des
+ * illustrations, annoncées comme telles (texte alternatif et mention sous la grille), jamais des clients.
+ * Le léger parallaxe des photos est ajouté par landing-motion.tsx (≥ 1024 px, mouvement autorisé).
+ */
+function SectorVisual({ t, sector }: { t: Translate; sector: "hardware" | "phones" | "general" | "clothing" }) {
+  const frame = "relative aspect-[16/10] overflow-hidden lg:aspect-[4/5]";
+  if (sector === "general") {
+    return (
+      <div aria-hidden="true" className={cn(frame, "isolate grid place-items-center bg-qadr-950 text-white")}>
+        <div className="qadr-links absolute inset-0 -z-10 text-qadr-800" />
+        <span className="grid size-20 place-items-center rounded-full bg-brand shadow-[0_18px_36px_-16px_rgb(0_0_0/0.6)] ring-8 ring-qadr-900"><Icon name="store" className="size-9" /></span>
+      </div>
+    );
+  }
+  const photo = ambiancePhoto(sector);
+  return (
+    <div className={cn(frame, "bg-qadr-100")}>
+      {/* Images déjà recadrées et compressées (deux largeurs) : <img> natif avec srcset, comme les captures. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img data-sector-photo src={photo.src} srcSet={photo.srcSet} sizes={photo.sizes} width={photo.width} height={photo.height} loading="lazy" decoding="async"
+        alt={t(`landing.sectors.illustration.${sector}`)}
+        style={{ "--pos": photo.position, "--pos-lg": photo.positionLg } as CSSProperties}
+        className="absolute inset-0 size-full object-cover [object-position:var(--pos)] lg:[object-position:var(--pos-lg)]" />
+    </div>
+  );
+}
+
 function Sectors({ t }: { t: Translate }) {
   const items = [["hardware", "tag"], ["phones", "activity"], ["general", "store"], ["clothing", "grid"]] as const satisfies readonly (readonly [string, IconName])[];
   return (
-    <section id="sectors" aria-labelledby="sectors-title" className="scroll-mt-20 bg-canvas py-20 sm:py-28">
+    <section id="sectors" aria-labelledby="sectors-title" className="scroll-mt-20 py-20 sm:py-28">
       <div className={container}>
         <div className="max-w-2xl">
           <h2 id="sectors-title" className="landing-h2">{t("landing.sectors.title")}</h2>
           <p className="m-0 mt-4 text-[1.05rem] leading-relaxed text-fg-muted">{t("landing.sectors.intro")}</p>
         </div>
-        <ul className="m-0 mt-12 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
-          {items.map(([key, icon]) => (
-            <li key={key} className="flex min-w-0 flex-col rounded-[1.75rem] border border-line bg-surface p-6">
-              <p className="m-0 flex items-center gap-2 text-[0.95rem] font-semibold text-fg-muted"><Icon name={icon} className="size-4.5 text-brand" />{t(`landing.sectors.${key}.title`)}</p>
-              <p className="m-0 mt-8 font-display text-[clamp(1.7rem,2.6vw,2.15rem)] leading-[1.05] font-bold tracking-[-0.02em] break-words text-brand rtl:leading-snug rtl:tracking-normal">{t(`landing.sectors.${key}.example`)}</p>
-              <p className="m-0 mt-4 leading-relaxed text-fg-muted">{t(`landing.sectors.${key}.body`)}</p>
+        <ul className="m-0 mt-12 grid list-none gap-5 p-0 sm:grid-cols-2 lg:grid-cols-4 lg:items-start">
+          {items.map(([key, icon], index) => (
+            <li key={key} data-sector-card className={cn("flex min-w-0 flex-col overflow-hidden rounded-[1.75rem] border border-line bg-surface shadow-[0_28px_60px_-40px_rgb(3_16_142/0.45)]", index % 2 === 1 && "lg:mt-16")}>
+              <SectorVisual t={t} sector={key} />
+              <div className="flex min-w-0 flex-col p-6">
+                <h3 className="m-0 flex items-center gap-2 text-[0.95rem] font-semibold text-fg-muted"><Icon name={icon} className="size-4.5 text-brand" />{t(`landing.sectors.${key}.title`)}</h3>
+                <p className="m-0 mt-5 font-display text-[clamp(1.6rem,2.4vw,2rem)] leading-[1.05] font-bold tracking-[-0.02em] break-words text-brand rtl:leading-snug rtl:tracking-normal">{t(`landing.sectors.${key}.example`)}</p>
+                <p className="m-0 mt-3 leading-relaxed text-fg-muted">{t(`landing.sectors.${key}.body`)}</p>
+              </div>
             </li>
           ))}
         </ul>
+        <p className="m-0 mt-8 flex items-center gap-1.5 text-[0.85rem] text-fg-muted lg:mt-6"><Icon name="info" className="size-3.5 shrink-0 text-brand" />{t("landing.sectors.illustrationNote")}</p>
       </div>
     </section>
   );
@@ -210,7 +245,7 @@ function Features({ t }: { t: Translate }) {
     { key: "team", items: ["landing.features.team.roles", "landing.features.team.reports", "landing.features.team.export", "landing.features.team.isolation"] },
   ] as const;
   return (
-    <section id="features" aria-labelledby="features-title" className="scroll-mt-20 bg-surface py-20 sm:py-28">
+    <section id="features" aria-labelledby="features-title" className="scroll-mt-20 py-20 sm:py-28">
       <div className={container}>
         <div className="max-w-2xl">
           <h2 id="features-title" className="landing-h2">{t("landing.features.title")}</h2>
@@ -239,7 +274,7 @@ const testimonials: Testimonial[] = [];
 function Testimonials({ t }: { t: Translate }) {
   if (testimonials.length === 0) return null;
   return (
-    <section aria-labelledby="testimonials-title" className="bg-surface pb-20 sm:pb-28">
+    <section aria-labelledby="testimonials-title" className="pb-20 sm:pb-28">
       <div className={container}>
         <h2 id="testimonials-title" className="landing-h2">{t("landing.testimonials.title")}</h2>
         <ul className="m-0 mt-10 grid list-none gap-5 p-0 md:grid-cols-2">
@@ -262,7 +297,7 @@ function Integrations({ t }: { t: Translate }) {
     { key: "planned", dot: "border-2 border-fg-subtle bg-transparent", items: ["landing.integrations.planned.offline", "landing.integrations.planned.photos", "landing.integrations.planned.operators"] },
   ] as const;
   return (
-    <section aria-labelledby="integrations-title" className="bg-canvas py-20 sm:py-28">
+    <section aria-labelledby="integrations-title" className="py-20 sm:py-28">
       <div className={container}>
         <div className="max-w-2xl">
           <h2 id="integrations-title" className="landing-h2">{t("landing.integrations.title")}</h2>
@@ -286,7 +321,7 @@ function Integrations({ t }: { t: Translate }) {
 function Faq({ t }: { t: Translate }) {
   const items = ["devices", "barcode", "staff", "offline", "payments", "imports", "data", "languages"] as const;
   return (
-    <section id="faq" aria-labelledby="faq-title" className="scroll-mt-20 bg-canvas py-20 sm:py-28">
+    <section id="faq" aria-labelledby="faq-title" className="scroll-mt-20 py-20 sm:py-28">
       <div className={cn(container, "grid gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-16")}>
         <div className="lg:sticky lg:top-28 lg:self-start">
           <h2 id="faq-title" className="landing-h2">{t("landing.faq.title")}</h2>
@@ -357,16 +392,21 @@ export function LandingPage({ t, locale }: { t: Translate; locale: Locale }) {
       <LandingHeader />
       <main id="contenu" tabIndex={-1} className="outline-none">
         <Hero t={t} locale={locale} />
-        <Benefits t={t} />
-        <Demo t={t} />
-        <Sectors t={t} />
-        <DaySection t={t} container={container} />
-        <Features t={t} />
-        <InterfaceScreens t={t} locale={locale} container={container} />
-        <Testimonials t={t} />
-        <Integrations t={t} />
-        <PricingSection t={t} locale={locale} container={container} />
-        <Faq t={t} />
+        {/* La « salle quadrillée » (landing.css) remplace tous les fonds clairs : un seul décor, collé à l'écran,
+            sur lequel les sections défilent comme des feuilles posées devant lui. */}
+        <div className="landing-room">
+          <div aria-hidden="true" className="landing-room-backdrop" />
+          <Benefits t={t} />
+          <Demo t={t} />
+          <Sectors t={t} />
+          <DaySection t={t} container={container} />
+          <Features t={t} />
+          <InterfaceScreens t={t} locale={locale} container={container} />
+          <Testimonials t={t} />
+          <Integrations t={t} />
+          <PricingSection t={t} locale={locale} container={container} />
+          <Faq t={t} />
+        </div>
       </main>
       <Closing t={t} whatsapp={whatsappNumber()} />
       <LandingMotion />

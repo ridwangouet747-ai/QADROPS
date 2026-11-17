@@ -26,6 +26,20 @@ export function normalizeCodeInput(raw: string) {
   return raw.toUpperCase().replace(/\s+/g, "-").replace(/-{2,}/g, "-").replace(/^-+/, "");
 }
 
+/**
+ * Saisie d'un code commercial QADR (page /redeem-code). Deux tolérances de plus que normalizeCodeInput, propres
+ * au copier-coller d'un message WhatsApp : tout séparateur (tiret long, point, barre…) vaut un tiret, et un message
+ * entier (« Votre code : QADR-… Merci ») est réduit au code QADR s'il y figure en entier. Le serveur reste seul juge
+ * (normalizeAccessCode) : cette mise en forme ne valide rien. Les codes promotionnels, qui admettent « _ », n'y passent pas.
+ */
+export function normalizeCommercialCodeInput(raw: string) {
+  const upper = raw.toUpperCase();
+  const sep = "[^A-Z0-9]{0,3}";
+  const whole = new RegExp(`QADR${sep}([A-Z0-9]{4})${sep}([A-Z0-9]{4})${sep}([A-Z0-9]{4})${sep}([A-Z0-9]{4})(?![A-Z0-9])`).exec(upper);
+  if (whole) return `QADR-${whole.slice(1, 5).join("-")}`;
+  return upper.replace(/[^A-Z0-9]+/g, "-").replace(/^-+/, "");
+}
+
 export function finalizeCode(raw: string) {
   return normalizeCodeInput(raw).replace(/-+$/, "");
 }

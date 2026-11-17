@@ -23,7 +23,7 @@
  * par GSAP). `auto` retient la vraie hauteur une fois la section affichée ; landing-motion.tsx recalcule les
  * déclencheurs quand la hauteur de la page change.
  */
-[data-landing] #contenu > section:not(#hero, #day),
+[data-landing] .landing-room > section:not(#day, #screens),
 [data-landing] > footer {
   content-visibility: auto;
   contain-intrinsic-size: auto 900px;
@@ -31,6 +31,72 @@
 /* legacy.css rend le défilement doux : Chrome l'interrompt dès qu'une section différée change de hauteur en
    chemin (lien « FAQ » arrêté après 250 px, vérifié le 2026-11-10). Le saut direct arrive au bon endroit. */
 html:has([data-landing]) { scroll-behavior: auto; }
+
+/*
+ * Salle quadrillée : fond de toutes les sections claires (image fournie par le propriétaire, 2026-11-17).
+ * Un seul décor, collé à l'écran (`sticky`, pas `background-attachment: fixed`, ignoré par Safari iOS et coûteux) :
+ * les sections, transparentes, défilent devant lui. Il garde ainsi la taille de l'écran, quelle que soit la
+ * longueur d'une section.
+ * - Écran en portrait de moins de 1024 px : l'image elle-même (736 × 1104), affichée en `cover`. Sur un téléphone,
+ *   elle est réduite (0,7× environ) ; sur une tablette en portrait, proche de sa taille réelle : nette.
+ * - Écran paysage ou ≥ 1024 px : l'image serait agrandie 1,7× à 1280 px (lignes floues) et recadrée sur sa bande
+ *   centrale vide. On la remplace par sa reproduction vectorielle (public/patterns/qadr-room-grid.svg : mêmes
+ *   lignes de fuite, mêmes horizontales, même effacement), dessinée en blanc sur un dégradé de jetons.
+ * Contraste : le texte posé directement sur la salle est en `ink`, `fg` ou `fg-muted` (5,3:1 sur le gris le plus
+ * sombre, `line`), jamais en `fg-subtle`.
+ */
+[data-landing] .landing-room { position: relative; isolation: isolate; }
+[data-landing] .landing-room-backdrop {
+  position: sticky;
+  top: 0;
+  z-index: -1;
+  height: 100lvh;
+  margin-bottom: -100lvh;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 45% at 50% 62%, var(--color-white), transparent 70%),
+    linear-gradient(
+      var(--color-surface-muted) 0%,
+      var(--color-canvas) 40%,
+      color-mix(in oklab, var(--color-white) 70%, var(--color-canvas)) 70%,
+      var(--color-surface-muted) 86%,
+      var(--color-line) 100%
+    );
+}
+@media (orientation: portrait) and (max-width: 1023px) {
+  [data-landing] .landing-room-backdrop {
+    background: url("/landing/ambiance/salle-quadrillee.webp") center / cover no-repeat, var(--color-canvas);
+  }
+}
+@media (orientation: landscape), (min-width: 1024px) {
+  [data-landing] .landing-room-backdrop::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: var(--color-white);
+    -webkit-mask: url("/patterns/qadr-room-grid.svg") center / cover no-repeat;
+    mask: url("/patterns/qadr-room-grid.svg") center / cover no-repeat;
+  }
+}
+
+/*
+ * « Les vrais écrans » en pages superposées (≥ 1024 px) : chaque écran colle sous le précédent, un peu plus bas,
+ * et le recouvre en montant. Sans JavaScript ou avec le mouvement réduit, l'empilement reste (aucune animation) ;
+ * landing-motion.tsx ajoute la profondeur (page recouverte qui recule et s'assombrit, page qui se pose).
+ */
+@media (min-width: 1024px) {
+  [data-landing] .screens-deck > li {
+    position: sticky;
+    top: calc(6.5rem + var(--i, 0) * 0.9rem);
+    perspective: 1400px;
+  }
+  [data-landing] .screens-deck > li + li { margin-top: 12vh; }
+  /* Une page collée doit tenir entière dans l'écran (légende comprise), même sur un portable de 720 px de haut :
+     largeur bornée par la hauteur disponible (image 16:10, plus barre, légende et décalage d'empilement). */
+  [data-landing] .screens-deck [data-deck-page] { max-width: calc((100svh - 20rem) * 1.6); margin-inline: auto; transform-origin: 50% 0; }
+  [data-landing] .screens-steps [data-deck-step] { transition: color 0.3s ease, opacity 0.3s ease; }
+  [data-landing][data-deck="ready"] .screens-steps [data-deck-step]:not(.is-active) { opacity: 0.5; }
+}
 
 /* Points ondulés (export Durves converti en un seul tracé, public/patterns/qadr-curves.svg). */
 .qadr-curves {

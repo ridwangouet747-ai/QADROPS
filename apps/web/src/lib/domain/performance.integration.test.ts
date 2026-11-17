@@ -78,7 +78,7 @@ describe("performance : écritures groupées, pagination et rapports bornés (PG
 
   it("vente de 20 lignes : un seul verrou trié, stock, mouvements et paiements écrits en lots", async () => {
     const before = await client.query<{ id: string; on_hand: string; stock_revision: string }>("select id, on_hand, stock_revision from product_variant where business_id=$1", [A]);
-    // Le paiement Wave reste en attente : la vente doit être rattachée à un client.
+    // Depuis 0027, le Wave déclaré par le caissier est confirmé à la saisie (aucune passerelle) ; le client reste facultatif mais conservé ici.
     const customerId = (await createBusinessCustomer(db, { ...ctxA, name: "Client caisse" })).id;
     queries.length = 0;
     const sale = await createSale(countedDb, { ...ctxA, customerId, idempotencyKey: "perf-sale-20-lines",
@@ -106,7 +106,7 @@ describe("performance : écritures groupées, pagination et rapports bornés (PG
       "select method, status, idempotency_key, amount_xof::text from payment where sale_id=$1 order by idempotency_key", [sale.id]);
     expect(payments.rows).toEqual([
       { method: "cash", status: "confirmed", idempotency_key: "perf-sale-20-lines:0", amount_xof: "3000" },
-      { method: "wave", status: "pending", idempotency_key: "perf-sale-20-lines:1", amount_xof: "1000" },
+      { method: "wave", status: "confirmed", idempotency_key: "perf-sale-20-lines:1", amount_xof: "1000" },
     ]);
     // Une répétition réseau ne réécrit rien.
     const replay = await createSale(db, { ...ctxA, customerId, idempotencyKey: "perf-sale-20-lines",
@@ -122,7 +122,7 @@ describe("performance : écritures groupées, pagination et rapports bornés (PG
     // Août : vente à crédit, 200 payés à la vente, 300 réglés en septembre, 500 en octobre.
     const s1 = await createSale(db, { ...ctxA, customerId, idempotencyKey: "perf-d3-s1", lines: [{ variantId: v1!, quantity: "10" }], payments: [{ method: "cash", amountXof: "200" }] });
     await backdateSale(s1.id, "2026-08-10T10:00:00Z");
-    // Septembre : vente mixte (espèces + Wave en attente), réglée en octobre ; vente payée comptant ; vente le même instant.
+    // Septembre : vente mixte (espèces + Wave déclaré, confirmé à la saisie), soldée en octobre ; vente payée comptant ; vente le même instant.
     const s2 = await createSale(db, { ...ctxA, customerId, idempotencyKey: "perf-d3-s2", lines: [{ variantId: v2!, quantity: "10" }], payments: [{ method: "cash", amountXof: "100" }, { method: "wave", amountXof: "100" }] });
     await backdateSale(s2.id, "2026-09-12T10:00:00Z");
     const s3 = await createSale(db, { ...ctxA, idempotencyKey: "perf-d3-s3", lines: [{ variantId: v3!, quantity: "5" }], payments: [{ method: "cash", amountXof: "500" }] });
@@ -176,10 +176,12 @@ describe("performance : écritures groupées, pagination et rapports bornés (PG
     }
     // Contrôle à la main sur septembre : les règlements d'octobre ne comptent pas, ceux de septembre si.
     const september = await getCommercialReport(db, { ...ctxA, period: "monthly", date: "2026-09-15" }, now);
-    expect(september.collections).toMatchObject({ totalXof: "1000", settlementsXof: "300" });
+    // 100 + 100 (Wave) + 500 + 100 à la vente, 300 de règlement : 1 100.
+    expect(september.collections).toMatchObject({ totalXof: "1100", settlementsXof: "300" });
     expect(september.settlement).toEqual({ paid: "2", partial: "1", credit: "0", mixed: "1" });
     // Fin septembre : vente d'août (1 000 − 200 − 300) et vente de septembre (1 000 − 100), Wave en attente exclu.
-    expect(september.receivablesAsOf).toMatchObject({ totalXof: "1400", count: "2" });
+    // Wave de septembre (100) confirmé à la saisie depuis 0027 : reste 1 300.
+    expect(september.receivablesAsOf).toMatchObject({ totalXof: "1300", count: "2" });
   });
 
   it("tableau de bord : résumés groupés identiques au rapport du jour et de la semaine", async () => {

@@ -92,6 +92,8 @@ describe("rapports commerciaux sur PGlite isolé", () => {
     // Lundi 26 octobre : 2 riz, paiement mixte 5 000 espèces + 3 000 Wave en attente, client.
     const s1 = await createSale(db, { businessId: biz, actorUserId: cashier, idempotencyKey: keys("sale"), customerId: customer, lines: [{ variantId: costed, quantity: "2" }],
       payments: [{ method: "cash", amountXof: "5000" }, { method: "wave", amountXof: "3000" }] });
+    // Wave saisi avant la migration 0027, alors enregistré « en attente » : l'historique garde ce statut et reste exclu des encaissements.
+    await client.query("update payment set status='pending', confirmed_at=null where sale_id=$1 and method='wave'", [s1.id]);
     await saleAt(s1.id, "2026-10-26T23:30:00Z");
     // Mardi 27 à 00 h 10 (Abidjan = UTC) : 4 savons à crédit (aucun paiement).
     const s2 = await createSale(db, { businessId: biz, actorUserId: cashier, idempotencyKey: keys("sale"), customerId: customer, lines: [{ variantId: uncosted, quantity: "4" }] });

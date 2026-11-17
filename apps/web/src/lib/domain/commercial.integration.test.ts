@@ -53,8 +53,9 @@ describe("commercial flow on PGlite", () => {
       lines: [{ variantId, quantity: "2" }], payments: [{ method: "cash", amountXof: "1000" }, { method: "wave", amountXof: "2000" }] };
     const first = await createSale(db, input);
     expect(first.totalXof).toBe(3000n);
-    expect(first.paidXof).toBe(1000n);
-    expect(first.dueXof).toBe(2000n);
+    // Wave déclaré par le caissier : confirmé à la saisie, aucune passerelle n'est appelée.
+    expect(first.paidXof).toBe(3000n);
+    expect(first.dueXof).toBe(0n);
     expect(first.replayed).toBe(false);
     const [stock] = await client.query<{ on_hand: string }>("select on_hand from product_variant where business_id=$1 and id=$2", [businessA, variantId]).then((r) => r.rows);
     expect(stock?.on_hand).toBe("3.000000");
@@ -64,7 +65,7 @@ describe("commercial flow on PGlite", () => {
     ).then((r) => r.rows);
     expect(counts).toEqual({ sales: "1", payments: "2", movements: "1" });
     const paymentStates = await client.query<{ method: string; status: string }>("select method,status from payment where sale_id=$1 order by method", [first.id]);
-    expect(paymentStates.rows).toEqual([{ method: "cash", status: "confirmed" }, { method: "wave", status: "pending" }]);
+    expect(paymentStates.rows).toEqual([{ method: "cash", status: "confirmed" }, { method: "wave", status: "confirmed" }]);
     await expect(client.query(
       "insert into payment(id,business_id,sale_id,method,amount_xof,idempotency_key) values ('cross-payment',$1,$2,'cash',1,'cross-payment-key')",
       [businessB, first.id],
@@ -84,6 +85,41 @@ describe("commercial flow on PGlite", () => {
       lines: [{ variantId, quantity: "0.5" }], payments: [] });
     expect(credit.totalXof).toBe(750n);
     expect(credit.dueXof).toBe(750n);
+  });
+
+  it("espèces remises et monnaie rendue : 2 000 F payés avec 10 000 F, puis mixte Moov + espèces avec monnaie", async () => {
+    const [{ on_hand: stockBefore }] = (await client.query<{ on_hand: string }>("select on_hand from product_variant where business_id=$1 and id=$2", [businessA, variantId])).rows as [{ on_hand: string }];
+    await client.query("update product_variant set on_hand='10.000000' where business_id=$1 and id=$2", [businessA, variantId]);
+    // Prix unitaire 1 500 F : 1 article = 1 500 F.
+    const cashSale = await createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-change-0001",
+      lines: [{ variantId, quantity: "1" }], payments: [{ method: "cash", amountXof: "1500", tenderedXof: "10000" }] });
+    expect(cashSale).toMatchObject({ totalXof: 1500n, paidXof: 1500n, dueXof: 0n, tenderedXof: 10000n, changeXof: 8500n });
+    const stored = await client.query<{ amount_xof: string; tendered_xof: string; change_xof: string }>(
+      "select amount_xof::text, tendered_xof::text, change_xof::text from payment where sale_id=$1", [cashSale.id]);
+    expect(stored.rows).toEqual([{ amount_xof: "1500", tendered_xof: "10000", change_xof: "8500" }]);
+    // Rejeu identique : même vente ; somme remise différente : conflit, jamais une deuxième vente.
+    expect((await createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-change-0001",
+      lines: [{ variantId, quantity: "1" }], payments: [{ method: "cash", amountXof: "1500", tenderedXof: "10000" }] })).replayed).toBe(true);
+    await expect(createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-change-0001",
+      lines: [{ variantId, quantity: "1" }], payments: [{ method: "cash", amountXof: "1500", tenderedXof: "5000" }] })).rejects.toMatchObject({ status: 409 });
+
+    // 2 articles = 3 000 F : 1 200 F Moov Money + 1 800 F espèces affectées, 2 000 F remis → 200 F rendus.
+    const mixed = await createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-change-0002",
+      lines: [{ variantId, quantity: "2" }], payments: [{ method: "moov_money", amountXof: "1200" }, { method: "cash", amountXof: "1800", tenderedXof: "2000" }] });
+    expect(mixed).toMatchObject({ totalXof: 3000n, paidXof: 3000n, dueXof: 0n, tenderedXof: 2000n, changeXof: 200n });
+    const parts = await client.query<{ method: string; status: string; amount_xof: string; change_xof: string | null }>(
+      "select method, status, amount_xof::text, change_xof::text from payment where sale_id=$1 order by method", [mixed.id]);
+    expect(parts.rows).toEqual([{ method: "cash", status: "confirmed", amount_xof: "1800", change_xof: "200" },
+      { method: "moov_money", status: "confirmed", amount_xof: "1200", change_xof: null }]);
+
+    // Une somme remise ne concerne que les espèces et ne peut pas être inférieure à la part affectée.
+    for (const payments of [[{ method: "wave", amountXof: "1500", tenderedXof: "2000" }], [{ method: "cash", amountXof: "1500", tenderedXof: "1000" }]]) {
+      await expect(createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: `sale-bad-tender-${payments[0]!.method}`,
+        lines: [{ variantId, quantity: "1" }], payments })).rejects.toThrow();
+    }
+    // Et la base refuse d'elle-même une monnaie incohérente.
+    await expect(client.query("update payment set change_xof = 1 where sale_id=$1", [cashSale.id])).rejects.toMatchObject({ code: "23514" });
+    await client.query("update product_variant set on_hand=$3 where business_id=$1 and id=$2", [businessA, variantId, stockBefore]);
   });
 
   it("rejects overselling and overpayment without partial writes", async () => {

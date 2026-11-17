@@ -12,6 +12,10 @@
 
 **Interface** : écran « Démarrage » (`/business/opening`), accessible depuis le menu « Plus », le bouton « Stock de départ » de l’écran Stock et la grille des modules.
 
+**Raccourcis (2026-11-17)** :
+- **Client qui doit déjà de l’argent** : sur `/business/customers`, la case « Ce client me doit déjà de l’argent » (propriétaire et administrateur) ajoute montant (obligatoire), date et note. `POST /api/business/customers` avec `openingBalance: { amountXof, asOfDate, note? }` et `idempotencyKey` appelle `createCustomerWithOpeningBalance` : fiche, solde d’ouverture et audit dans **une seule transaction idempotente** (opération `opening_balance.create`, permissions `customer.create` + `customer.update`). Jamais une vente. Le lien « Encaisser un remboursement de dette de départ » ouvre `/business/opening?tab=customers`. Test : `src/test/customer-opening-debt.http.test.ts`.
+- **Quantité de départ à la création d’un produit** : champ facultatif du formulaire produit ; après la création, l’écran appelle `POST /api/business/stock/opening` (même service `postStockOpening`, clé d’idempotence gardée pour le formulaire). Ce sont deux requêtes : si la seconde échoue, le produit existe sans stock et l’écran le dit (« vérifiez-la dans Stock de départ »).
+
 ### Règles appliquées côté serveur
 
 - **Produit éligible au stock de départ** : il n’a encore **aucun mouvement**, **aucune ligne d’ouverture**, un **stock à zéro**, et ni lui ni sa variante ne sont archivés. Ces conditions sont vérifiées dans la transaction, sous verrou `FOR UPDATE`. La contrainte unique `stock_opening_line_variant_unique` les garantit aussi au niveau de la base.
@@ -43,6 +47,7 @@
 ### Limites connues
 
 - **Rapports et tableau de bord** : ils n’incluent pas encore les dettes d’ouverture ni leurs règlements. « Crédits clients ouverts » et « Encaissé » ne portent que sur les ventes faites dans Qadr Ops. C’est volontaire : pas de chiffre d’affaires fictif. À intégrer lors de la mission « rapports ».
+- **Historique des règlements d’une dette de départ** : conservé en base (`opening_balance_payment`, audit `opening_balance.payment_recorded`), mais l’écran n’affiche que le montant d’origine et le reste dû, pas la liste datée des remboursements.
 - **Correction d’un solde d’ouverture erroné** : pas encore prévue (pas d’annulation ni de contre-écriture). À concevoir.
 - **Brouillon du stock de départ** : il reste en mémoire dans la page. Il est perdu si la page est fermée avant l’enregistrement.
 
