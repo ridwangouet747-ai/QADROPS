@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:db": "vitest run src/lib/db/pglite-migrations.integration.test.ts src/lib/domain/commercial.integration.test.ts",
     "db:check": "tsx scripts/check-database.ts",
+    "audit:prod": "tsx scripts/audit-production.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "cf:build": "opennextjs-cloudflare build",

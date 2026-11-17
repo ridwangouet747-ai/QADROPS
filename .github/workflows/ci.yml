@@ -63,5 +63,6 @@ jobs:
       - name: Build de production
         run: npm run build
 
+      # Exceptions datées et justifiées : src/lib/security/dependency-audit.ts (accord du propriétaire requis).
       - name: Audit des dépendances de production (échec à partir de « high »)
-        run: npm audit --omit=dev --audit-level=high
+        run: npm run audit:prod
