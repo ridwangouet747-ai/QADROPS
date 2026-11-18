@@ -273,6 +273,16 @@ Détail et commandes : `docs/engineering/mission-16-securite.md`. Tests : `src/t
 
 ### 11.6 Inscriptions limitées en production (2026-11-13)
 
+> **Mise à jour du 2026-11-18 : le code `QADR-` est l'autorisation d'inscription.** Quand un code commercial est
+> exigé (`accessCodeRequired()`, mode `manual_code` sur tout déploiement, donc la production actuelle), la liste
+> `QADR_REGISTRATION_ALLOWLIST` n'est **plus consultée** : un laissez-passer valide (code relu en base : ni
+> utilisé, ni révoqué, ni expiré) ou une invitation par e-mail en attente suffit, et rien d'autre n'ouvre une
+> inscription. Le propriétaire n'a donc plus à ajouter chaque commerçant à une variable Vercel. La liste et
+> `QADR_REGISTRATION` ne servent plus que si aucun code n'est exigé (mode `geniuspay`, développement) ; en
+> production sans code et sans liste, aucune inscription, comme avant. Le code n'est consommé qu'avec le commerce,
+> jamais à la création du compte. Tests : `commercial-sign-up.http.test.ts`. Le texte ci-dessous décrit la règle
+> d'origine, toujours en vigueur hors mode code.
+
 L'offre Vercel Hobby est réservée à l'usage personnel : la production ne doit pas accueillir de commerçants
 tiers. `src/lib/auth/registration.ts` le rend technique. En production Vercel (`VERCEL_ENV=production`), un
 compte ne peut être créé par une requête HTTP (inscription par e-mail, retour Google ou Apple, invitation
@@ -302,7 +312,8 @@ une adresse de la liste peut donner une durée de création. Avant d'ouvrir les 
 faudra mesurer l'écart sur Vercel et, s'il est exploitable, égaliser le refus (par exemple écritures fictives ou
 délai calé sur une création).
 
-**Procédure conseillée pour le propriétaire** : poser `QADR_REGISTRATION_ALLOWLIST` avec sa seule adresse,
+**Procédure conseillée pour le propriétaire** (périmée en mode code depuis le 2026-11-18 : il suffit de générer
+un code dans `/platform`, de le saisir sur `/redeem-code`, puis de s'inscrire) : poser `QADR_REGISTRATION_ALLOWLIST` avec sa seule adresse,
 s'inscrire et créer son commerce, puis **retirer la variable** : la production redevient fermée à toute
 inscription (aucune liste = aucune inscription), sans code supplémentaire. Une préinitialisation par script
 serveur serait possible (`auth.api.signUpEmail` n'est pas visé par la liste) mais demanderait de transmettre le
@@ -319,7 +330,7 @@ adresse, rien ne change (`/api/auth/sign-up/email` de Better Auth).
 | --- | --- |
 | Adresse | `user.email` reste `NULL`, `email_verified = false`. **Aucune adresse n'est fabriquée**, même technique. |
 | Création | `createUsernameAccount` (`lib/domain/username-accounts.ts`) : `user` + compte `credential` dont le mot de passe est haché par Better Auth (`better-auth/crypto`, scrypt), code de secours et audit `account.created_without_email`, dans une seule transaction. Même mécanisme que les employés invités par code (`team-codes.ts`). La session est ouverte par `auth.api.signInUsername` côté serveur (`employee-auth.ts`) : les sessions restent celles de Better Auth. |
-| Barrières | Origine, Turnstile `register`, compteur partagé `auth.sign_up.ip` (le même que l'inscription par e-mail), liste d'inscription en production (`registrationAllowsUsername` : une entrée sans « @ » de `QADR_REGISTRATION_ALLOWLIST` désigne un nom d'utilisateur), laissez-passer du code d'accès commercial quand `accessCodeRequired()`. Un refus de liste ou de code donne `422 SIGN_UP_FAILED`, comme l'inscription par e-mail. |
+| Barrières | Origine, Turnstile `register`, compteur partagé `auth.sign_up.ip` (le même que l'inscription par e-mail), puis laissez-passer du code d'accès commercial quand `accessCodeRequired()` (la liste n'est alors pas consultée, 2026-11-18), sinon liste d'inscription (`registrationAllowsUsername` : une entrée sans « @ » de `QADR_REGISTRATION_ALLOWLIST` désigne un nom d'utilisateur). Un refus de liste ou de code donne `422 SIGN_UP_FAILED`, comme l'inscription par e-mail. |
 | Unicité | `409 username_taken` si le nom existe déjà (compte de commerçant, d'employé ou de la plateforme). Le nom d'utilisateur se choisit à l'écran : il doit pouvoir être signalé comme pris ; le compteur par adresse IP borne l'énumération. |
 | Connexion | `/login`, onglet « Nom d'utilisateur » (`/api/account/sign-in/username`, inchangé). |
 | Commerce | Le compte crée ensuite son commerce sur `/onboarding` comme tout compte ; il en est propriétaire. |

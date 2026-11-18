@@ -140,7 +140,7 @@ type AuthOptions = {
   turnstile?: { secret?: string; siteKey?: string; fetcher?: typeof fetch };
   /** Connexions sociales configurées (`socialProviders()` de lib/env), aucune par défaut. */
   social?: ReturnType<typeof configuredSocialProviders>;
-  /** Qui peut créer un compte par requête HTTP (`registration.ts`) ; ouvert par défaut. */
+  /** Liste d'inscription (`registration.ts`), consultée seulement quand aucun code commercial n'est exigé ; ouverte par défaut. */
   registration?: RegistrationPolicy;
   /** Code d'accès commercial exigé à l'inscription ; lu dans l'environnement à chaque requête par défaut (`commercial/mode.ts`). */
   accessCodeRequired?: () => boolean;
@@ -297,19 +297,18 @@ export function createQadrAuth(options: AuthOptions) {
     // reçoivent aussitôt leur session plateforme. `context.request` n'existe que pour une requête reçue par le
     // gestionnaire HTTP : aucun en-tête envoyé par le client ne peut le fabriquer.
     databaseHooks: {
-      // Usage personnel sous Hobby (registration.ts) : un compte hors liste n'est pas créé, quelle que soit la
-      // route HTTP. Le refus est levé en 422 FAILED_TO_CREATE_USER (un simple `false` donnerait 400), puis rendu
-      // générique par le hook `after` : même statut et même corps qu'une adresse déjà inscrite.
+      // Qui peut créer un compte par requête HTTP (registration.ts). Mode code (commercial/mode.ts) : le code
+      // commercial vérifié est l'autorisation (laissez-passer en cours de validité, code toujours utilisable en
+      // base) ou, à défaut, une invitation par e-mail en attente pour cette adresse ; la liste n'est pas consultée.
+      // Sans code exigé : la liste d'inscription. Le refus est levé en 422 FAILED_TO_CREATE_USER (un simple
+      // `false` donnerait 400), puis rendu générique par le hook `after` : même statut et même corps qu'une
+      // adresse déjà inscrite.
       user: { create: { before: async (created, context) => {
-        if (context?.request && !registrationAllows(registration, created.email)) {
-          throw new APIError("UNPROCESSABLE_ENTITY", { message: "FAILED_TO_CREATE_USER", code: "FAILED_TO_CREATE_USER" });
-        }
-        // Modèle commercial du 2026-11-16 (commercial/mode.ts) : sans code d'accès vérifié (laissez-passer en
-        // cours de validité, code toujours utilisable en base) ni invitation par e-mail en attente pour cette
-        // adresse, aucun compte n'est créé par requête HTTP. Même refus générique que ci-dessus.
-        if (context?.request && (options.accessCodeRequired ?? accessCodeRequired)() && !(await signUpHasAccessRight(db, context.request.headers, created.email))) {
-          throw new APIError("UNPROCESSABLE_ENTITY", { message: "FAILED_TO_CREATE_USER", code: "FAILED_TO_CREATE_USER" });
-        }
+        if (!context?.request) return;
+        const allowed = (options.accessCodeRequired ?? accessCodeRequired)()
+          ? await signUpHasAccessRight(db, context.request.headers, created.email)
+          : registrationAllows(registration, created.email);
+        if (!allowed) throw new APIError("UNPROCESSABLE_ENTITY", { message: "FAILED_TO_CREATE_USER", code: "FAILED_TO_CREATE_USER" });
       } } },
       session: { create: { before: async (created, context) => {
         if (context?.request && await isActivePlatformOwner(db, created.userId)) return false;

@@ -100,8 +100,7 @@ effacés du poste ; aucune valeur n'a été écrite dans le dépôt.
 
 ## L. Limites et actions du propriétaire
 
-1. **Production sur liste fermée** : en production, une inscription par nom d'utilisateur est refusée tant que ce nom
-   n'est pas dans `QADR_REGISTRATION_ALLOWLIST` (ou `QADR_REGISTRATION=open`), comme pour une adresse e-mail.
+1. ~~**Production sur liste fermée**~~ : levé le même jour (§ M) ; en mode code, un code `QADR-` valide suffit.
 2. **Code de secours perdu** : un compte sans e-mail qui perd mot de passe et code n'a aucune récupération ; c'est
    voulu (pas de réinitialisation par téléphone ni par un employé). Une procédure d'assistance vérifiée reste à définir.
 3. **Next.js 16.4.6** (fait le 2026-11-18, `d195585`, accord du propriétaire) : correctif des deux alertes modérées
@@ -112,3 +111,24 @@ effacés du poste ; aucune valeur n'a été écrite dans le dépôt.
    Turnstile réel, imprimante réelle, vrai téléphone.
 5. Bloquants hérités : offre Vercel Hobby, offre Neon Free sans sauvegarde planifiée, domaine et clés Resend/Turnstile
    de production, exception `picomatch` jusqu'au 2026-12-17.
+
+## M. Suite : le code `QADR-` autorise l'inscription (2026-11-18)
+
+Constat : en production, une inscription munie d'un code valide échouait (« Le compte n'a pas pu être créé ») parce
+que `QADR_REGISTRATION_ALLOWLIST` n'était pas posée : la liste s'ajoutait au code au lieu d'être remplacée par lui.
+
+| Point | Réalisation |
+| --- | --- |
+| Règle | Mode code (`accessCodeRequired()`, mode `manual_code` sur tout déploiement) : laissez-passer valide, code relu en base (ni utilisé, ni révoqué, ni expiré), ou invitation par e-mail en attente ; la liste n'est pas consultée. Sans code exigé (mode `geniuspay`, développement) : liste d'origine, production fermée sans elle |
+| Fichiers | `lib/auth/registration.ts` (règle documentée), `lib/auth/server.ts` (`databaseHooks.user.create.before`), `app/api/account/sign-up/username/route.ts` |
+| Inchangé | Turnstile, origine, compteurs `signUpIp` et essais de code (10/15 min), HMAC des codes, usage unique (consommé avec le commerce, jamais à la création du compte), expiration, révocation, idempotence de la création du commerce, codes `EQP-`, accès plateforme (`getPlatformContext`, compte de départ par `QADR_OWNER_*`) |
+| Tests | `commercial-sign-up.http.test.ts` (11 cas, production simulée sans liste) ; contre l'ancien code, 8 échouent avec l'erreur constatée. Suite complète : 114 fichiers, 1003 réussis, 10 ignorés, 0 échec |
+
+Variables : `QADR_REGISTRATION_ALLOWLIST` et `QADR_REGISTRATION` sont **inutiles en mode code** (aucune n'est posée en
+production, rien à retirer) ; elles restent lues en mode `geniuspay`. `QADR_CODE_SECRET` **n'est pas posée** en
+production : les codes et laissez-passer utilisent le repli `BETTER_AUTH_SECRET` et fonctionnent ; la poser plus tard
+rendrait caducs les codes non utilisés et les laissez-passer en cours (`vercel-environments.md`).
+
+Limite : un même laissez-passer (2 h) peut ouvrir plusieurs comptes tant que son code n'a pas servi à un commerce ;
+un seul commerce s'ouvre avec ce code (test 10 bis de `commercial-access-codes.http.test.ts`), les autres comptes
+restent sans commerce.
