@@ -170,6 +170,7 @@ Inventaire tiré de toutes les lectures de `process.env` dans `apps/web` (schém
 Pourquoi un domaine fixe pour les *Preview* :
 - Better Auth n'accepte que l'origine `BETTER_AUTH_URL` (`trustedOrigins`). Les adresses aléatoires `*.vercel.app` ne permettent donc pas de se connecter.
 - Turnstile vérifie le nom de domaine.
+- En **Production** (2026-11-18), les autres adresses du projet (ex. `web-qadragency.vercel.app`) renvoient chaque page en 307 vers celle de `BETTER_AUTH_URL` (`lib/canonical-host.ts`), sauf `/api/*` et `/_next/*`.
 - Sur Vercel, `NODE_ENV` vaut `production` **aussi en Preview**. Les clés de test Turnstile y sont donc refusées : il faut une vraie clé Turnstile qui autorise le domaine de test.
 
 ---

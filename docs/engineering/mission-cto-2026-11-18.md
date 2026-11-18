@@ -155,3 +155,23 @@ compte Super Admin et consommait le code.
 Si le propriétaire est allé au bout de l'assistant avant la correction, un commerce rattaché au compte Super Admin
 existe en production et son code est consommé ; il n'est plus accessible par la session de la console. Non vérifié en
 base (connecteur Neon déconnecté) ; aucune suppression faite.
+
+## O. Suite : une seule adresse de production (2026-11-18)
+
+Constat du propriétaire : sur `https://web-qadragency.vercel.app/redeem-code`, le contrôle anti-robot affichait « La
+vérification de sécurité n'a pas pu se charger ». Les deux adresses servent le même déploiement, mais seule
+`web-phi-beryl-45.vercel.app` est l'adresse officielle :
+
+| Contrôle | Comportement sur `web-qadragency.vercel.app` (constaté) |
+| --- | --- |
+| Widget Turnstile Cloudflare (`qadr-ops-production-vercel`) | domaines autorisés : `web-phi-beryl-45.vercel.app` seul, donc erreur 110200 (domaine refusé) |
+| Vérification Turnstile côté serveur | nom d'hôte attendu = celui de `BETTER_AUTH_URL` (`lib/auth/server.ts`, `lib/commercial/public-guard.ts`) |
+| Better Auth | `403 INVALID_ORIGIN` pour l'origine `web-qadragency`, `200` pour `web-phi-beryl-45` |
+
+Correction : `lib/canonical-host.ts`, branché dans `next.config.ts` (`redirects`). En production Vercel seulement,
+toute page demandée sous un autre nom est renvoyée en 307 vers l'adresse de `BETTER_AUTH_URL`, chemin et paramètres
+conservés. `/api/*` (crons, webhooks) et `/_next/*` ne sont jamais redirigés. Aucun réglage Cloudflare ni Vercel
+modifié. Tests : `canonical-host.test.ts`.
+
+Pour passer plus tard à un domaine propre : changer `BETTER_AUTH_URL` (et `NEXT_PUBLIC_AUTH_URL` si renseignée),
+ajouter le domaine au widget Turnstile, redéployer ; la redirection suit d'elle-même.
