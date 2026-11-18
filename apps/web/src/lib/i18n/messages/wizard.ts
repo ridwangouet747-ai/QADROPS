@@ -34,6 +34,8 @@ export const wizardFr = {
     createFailed: "Le commerce n’a pas pu être créé. Vos informations sont conservées : réessayez.",
     network: "Pas de connexion. Vos informations sont conservées : réessayez dès que le réseau revient.",
     summary: "Corrigez les champs signalés pour continuer.",
+    username: "Nom d’utilisateur : 3 à 30 caractères, lettres sans accent, chiffres, point ou tiret bas.",
+    usernameTaken: "Ce nom d’utilisateur est déjà pris. Choisissez-en un autre.",
   },
   welcome: { title: "Bienvenue dans Qadr Ops", body: "{business} est ouvert. Votre tableau de bord vous attend.", redirecting: "Ouverture du tableau de bord…", bodyPending: "{business} est créé. Pour ouvrir votre espace de gestion, choisissez une formule ou saisissez un code d’accès.", redirectingPending: "Ouverture de la page d’abonnement…", haveCode: "J’ai un code d’accès Qadr Agency" },
   scene: {
@@ -93,6 +95,8 @@ export const wizardEn: WizardMessages = {
     createFailed: "The business could not be created. Your details are kept: try again.",
     network: "No connection. Your details are kept: try again when the network is back.",
     summary: "Fix the highlighted fields to continue.",
+    username: "Username: 3 to 30 characters, unaccented letters, digits, dot or underscore.",
+    usernameTaken: "This username is already taken. Choose another one.",
   },
   welcome: { title: "Welcome to Qadr Ops", body: "{business} is open. Your dashboard is waiting.", redirecting: "Opening your dashboard…", bodyPending: "{business} has been created. To open your workspace, choose a plan or enter an access code.", redirectingPending: "Opening the subscription page…", haveCode: "I have a Qadr Agency access code" },
   scene: {
@@ -149,6 +153,8 @@ export const wizardAr: WizardMessages = {
     createFailed: "تعذّر إنشاء المتجر. بياناتك محفوظة: أعد المحاولة.",
     network: "لا يوجد اتصال. بياناتك محفوظة: أعد المحاولة عند عودة الشبكة.",
     summary: "صحّح الحقول المشار إليها للمتابعة.",
+    username: "اسم المستخدم: من 3 إلى 30 حرفًا، حروف لاتينية دون علامات، أرقام، نقطة أو شرطة سفلية.",
+    usernameTaken: "اسم المستخدم هذا مستخدم بالفعل. اختر اسمًا آخر.",
   },
   welcome: { title: "مرحباً بك في Qadr Ops", body: "{business} مفتوح الآن. لوحة التحكم بانتظارك.", redirecting: "جارٍ فتح لوحة التحكم…", bodyPending: "تم إنشاء {business}. لفتح مساحة الإدارة، اختر باقة أو أدخل رمز دخول.", redirectingPending: "جارٍ فتح صفحة الاشتراك…", haveCode: "لديّ رمز دخول من Qadr Agency" },
   scene: {

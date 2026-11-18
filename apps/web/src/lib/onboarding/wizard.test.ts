@@ -9,9 +9,21 @@ const png = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47]).toStr
 
 describe("validation de chaque étape", () => {
   it("compte : nom, e-mail, mot de passe de 8 caractères et confirmation identique", () => {
-    expect(accountSchema.safeParse({ name: "Awa", email: "awa@qadr.test", password: "motdepasse", confirm: "motdepasse" }).success).toBe(true);
-    const errors = accountSchema.safeParse({ name: "A", email: "pas-un-email", password: "court", confirm: "autre" }).error!.issues.map((issue) => issue.message);
+    expect(accountSchema.safeParse({ name: "Awa", email: "awa@qadr.test", username: "", password: "motdepasse", confirm: "motdepasse" }).success).toBe(true);
+    const errors = accountSchema.safeParse({ name: "A", email: "pas-un-email", username: "", password: "court", confirm: "autre" }).error!.issues.map((issue) => issue.message);
     expect(errors).toEqual(expect.arrayContaining(["wizard.errors.nameShort", "wizard.errors.email", "wizard.errors.passwordShort", "wizard.errors.passwordMismatch"]));
+  });
+
+  it("compte sans e-mail : adresse facultative, nom d'utilisateur alors exigé (3 à 30 caractères a-z 0-9 . _)", () => {
+    const base = { name: "Awa", email: "", password: "motdepasse", confirm: "motdepasse" };
+    expect(accountSchema.safeParse({ ...base, username: "awa.kone" }).success).toBe(true);
+    for (const username of ["", "ab", "awa kone", "awa@kone", "a".repeat(31), "awà"]) {
+      const result = accountSchema.safeParse({ ...base, username });
+      expect(result.success, username).toBe(false);
+      expect(result.error!.issues.map((issue) => issue.message)).toContain("wizard.errors.username");
+    }
+    // Avec une adresse, le nom d'utilisateur n'est pas demandé.
+    expect(accountSchema.safeParse({ ...base, email: "awa@qadr.test", username: "" }).success).toBe(true);
   });
 
   it("commerce : nom, activité et type de commerce obligatoires", () => {

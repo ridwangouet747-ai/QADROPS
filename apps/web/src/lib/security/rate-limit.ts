@@ -50,6 +50,12 @@ export const rateRules = {
   passwordChangeAccount: { name: "auth.change_password.account", limit: 5, windowMs: 15 * MINUTE },
   passwordChangeIp: { name: "auth.change_password.ip", limit: 20, windowMs: 15 * MINUTE },
   /**
+   * Récupération d'un compte sans e-mail par code de secours (`/api/account/recover`, 2026-11-17). Le compte visé
+   * (nom d'utilisateur) est protégé strictement : 5 essais par quart d'heure, rendus si la récupération réussit.
+   */
+  recoveryCodeIp: { name: "auth.recovery.ip", limit: 20, windowMs: 15 * MINUTE },
+  recoveryCodeAccount: { name: "auth.recovery.account", limit: 5, windowMs: 15 * MINUTE },
+  /**
    * Codes d'accès commerciaux et codes d'invitation d'employés (2026-11-16). Chaque tentative est comptée puis
    * rendue si le code est reconnu : seuls les échecs restent. Par adresse IP, par compte connecté, et au total
    * (essais répartis sur beaucoup d'adresses).

@@ -160,7 +160,7 @@ export function LoginForm() {
         <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-2">
             <label htmlFor="login-password" className="text-sm font-semibold text-ink">{t("auth.password")}</label>
-            {mode === "email" && <Link href="/forgot-password" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>}
+            <Link href={mode === "email" ? "/forgot-password" : "/recover-account"} className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>
           </div>
           <PasswordInput id="login-password" value={password} onChange={setPassword} autoComplete="current-password" />
         </div>
@@ -171,22 +171,80 @@ export function LoginForm() {
   );
 }
 
+/** Nom d'utilisateur saisi : mêmes règles que le serveur (usernameSchema), en minuscules. */
+export const cleanUsername = (value: string) => value.trim().toLowerCase();
+
+/** Appel JSON d'une route publique protégée par Turnstile : statut et code d'erreur stable, 0 si le réseau manque. */
+export async function postProtected(path: string, token: string | null, body: Record<string, unknown>) {
+  try {
+    const response = await fetch(path, { method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...(token ? { [turnstileHeader]: token } : {}) }, body: JSON.stringify(body) });
+    const payload = await response.json().catch(() => ({})) as { code?: string; recoveryCode?: string };
+    return { status: response.status, code: payload.code, recoveryCode: payload.recoveryCode };
+  } catch {
+    return { status: 0, code: undefined, recoveryCode: undefined };
+  }
+}
+
+/**
+ * Code de secours montré une seule fois (compte sans e-mail, mission CTO du 2026-11-17, § 7). Le bouton pour
+ * continuer reste inactif tant que le titulaire n'a pas confirmé l'avoir noté.
+ */
+export function RecoveryCodeNotice({ code, title, intro, action, onContinue }: { code: string; title: string; intro: string; action: string; onContinue: () => void }) {
+  return <AuthShell title={title} intro={intro}><RecoveryCodePanel code={code} action={action} onContinue={onContinue} /></AuthShell>;
+}
+
+/** Contenu de l'affichage du code de secours, sans cadre de page (réutilisé par l'inscription en cinq étapes). */
+export function RecoveryCodePanel({ code, action, onContinue }: { code: string; action: string; onContinue: () => void }) {
+  const { t } = useI18n();
+  const [noted, setNoted] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+      <div className="grid gap-4">
+        <p className="m-0 select-all rounded-xl border border-line bg-paper px-4 py-4 text-center font-mono text-[1.15rem] font-bold tracking-[0.12em] text-ink [overflow-wrap:anywhere]" dir="ltr" aria-label={t("auth.recovery.codeLabel")}>{code}</p>
+        <Button type="button" variant="secondary" block icon={<Icon name="clipboard" />}
+          onClick={() => void navigator.clipboard?.writeText(code).then(() => setCopied(true)).catch(() => setCopied(false))}>
+          {copied ? t("auth.recovery.copied") : t("auth.recovery.copy")}
+        </Button>
+        <Alert tone="info">{t("auth.recovery.keepSafe")}</Alert>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-semibold text-ink">
+          <input type="checkbox" className="size-5 accent-brand" checked={noted} onChange={(event) => setNoted(event.target.checked)} />{t("auth.recovery.confirm")}
+        </label>
+        <Button type="button" size="lg" block disabled={!noted} onClick={onContinue}>{action}</Button>
+      </div>
+  );
+}
+
 export function RegisterForm() {
   const { t } = useI18n();
   const router = useRouter();
   const next = safeNext(useSearchParams().get("next"));
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", username: "", password: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const security = useSecurityCheck();
+  // E-mail facultatif (mission CTO du 2026-11-17, § 7) : sans adresse, le compte est identifié par son nom
+  // d'utilisateur ; aucune adresse n'est inventée (user.email reste vide).
+  const withoutEmail = form.email.trim() === "";
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!security.ready) { setError(t("auth.turnstile.required")); return; }
     setBusy(true); setError("");
+    if (withoutEmail) {
+      const result = await postProtected("/api/account/sign-up/username", security.token, { name: form.name.trim(), username: cleanUsername(form.username), password: form.password });
+      if (result.status === 201 && result.recoveryCode) { setRecoveryCode(result.recoveryCode); return; }
+      setError(result.code === "turnstile_failed" ? t("auth.turnstile.failed") : result.code === "username_taken" ? t("auth.register.usernameTaken")
+        : result.status === 429 ? t("auth.register.throttled") : result.status === 400 ? t("auth.register.invalid") : result.status === 0 ? t("errors.generic") : t("auth.register.failedWithoutEmail"));
+      setBusy(false); security.renew(); return;
+    }
     const { error: failure } = await authClient.signUp.email({ name: form.name.trim(), email: form.email.trim(), password: form.password, fetchOptions: securityHeaders(security.token) });
     if (failure) { setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : t("auth.register.failed")); setBusy(false); security.renew(); return; }
     router.push(next ?? "/onboarding");
   };
+  if (recoveryCode) {
+    return <RecoveryCodeNotice code={recoveryCode} title={t("auth.recovery.savedTitle")} intro={t("auth.recovery.savedIntro", { username: cleanUsername(form.username) })}
+      action={t("auth.recovery.continue")} onContinue={() => router.push(next ?? "/onboarding")} />;
+  }
   return (
     <AuthShell title={t("auth.register.title")} intro={t("auth.register.intro")}
       footer={<>{t("auth.register.haveAccount")} <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.register.login")}</Link></>}>
@@ -194,12 +252,54 @@ export function RegisterForm() {
         {error && <Alert tone="danger">{error}</Alert>}
         <SocialButtons next={next} onError={setError} />
         <Field label={t("auth.name")}>{(props) => <Input {...props} dir="auto" required maxLength={100} autoComplete="name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />}</Field>
-        <Field label={t("auth.email")}>{(props) => <Input {...props} type="email" dir="ltr" required autoComplete="email" inputMode="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />}</Field>
+        <Field label={t("auth.register.emailOptional")} hint={t("auth.register.emailHint")}>{(props) => <Input {...props} type="email" dir="ltr" autoComplete="email" inputMode="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />}</Field>
+        {withoutEmail && (
+          <Field label={t("access.signIn.username")} hint={t("auth.register.usernameHint")}>{(props) => <Input {...props} dir="ltr" required minLength={3} maxLength={30} pattern="[A-Za-z0-9._]+" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />}</Field>
+        )}
         <Field label={t("auth.password")} hint={t("auth.passwordHint")}>
           {(props) => <PasswordInput id={props.id} describedBy={props["aria-describedby"]} value={form.password} onChange={(password) => setForm({ ...form, password })} autoComplete="new-password" />}
         </Field>
         <TurnstileWidget action="register" onToken={security.setToken} resetKey={security.resetKey} />
         <Button type="submit" size="lg" block loading={busy} disabled={!security.ready}>{busy ? t("auth.register.submitting") : t("auth.register.submit")}</Button>
+      </form>
+    </AuthShell>
+  );
+}
+
+/** Mot de passe oublié sans e-mail : nom d'utilisateur + code de secours + nouveau mot de passe (page /recover-account). */
+export function RecoverAccountForm() {
+  const { t } = useI18n();
+  const router = useRouter();
+  const [form, setForm] = useState({ username: "", code: "", password: "" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [nextCode, setNextCode] = useState<string | null>(null);
+  const security = useSecurityCheck();
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!security.ready) { setError(t("auth.turnstile.required")); return; }
+    setBusy(true); setError("");
+    const result = await postProtected("/api/account/recover", security.token, { username: cleanUsername(form.username), recoveryCode: form.code, newPassword: form.password });
+    if (result.status === 200 && result.recoveryCode) { setNextCode(result.recoveryCode); return; }
+    setError(result.code === "turnstile_failed" ? t("auth.turnstile.failed") : result.status === 429 ? t("auth.recovery.throttled") : result.status === 401 ? t("auth.recovery.failed") : result.status === 400 ? t("auth.recovery.invalid") : t("errors.generic"));
+    setBusy(false); security.renew();
+  };
+  if (nextCode) {
+    return <RecoveryCodeNotice code={nextCode} title={t("auth.recovery.doneTitle")} intro={t("auth.recovery.doneIntro")} action={t("auth.recovery.toLogin")}
+      onContinue={() => router.push("/login?mode=username")} />;
+  }
+  return (
+    <AuthShell title={t("auth.recovery.title")} intro={t("auth.recovery.intro")}
+      footer={<Link href="/login?mode=username" className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.forgot.back")}</Link>}>
+      <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
+        {error && <Alert tone="danger">{error}</Alert>}
+        <Field label={t("access.signIn.username")}>{(props) => <Input {...props} dir="ltr" required minLength={3} maxLength={30} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />}</Field>
+        <Field label={t("auth.recovery.codeLabel")} hint={t("auth.recovery.codeHint")}>{(props) => <Input {...props} dir="ltr" required maxLength={64} autoComplete="one-time-code" autoCapitalize="characters" autoCorrect="off" spellCheck={false} className="font-mono uppercase" value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} />}</Field>
+        <Field label={t("auth.recovery.newPassword")} hint={t("auth.passwordHint")}>
+          {(props) => <PasswordInput id={props.id} describedBy={props["aria-describedby"]} value={form.password} onChange={(password) => setForm({ ...form, password })} autoComplete="new-password" />}
+        </Field>
+        <TurnstileWidget action="password-reset" onToken={security.setToken} resetKey={security.resetKey} />
+        <Button type="submit" size="lg" block loading={busy} disabled={!security.ready}>{busy ? t("auth.recovery.submitting") : t("auth.recovery.submit")}</Button>
       </form>
     </AuthShell>
   );
@@ -234,7 +334,8 @@ export function ForgotPasswordForm() {
   };
   return (
     <AuthShell title={t("auth.forgot.title")} intro={available ? t("auth.forgot.intro") : undefined}
-      footer={<Link href="/login" className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.forgot.back")}</Link>}>
+      footer={<><Link href="/login" className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.forgot.back")}</Link>
+        <span className="block">{t("auth.recovery.withoutEmail")} <Link href="/recover-account" className="inline-flex min-h-11 items-center font-semibold text-brand-strong no-underline">{t("auth.recovery.forgotLink")}</Link></span></>}>
       {available === null ? <p className="m-0 text-sm text-fg-muted">{t("common.loading")}</p>
         : !available ? <Alert tone="info">{t("auth.forgot.unavailable")}</Alert>
         : sent ? <Alert tone="success">{t("auth.forgot.sent")}</Alert>

@@ -105,6 +105,18 @@ export const twoFactor = pgTable("two_factor", {
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
 }, (t) => [uniqueIndex("two_factor_user_unique").on(t.userId)]);
 /**
+ * Code de secours d'un compte (2026-11-17, docs/authentication.md § 12) : seul moyen de retrouver l'accès à un
+ * compte créé sans adresse e-mail. Le code n'est montré qu'une fois ; seule son empreinte (scrypt de Better Auth,
+ * sel propre) est gardée, indépendante de tout secret du serveur. Une ligne par compte ; usage unique (remplacé à
+ * chaque récupération). Pas de `business_id` : la ligne appartient au compte, pas à un commerce.
+ */
+export const accountRecoveryCode = pgTable("account_recovery_code", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  codeHash: text("code_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+});
+/**
  * Limitation des tentatives partagée entre toutes les instances (mission 14, `lib/security/rate-limit.ts`) :
  * un compteur par clé et par fenêtre fixe, incrémenté atomiquement (INSERT … ON CONFLICT … RETURNING).
  * La clé est une empreinte HMAC (jamais d'adresse IP ni d'e-mail en clair). Purge par le cron.

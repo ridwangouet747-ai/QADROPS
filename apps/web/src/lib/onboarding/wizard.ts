@@ -17,12 +17,20 @@ import { LOGO_MAX_CHARS } from "@/lib/business-logo-limits";
 
 const logoPattern = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 
+/**
+ * Compte de l'étape 1. L'adresse e-mail est facultative (mission CTO du 2026-11-17, § 7) : vide, le compte est
+ * identifié par un nom d'utilisateur (mêmes règles que `usernameSchema` côté serveur) et aucune adresse n'est
+ * fabriquée. Le serveur revalide tout.
+ */
 export const accountSchema = z.object({
   name: z.string().trim().min(2, "wizard.errors.nameShort").max(100, "wizard.errors.nameShort"),
-  email: z.string().trim().email("wizard.errors.email").max(254, "wizard.errors.email"),
+  email: z.string().trim().max(254, "wizard.errors.email")
+    .refine((value) => value === "" || z.string().email().safeParse(value).success, "wizard.errors.email"),
+  username: z.string().trim(),
   password: z.string().min(8, "wizard.errors.passwordShort").max(128, "wizard.errors.passwordShort"),
   confirm: z.string(),
-}).refine((value) => value.password === value.confirm, { path: ["confirm"], message: "wizard.errors.passwordMismatch" });
+}).refine((value) => value.password === value.confirm, { path: ["confirm"], message: "wizard.errors.passwordMismatch" })
+  .refine((value) => value.email !== "" || /^[a-z0-9._]{3,30}$/i.test(value.username), { path: ["username"], message: "wizard.errors.username" });
 
 export const identitySchema = z.object({
   businessName: z.string().trim().min(2, "wizard.errors.businessName").max(120, "wizard.errors.businessName"),

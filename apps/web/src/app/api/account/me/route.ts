@@ -9,6 +9,6 @@ export async function GET(request: Request) {
   try {
     const context = await getAccountContext(request.headers);
     const overview = await getAccountOverview(context.db, context.userId, context.activeBusinessId);
-    return new Response(jsonSafe({ user: { id: context.userId, email: context.email }, ...overview }), { headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
+    return new Response(jsonSafe({ user: { id: context.userId, email: context.email, username: context.username }, ...overview }), { headers: { "content-type": "application/json", "cache-control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }

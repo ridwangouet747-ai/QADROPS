@@ -104,7 +104,7 @@ export const accessFr = {
     withUsername: "Nom d’utilisateur",
     mode: "Se connecter avec",
     username: "Nom d’utilisateur",
-    employeeHint: "Employé invité par code : connectez-vous avec votre nom d’utilisateur.",
+    employeeHint: "Compte sans e-mail ou employé invité par code : connectez-vous avec votre nom d’utilisateur.",
   },
   team: {
     title: "Codes d’invitation",
@@ -248,7 +248,7 @@ export const accessEn: AccessMessages = {
     withUsername: "Username",
     mode: "Sign in with",
     username: "Username",
-    employeeHint: "Employee invited with a code: sign in with your username.",
+    employeeHint: "Account without email or employee invited with a code: sign in with your username.",
   },
   team: {
     title: "Invite codes",
@@ -389,7 +389,7 @@ export const accessAr: AccessMessages = {
     withUsername: "اسم المستخدم",
     mode: "تسجيل الدخول بواسطة",
     username: "اسم المستخدم",
-    employeeHint: "موظف مدعو برمز: سجّل الدخول باسم المستخدم.",
+    employeeHint: "حساب دون بريد إلكتروني أو موظف مدعو برمز: سجّل الدخول باسم المستخدم.",
   },
   team: {
     title: "رموز الدعوة",

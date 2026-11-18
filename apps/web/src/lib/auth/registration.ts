@@ -29,3 +29,15 @@ export function registrationAllows(policy: RegistrationPolicy, email: unknown): 
   if (policy.mode === "open") return true;
   return typeof email === "string" && policy.emails.has(email.trim().toLowerCase());
 }
+
+/**
+ * Inscription sans e-mail (2026-11-17, docs/authentication.md § 12) : une entrée de la liste qui ne contient pas
+ * « @ » désigne un nom d'utilisateur (casse ignorée). Une adresse e-mail de la liste n'ouvre jamais un nom
+ * d'utilisateur, et inversement.
+ */
+export function registrationAllowsUsername(policy: RegistrationPolicy, username: unknown): boolean {
+  if (policy.mode === "open") return true;
+  if (typeof username !== "string") return false;
+  const name = username.trim().toLowerCase();
+  return name.length > 0 && !name.includes("@") && policy.emails.has(name);
+}

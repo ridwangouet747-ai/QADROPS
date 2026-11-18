@@ -307,3 +307,53 @@ s'inscrire et créer son commerce, puis **retirer la variable** : la production 
 inscription (aucune liste = aucune inscription), sans code supplémentaire. Une préinitialisation par script
 serveur serait possible (`auth.api.signUpEmail` n'est pas visé par la liste) mais demanderait de transmettre le
 mot de passe au script ; la procédure ci-dessus l'évite.
+
+## 12. Compte sans adresse e-mail et code de secours (mission CTO du 2026-11-17, § 7)
+
+L'adresse e-mail est **facultative** à l'inscription. Sur `/register`, le champ s'intitule « E-mail
+(facultatif) » ; s'il reste vide, le formulaire (parcours en cinq étapes, `OnboardingWizard`, étape « Compte ») demande un nom d'utilisateur (3 à 30 caractères : lettres sans
+accent, chiffres, point, tiret bas ; casse ignorée) et appelle `POST /api/account/sign-up/username`. Avec une
+adresse, rien ne change (`/api/auth/sign-up/email` de Better Auth).
+
+| Élément | Règle |
+| --- | --- |
+| Adresse | `user.email` reste `NULL`, `email_verified = false`. **Aucune adresse n'est fabriquée**, même technique. |
+| Création | `createUsernameAccount` (`lib/domain/username-accounts.ts`) : `user` + compte `credential` dont le mot de passe est haché par Better Auth (`better-auth/crypto`, scrypt), code de secours et audit `account.created_without_email`, dans une seule transaction. Même mécanisme que les employés invités par code (`team-codes.ts`). La session est ouverte par `auth.api.signInUsername` côté serveur (`employee-auth.ts`) : les sessions restent celles de Better Auth. |
+| Barrières | Origine, Turnstile `register`, compteur partagé `auth.sign_up.ip` (le même que l'inscription par e-mail), liste d'inscription en production (`registrationAllowsUsername` : une entrée sans « @ » de `QADR_REGISTRATION_ALLOWLIST` désigne un nom d'utilisateur), laissez-passer du code d'accès commercial quand `accessCodeRequired()`. Un refus de liste ou de code donne `422 SIGN_UP_FAILED`, comme l'inscription par e-mail. |
+| Unicité | `409 username_taken` si le nom existe déjà (compte de commerçant, d'employé ou de la plateforme). Le nom d'utilisateur se choisit à l'écran : il doit pouvoir être signalé comme pris ; le compteur par adresse IP borne l'énumération. |
+| Connexion | `/login`, onglet « Nom d'utilisateur » (`/api/account/sign-in/username`, inchangé). |
+| Commerce | Le compte crée ensuite son commerce sur `/onboarding` comme tout compte ; il en est propriétaire. |
+
+### 12.1 Mot de passe oublié sans e-mail : code de secours
+
+- À l'inscription sans e-mail, un **code de secours** `SEC-XXXX-XXXX-XXXX-XXXX` (16 symboles de l'alphabet sans
+  0/O ni 1/I/L, environ 79 bits, tirés par CSPRNG) est montré **une seule fois**, avec un bouton pour le copier ;
+  il faut cocher « J'ai noté mon code » pour continuer. Il n'est jamais renvoyé ni relu.
+- Il est stocké haché comme un mot de passe (scrypt de Better Auth) dans `account_recovery_code` (migration
+  0028, une ligne par compte, sans `business_id`, donc hors RLS), indépendamment de tout secret du serveur :
+  changer `BETTER_AUTH_SECRET` ou `QADR_CODE_SECRET` ne le rend pas caduc.
+- `/recover-account` (lien « Mot de passe oublié » de l'onglet nom d'utilisateur, et lien depuis
+  `/forgot-password`) : nom d'utilisateur + code de secours + nouveau mot de passe →
+  `POST /api/account/recover`. Turnstile `password-reset`, compteurs `auth.recovery.ip` (20 / 15 min) et
+  `auth.recovery.account` (5 / 15 min), rendus en cas de succès. Nom inconnu, code faux ou mal formé, compte sans
+  code, propriétaire de la plateforme, compte à second facteur : **même `401 invalid_recovery`**, et le même
+  calcul scrypt (empreinte leurre) pour un nom inconnu.
+- En cas de succès : nouveau mot de passe, **toutes les sessions fermées**, nouveau code de secours (l'ancien ne
+  sert plus, usage unique), audit `account.password_recovered_with_code`. Aucune session n'est ouverte : le
+  titulaire se reconnecte. Deux demandes simultanées avec le même code : une seule réussit (mise à jour
+  conditionnelle sur l'empreinte).
+- Le titulaire connecté peut demander un nouveau code depuis **Réglages** (carte « Code de secours de votre compte »,
+  `components/auth/recovery-code-card.tsx`, affichée seulement pour un compte sans e-mail) : `POST /api/account/recovery-code`,
+  mot de passe actuel exigé, compteur `auth.change_password.account` ; l'ancien code cesse de fonctionner. `GET` dit
+  seulement s'il en a un. Un employé sans e-mail peut aussi s'en créer un : il n'ouvre que son propre compte.
+
+Ce qui n'existe pas, volontairement : aucune récupération par la seule connaissance d'un numéro de téléphone ;
+aucun envoi par Resend (inutile pour ces comptes) ; aucun moyen pour un employé ou un administrateur du commerce
+d'atteindre le compte de son propriétaire (le code n'est remis qu'au titulaire, à l'écran) ; aucune
+réinitialisation par la console de la plateforme. **Code de secours perdu et mot de passe oublié** : le compte ne
+peut pas être récupéré seul. Le propriétaire doit contacter Qadr Agency ; la procédure manuelle (vérification
+d'identité hors ligne, puis intervention en base tracée) n'est pas outillée à ce jour et reste à décider.
+
+Tests : `src/test/account-without-email.http.test.ts` (cas 1 à 12 du mandat : avec et sans e-mail, champ vide,
+adresse mal formée, unicité du nom, connexion, comptes existants, onboarding et création du commerce, code
+d'accès exigé, liste de production, rôles, sessions, déconnexion et reconnexion).

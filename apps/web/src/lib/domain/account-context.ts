@@ -4,7 +4,7 @@ import { assertTrustedOrigin, BusinessContextError } from "./business-context";
 import type { CommercialDatabase } from "./commercial";
 
 /** Contexte d'un utilisateur connecté, avec ou sans commerce actif (onboarding, invitations, sélection). */
-export async function getAccountContext(headers: Headers): Promise<{ auth: QadrAuth; db: CommercialDatabase; userId: string; email: string | null; emailVerified: boolean; activeBusinessId: string | null; sessionId: string }> {
+export async function getAccountContext(headers: Headers): Promise<{ auth: QadrAuth; db: CommercialDatabase; userId: string; email: string | null; username: string | null; emailVerified: boolean; activeBusinessId: string | null; sessionId: string }> {
   assertTrustedOrigin(headers);
   const preview = process.env.QADR_PREVIEW_MODE === "true";
   if (preview && process.env.NODE_ENV !== "development") throw new BusinessContextError("La prévisualisation locale est désactivée hors développement.", 403);
@@ -12,5 +12,5 @@ export async function getAccountContext(headers: Headers): Promise<{ auth: QadrA
   const current = await auth.api.getSession({ headers });
   if (!current) throw new BusinessContextError("Authentification requise.", 401);
   const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : getDatabase();
-  return { auth, db, userId: current.user.id, email: current.user.email ?? null, emailVerified: current.user.emailVerified, activeBusinessId: current.session.activeOrganizationId ?? null, sessionId: current.session.id };
+  return { auth, db, userId: current.user.id, email: current.user.email ?? null, username: (current.user as { username?: string | null }).username ?? null, emailVerified: current.user.emailVerified, activeBusinessId: current.session.activeOrganizationId ?? null, sessionId: current.session.id };
 }

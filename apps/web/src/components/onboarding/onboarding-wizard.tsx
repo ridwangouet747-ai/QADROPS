@@ -10,7 +10,7 @@ import { useGSAP } from "@gsap/react";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { downscaleLogo } from "@/components/auth/account-screens";
-import { PasswordInput, securityHeaders, turnstileRejected } from "@/components/auth/auth-forms";
+import { cleanUsername, PasswordInput, postProtected, RecoveryCodePanel, securityHeaders, turnstileRejected } from "@/components/auth/auth-forms";
 import { TurnstileWidget, turnstileSiteKey } from "@/components/auth/turnstile-widget";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -39,7 +39,7 @@ const stepFields: Record<Exclude<WizardStep, "account" | "review">, (keyof Busin
   identity: ["businessName", "activity", "storeFormat"], details: ["phone", "address"], branding: ["logo", "displayName"],
 };
 const activityIcons: Record<(typeof activities)[number], IconName> = { hardware: "box", phones: "store", general: "cart", clothing: "grid" };
-const emptyAccount: AccountValues = { name: "", email: "", password: "", confirm: "" };
+const emptyAccount: AccountValues = { name: "", email: "", username: "", password: "", confirm: "" };
 
 /** Laissez-passer du code Qadr Agency vérifié sur /redeem-code (2026-11-16), relu sur le serveur. */
 type AccessGate = {
@@ -77,6 +77,8 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const [creationKey, setCreationKey] = useState("");
   const [phase, setPhase] = useState<"form" | "submitting" | "welcome">("form");
   const [error, setError] = useState("");
+  // Compte créé sans e-mail : code de secours montré une seule fois avant de passer à l'étape suivante.
+  const [recovery, setRecovery] = useState<{ code: string; username: string } | null>(null);
   const [restored, setRestored] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
   const [security, setSecurity] = useState<{ token: string | null; resetKey: number }>({ token: null, resetKey: 0 });
@@ -110,6 +112,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const values = useWatch({ control: business.control }) as BusinessValues;
   const accountName = useWatch({ control: account.control, name: "name" });
   const accountEmail = useWatch({ control: account.control, name: "email" });
+  const withoutEmail = (accountEmail ?? "").trim() === "";
   const [accountPassword, accountConfirm] = useWatch({ control: account.control, name: ["password", "confirm"] });
 
   /* Reprise du brouillon et de la session existante. */
@@ -134,8 +137,8 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
         }
         return;
       }
-      const me = await response.json() as { user?: { email?: string } };
-      setSessionEmail(me.user?.email ?? "");
+      const me = await response.json() as { user?: { email?: string | null; username?: string | null } };
+      setSessionEmail(me.user?.email ?? me.user?.username ?? "");
       setStep((current) => (current === "account" ? "identity" : current));
     }).catch(() => undefined);
     // Lecture unique au montage.
@@ -182,6 +185,19 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const submitAccount = account.handleSubmit(async (input) => {
     if (turnstileSiteKey && !security.token) { setError(t("auth.turnstile.required")); return; }
     setPhase("submitting"); setError("");
+    if (input.email.trim() === "") {
+      // Sans adresse e-mail : compte identifié par son nom d'utilisateur (docs/authentication.md § 12).
+      const username = cleanUsername(input.username);
+      const result = await postProtected("/api/account/sign-up/username", security.token, { name: input.name.trim(), username, password: input.password });
+      account.resetField("password"); account.resetField("confirm");
+      setPhase("form");
+      if (result.status === 201 && result.recoveryCode) { setSessionEmail(username); setRecovery({ code: result.recoveryCode, username }); return; }
+      setSecurity((current) => ({ token: null, resetKey: current.resetKey + 1 }));
+      if (result.code === "username_taken") { account.setError("username", { message: "wizard.errors.usernameTaken" }); return; }
+      setError(result.code === "turnstile_failed" ? t("auth.turnstile.failed") : result.status === 0 ? t("wizard.errors.network")
+        : result.status === 429 ? t("auth.register.throttled") : result.status === 400 ? t("auth.register.invalid") : t("auth.register.failedWithoutEmail"));
+      return;
+    }
     const { error: failure } = await authClient.signUp.email({ name: input.name.trim(), email: input.email.trim(), password: input.password, fetchOptions: securityHeaders(security.token) })
       .catch(() => ({ error: { status: 0 } as { status: number; code?: string; message?: string } }));
     // Le mot de passe quitte le formulaire dès la réponse, réussie ou non.
@@ -321,10 +337,24 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
                 <div className="mt-5 rounded-xl border border-line bg-surface p-5 shadow-card sm:p-6">
                   {error && <div className="mb-4"><Alert tone="danger">{error}</Alert></div>}
 
-                  {step === "account" && (
+                  {step === "account" && recovery && (
+                    <div className="grid gap-4">
+                      <div>
+                        <h2 className="m-0 text-lg font-bold text-ink">{t("auth.recovery.savedTitle")}</h2>
+                        <p className="m-0 mt-1 text-sm text-fg-muted">{t("auth.recovery.savedIntro", { username: recovery.username })}</p>
+                      </div>
+                      <RecoveryCodePanel code={recovery.code} action={t("auth.recovery.continue")}
+                        onContinue={() => { setRecovery(null); if (next) { storage.clear(); router.push(next); return; } go("identity"); }} />
+                    </div>
+                  )}
+
+                  {step === "account" && !recovery && (
                     <form method="post" noValidate onSubmit={(event) => void submitAccount(event)} className="grid gap-4">
                       <div data-field><Field label={t("wizard.fields.name")} error={fieldError(accountErrors.name?.message)}>{(props) => <Input {...props} {...account.register("name")} dir="auto" autoComplete="name" maxLength={100} />}</Field></div>
-                      <div data-field><Field label={t("wizard.fields.email")} error={fieldError(accountErrors.email?.message)}>{(props) => <Input {...props} {...account.register("email")} type="email" dir="ltr" autoComplete="email" inputMode="email" />}</Field></div>
+                      <div data-field><Field label={t("auth.register.emailOptional")} hint={t("auth.register.emailHint")} error={fieldError(accountErrors.email?.message)}>{(props) => <Input {...props} {...account.register("email")} type="email" dir="ltr" autoComplete="email" inputMode="email" />}</Field></div>
+                      {withoutEmail && (
+                        <div data-field><Field label={t("access.signIn.username")} hint={t("auth.register.usernameHint")} error={fieldError(accountErrors.username?.message)}>{(props) => <Input {...props} {...account.register("username")} dir="ltr" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={30} />}</Field></div>
+                      )}
                       <div data-field className="grid items-start gap-4 sm:grid-cols-2">
                         <Field label={t("wizard.fields.password")} hint={t("wizard.fields.passwordHint")} error={fieldError(accountErrors.password?.message)}>
                           {(props) => <PasswordInput id={props.id} describedBy={props["aria-describedby"]} invalid={props["aria-invalid"]} autoComplete="new-password" value={account.watch("password")} onChange={(value) => account.setValue("password", value, { shouldValidate: account.formState.isSubmitted })} />}
