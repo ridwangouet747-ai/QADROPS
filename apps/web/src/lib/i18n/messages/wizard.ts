@@ -22,7 +22,7 @@ export const wizardFr = {
   formats: { shop: "Boutique", kiosk: "Kiosque ou étal", wholesale: "Dépôt ou grossiste", other: "Autre" },
   actions: {
     back: "Retour", next: "Continuer", createAccount: "Créer mon compte", creatingAccount: "Création du compte…", create: "Créer mon commerce", creating: "Création…",
-    edit: "Modifier", goDashboard: "Ouvrir mon tableau de bord", choosePlan: "Choisir ma formule", login: "Déjà un compte ?", loginLink: "Se connecter", signedInAs: "Connecté : {email}",
+    edit: "Modifier", goDashboard: "Ouvrir mon tableau de bord", choosePlan: "Choisir ma formule", login: "Déjà un compte ?", loginLink: "Se connecter", signedInAs: "Connecté : {email}", notYou: "Ce n’est pas vous ? Se déconnecter",
   },
   review: { account: "Compte", business: "Commerce", contact: "Coordonnées", branding: "Identité visuelle", none: "Non renseigné", currency: "Montants en francs CFA (XOF)", logoAlt: "Aperçu du logo" },
   errors: {
@@ -83,7 +83,7 @@ export const wizardEn: WizardMessages = {
   formats: { shop: "Shop", kiosk: "Kiosk or stall", wholesale: "Depot or wholesaler", other: "Other" },
   actions: {
     back: "Back", next: "Continue", createAccount: "Create my account", creatingAccount: "Creating account…", create: "Create my business", creating: "Creating…",
-    edit: "Edit", goDashboard: "Open my dashboard", choosePlan: "Choose my plan", login: "Already have an account?", loginLink: "Sign in", signedInAs: "Signed in: {email}",
+    edit: "Edit", goDashboard: "Open my dashboard", choosePlan: "Choose my plan", login: "Already have an account?", loginLink: "Sign in", signedInAs: "Signed in: {email}", notYou: "Not you? Sign out",
   },
   review: { account: "Account", business: "Business", contact: "Contact", branding: "Branding", none: "Not provided", currency: "Amounts in CFA francs (XOF)", logoAlt: "Logo preview" },
   errors: {
@@ -141,7 +141,7 @@ export const wizardAr: WizardMessages = {
   formats: { shop: "متجر", kiosk: "كشك أو بسطة", wholesale: "مستودع أو بيع بالجملة", other: "أخرى" },
   actions: {
     back: "رجوع", next: "متابعة", createAccount: "إنشاء حسابي", creatingAccount: "جارٍ إنشاء الحساب…", create: "إنشاء متجري", creating: "جارٍ الإنشاء…",
-    edit: "تعديل", goDashboard: "فتح لوحة التحكم", choosePlan: "اختيار باقتي", login: "لديك حساب بالفعل؟", loginLink: "تسجيل الدخول", signedInAs: "متصل: {email}",
+    edit: "تعديل", goDashboard: "فتح لوحة التحكم", choosePlan: "اختيار باقتي", login: "لديك حساب بالفعل؟", loginLink: "تسجيل الدخول", signedInAs: "متصل: {email}", notYou: "لست أنت؟ تسجيل الخروج",
   },
   review: { account: "الحساب", business: "المتجر", contact: "العنوان", branding: "الهوية البصرية", none: "غير محدد", currency: "المبالغ بالفرنك الإفريقي (XOF)", logoAlt: "معاينة الشعار" },
   errors: {

@@ -135,3 +135,23 @@ rendrait caducs les codes non utilisés et les laissez-passer en cours (`vercel-
 Limite : un même laissez-passer (2 h) peut ouvrir plusieurs comptes tant que son code n'a pas servi à un commerce ;
 un seul commerce s'ouvre avec ce code (test 10 bis de `commercial-access-codes.http.test.ts`), les autres comptes
 restent sans commerce.
+
+## N. Suite : la session Super Admin n'est jamais une session de commerçant (2026-11-18)
+
+Constat du propriétaire : après avoir généré un code dans `/platform` et l'avoir saisi sur `/redeem-code` dans le même
+navigateur, l'assistant passait directement à « Votre commerce » (« Connecté : » suivi du nom du compte Super Admin),
+sans l'étape « Créez votre compte ». Cause : la connexion de la console ouvre une session Better Auth ordinaire, que
+`/api/account/me` acceptait. Test local (sans rien créer en production) : la même session ouvrait un commerce rattaché au
+compte Super Admin et consommait le code.
+
+| Point | Réalisation |
+| --- | --- |
+| Règle | Un compte à droit plateforme actif est traité comme non connecté dans l'espace commerçant : même 401 qu'une absence de session, rien n'est révélé (`lib/domain/platform-owner-separation.ts`) |
+| Fichiers | `account-context.ts`, `business-context.ts`, `business-page-access.ts` (renvoi vers `/login`), `api/public/access-codes/check` (suite `register`), routes push (`allowPlatformOwner`, partagées avec la console) |
+| Assistant | « Connecté : … » est suivi de « Ce n'est pas vous ? Se déconnecter » (fr/en/ar) : ferme la session et revient à l'étape « Compte » en gardant le brouillon du commerce |
+| Tests | `platform-owner-separation.http.test.ts` (7 cas) ; contre l'ancien code, 4 échouent (me 200, commerce créé, suite `onboarding`, commerce rattaché accessible) |
+| Contournement en attendant | générer le code dans la console, puis l'utiliser dans une fenêtre privée ou un autre navigateur |
+
+Si le propriétaire est allé au bout de l'assistant avant la correction, un commerce rattaché au compte Super Admin
+existe en production et son code est consommé ; il n'est plus accessible par la session de la console. Non vérifié en
+base (connecteur Neon déconnecté) ; aucune suppression faite.

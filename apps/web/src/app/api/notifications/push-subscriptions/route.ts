@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 /** Déconnexion : oublie l'adresse push de ce navigateur. Seule la session compte (avec ou sans commerce actif). */
 export async function DELETE(request: Request) {
   try {
-    const { db, userId } = await getAccountContext(request.headers);
+    const { db, userId } = await getAccountContext(request.headers, { allowPlatformOwner: true });
     return Response.json(await forgetPushEndpoint(db, userId, await parseJsonRequest(request)));
   } catch (error) { return errorResponse(error); }
 }

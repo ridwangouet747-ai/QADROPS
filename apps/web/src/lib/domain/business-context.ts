@@ -6,6 +6,7 @@ import { businessMemberAccess, businessProfile, member } from "@/lib/db/schema";
 import { isTrustedRequest, originRefusal } from "@/lib/security/request-origin";
 import type { CommercialDatabase } from "./commercial";
 import { commercialAccess, subscriptionRequired } from "./commercial-access";
+import { isPlatformOwnerAccount } from "./platform-owner-separation";
 
 export class BusinessContextError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
@@ -53,6 +54,8 @@ export async function getBusinessContext(headers: Headers, options: { allowWitho
   const businessId = authSession.session.activeOrganizationId;
   if (!businessId) throw new BusinessContextError("Sélectionnez d’abord un commerce.", 403);
   const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : getDatabase();
+  // Le compte de la plateforme n'a pas d'espace commerçant (platform-owner-separation.ts) : traité comme sans session.
+  if (await isPlatformOwnerAccount(db, authSession.user.id)) throw new BusinessContextError("Authentification requise.", 401);
   await assertActiveMembership(db, businessId, authSession.user.id);
   if (!options.allowWithoutSubscription && !(await commercialAccess(db, businessId)).open) {
     throw new BusinessContextError(subscriptionRequired.error, 403, subscriptionRequired.code);

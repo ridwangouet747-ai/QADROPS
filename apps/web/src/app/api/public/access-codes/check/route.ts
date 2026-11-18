@@ -7,6 +7,7 @@ import { errorResponse, jsonSafe, parseJsonRequest } from "@/lib/domain/business
 import { CommercialError } from "@/lib/domain/commercial";
 import { checkCommercialCode, recordCommercialCodeRejection } from "@/lib/domain/commercial-codes";
 import { platformClientKey } from "@/lib/domain/platform-auth";
+import { isPlatformOwnerAccount } from "@/lib/domain/platform-owner-separation";
 import { rateRules, refundRateLimit } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
@@ -41,7 +42,9 @@ export async function POST(request: Request) {
 
     let next: "register" | "onboarding" | "renew" = "register";
     let businessName: string | null = null;
-    const current = await (await getAuth()).api.getSession({ headers: request.headers }).catch(() => null);
+    const session = await (await getAuth()).api.getSession({ headers: request.headers }).catch(() => null);
+    // Compte de la plateforme : jamais de suite « onboarding » ; le code sert à créer un nouveau compte commerçant.
+    const current = session && !(await isPlatformOwnerAccount(db, session.user.id)) ? session : null;
     if (current) {
       next = "onboarding";
       const activeId = current.session.activeOrganizationId;

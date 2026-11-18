@@ -18,6 +18,7 @@ import { Alert } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { authClient } from "@/lib/auth/client";
+import { signOutAndResetAnalytics } from "@/lib/auth/logout";
 import { track } from "@/lib/analytics/client";
 import { safeNext } from "@/lib/client/redirect";
 import type { MessageKey } from "@/lib/i18n/translate";
@@ -181,6 +182,19 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
     setError("");
     setStep(target);
   }, [step]);
+
+  /* Session d'un autre compte dans ce navigateur : la fermer et revenir à l'étape « Compte » (le brouillon du commerce est gardé). */
+  const [switching, setSwitching] = useState(false);
+  const switchAccount = useCallback(async () => {
+    setSwitching(true);
+    try {
+      await signOutAndResetAnalytics();
+      if (entry === "onboarding") { router.replace("/register"); return; }
+      setSessionEmail(null);
+      setRecovery(null);
+      go("account");
+    } finally { setSwitching(false); }
+  }, [entry, go, router]);
 
   const submitAccount = account.handleSubmit(async (input) => {
     if (turnstileSiteKey && !security.token) { setError(t("auth.turnstile.required")); return; }
@@ -462,7 +476,11 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
                 </div>
               </div>
               <p className="m-0 mt-5 text-center text-sm text-fg-muted">
-                {sessionEmail ? t("wizard.actions.signedInAs", { email: sessionEmail }) : <>{t("wizard.actions.login")} <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-semibold text-brand-strong no-underline">{t("wizard.actions.loginLink")}</Link></>}
+                {sessionEmail ? <>
+                  {t("wizard.actions.signedInAs", { email: sessionEmail })}
+                  {!recovery && phase !== "submitting" && <>{" "}<button type="button" onClick={() => void switchAccount()} disabled={switching}
+                    className="inline cursor-pointer border-0 bg-transparent p-0 font-semibold text-brand-strong underline-offset-2 hover:underline disabled:opacity-60">{t("wizard.actions.notYou")}</button></>}
+                </> : <>{t("wizard.actions.login")} <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-semibold text-brand-strong no-underline">{t("wizard.actions.loginLink")}</Link></>}
               </p>
             </>
           )}

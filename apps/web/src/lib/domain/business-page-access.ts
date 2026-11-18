@@ -5,6 +5,7 @@ import { getDatabase } from "@/lib/db/client";
 import { isLocalPreview } from "@/lib/preview/mode";
 import { assertActiveMembership } from "./business-context";
 import { commercialAccess } from "./commercial-access";
+import { isPlatformOwnerAccount } from "./platform-owner-separation";
 
 /**
  * Garde serveur des pages de gestion `/business/*` (mission CTO du 2026-11-14). Une URL saisie à la main, un
@@ -20,6 +21,7 @@ export async function requireBusinessPageAccess() {
   const businessId = session.session.activeOrganizationId;
   if (!businessId) redirect("/select-business");
   const db = getDatabase();
+  if (await isPlatformOwnerAccount(db, session.user.id)) redirect("/login");
   const reachable = await assertActiveMembership(db, businessId, session.user.id).then(() => true, () => false);
   if (!reachable) redirect("/select-business");
   if (!(await commercialAccess(db, businessId)).open) redirect("/business/subscription");

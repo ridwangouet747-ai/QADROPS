@@ -11,7 +11,7 @@ export const runtime = "nodejs";
  */
 export async function POST(request: Request) {
   try {
-    const { db, userId, sessionId } = await getAccountContext(request.headers);
+    const { db, userId, sessionId } = await getAccountContext(request.headers, { allowPlatformOwner: true });
     return Response.json(await claimPushEndpoint(db, { userId, sessionId }, await parseJsonRequest(request)), { headers: { "cache-control": "no-store" } });
   } catch (error) { return errorResponse(error); }
 }
