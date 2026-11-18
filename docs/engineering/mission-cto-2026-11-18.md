@@ -123,6 +123,9 @@ que `QADR_REGISTRATION_ALLOWLIST` n'était pas posée : la liste s'ajoutait au c
 | Fichiers | `lib/auth/registration.ts` (règle documentée), `lib/auth/server.ts` (`databaseHooks.user.create.before`), `app/api/account/sign-up/username/route.ts` |
 | Inchangé | Turnstile, origine, compteurs `signUpIp` et essais de code (10/15 min), HMAC des codes, usage unique (consommé avec le commerce, jamais à la création du compte), expiration, révocation, idempotence de la création du commerce, codes `EQP-`, accès plateforme (`getPlatformContext`, compte de départ par `QADR_OWNER_*`) |
 | Tests | `commercial-sign-up.http.test.ts` (11 cas, production simulée sans liste) ; contre l'ancien code, 8 échouent avec l'erreur constatée. Suite complète : 114 fichiers, 1003 réussis, 10 ignorés, 0 échec |
+| Contrôles | typecheck, ESLint, `drizzle-kit check` + `generate` (« No schema changes »), build : sans erreur. CI `44290457578` (`cfad50f`) : succès |
+| Déploiement | avance rapide `1b3f43f..cfad50f` sur `main` ; production `dpl_A4vQct8rbuWyZbFqpmFyKw8RP9HX` **READY** ; pages `/`, `/login`, `/register`, `/redeem-code`, `/join-business`, `/platform/login` : 200 ; inscription sans jeton Turnstile : 400 `turnstile_failed`, aucun compte ; journaux d’erreur : 0. Aucun compte ni code créé en production, donc parcours avec code **non rejoué en production** |
+| Preview | non utilisée : le projet `web` ne construit pas les branches et `qadrops` partage la base de production (interdit) |
 
 Variables : `QADR_REGISTRATION_ALLOWLIST` et `QADR_REGISTRATION` sont **inutiles en mode code** (aucune n'est posée en
 production, rien à retirer) ; elles restent lues en mode `geniuspay`. `QADR_CODE_SECRET` **n'est pas posée** en
