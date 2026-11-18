@@ -104,8 +104,10 @@ effacés du poste ; aucune valeur n'a été écrite dans le dépôt.
    n'est pas dans `QADR_REGISTRATION_ALLOWLIST` (ou `QADR_REGISTRATION=open`), comme pour une adresse e-mail.
 2. **Code de secours perdu** : un compte sans e-mail qui perd mot de passe et code n'a aucune récupération ; c'est
    voulu (pas de réinitialisation par téléphone ni par un employé). Une procédure d'assistance vérifiée reste à définir.
-3. **Next.js 16.4.2** : deux alertes modérées (GHSA-mfr8-8qww-v76h, GHSA-vc7v-qv4w-wrv8) liées à `'use cache'` avec
-   paramètres racine, non utilisé ici. Correctif 16.4.6 à appliquer dans un lot séparé.
+3. **Next.js 16.4.6** (fait le 2026-11-18, `d195585`, accord du propriétaire) : correctif des deux alertes modérées
+   GHSA-mfr8-8qww-v76h et GHSA-vc7v-qv4w-wrv8 (`'use cache'` avec paramètres racine, non utilisé ici). Seuls `next` et
+   ses paquets `@next/*` changent au lockfile ; CI `44259103695` verte, production `dpl_9nDFMgxxZTEc8hXZ9JWqacLTpgq3`
+   READY, pages 200 et 0 erreur dans les journaux.
 4. **Non vérifié** : parcours connectés sur la production (aucun compte de test créé en production, à dessein),
    Turnstile réel, imprimante réelle, vrai téléphone.
 5. Bloquants hérités : offre Vercel Hobby, offre Neon Free sans sauvegarde planifiée, domaine et clés Resend/Turnstile
