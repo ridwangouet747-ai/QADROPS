@@ -19,12 +19,12 @@ const desktop: ScreenSize = { widths: [720, 1440], height: 900 };
 const screenSizes = {
   dashboard: desktop, pos: desktop, products: desktop, stock: desktop, customers: desktop, reports: desktop,
   mobile: { widths: [390, 780], height: 1688 },
-  receipt: { widths: [300, 444], height: 576 },
+  receipt: { widths: [300, 444], height: 648 },
 } as const satisfies Record<string, ScreenSize>;
 
 /* Le ticket arabe est plus haut (libellés sur deux lignes). */
 const localeOverrides: Partial<Record<Locale, Partial<Record<InterfaceScreenKey, ScreenSize>>>> = {
-  ar: { receipt: { widths: [300, 444], height: 612 } },
+  ar: { receipt: { widths: [300, 444], height: 664 } },
 };
 
 export type InterfaceScreenKey = keyof typeof screenSizes;

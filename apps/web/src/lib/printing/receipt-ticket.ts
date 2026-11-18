@@ -51,6 +51,8 @@ export function layoutReceipt(document: ReceiptDocument): TicketLayout {
   if (sale.banner) { text(sale.banner, "center", { bold: true, size: "tall" }); blocks.push({ type: "rule", char: "-" }); }
   pair(labels.ticket, ltr(sale.reference));
   pair(labels.date, ltr(`${sale.dateText} ${sale.timeZoneLabel}`));
+  // Nom du caissier en ligne de texte : c est un nom (parfois en arabe), pas une valeur à isoler de gauche à droite.
+  if (sale.cashier) text(`${labels.cashier} : ${sale.cashier}`);
   blocks.push({ type: "rule", char: "-" });
   for (const line of document.lines) {
     text(line.label);

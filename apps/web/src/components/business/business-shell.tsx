@@ -78,7 +78,8 @@ function BusinessIdentity({ business }: { business: ActiveBusiness | null }) {
       <BusinessLogo name={business.name} logo={business.logo} className="size-10 sm:size-11" />
       <span className="grid min-w-0 leading-tight">
         <strong dir="auto" className="truncate text-[0.98rem] font-bold tracking-[-0.01em] text-ink group-hover:text-brand-strong sm:text-[1.05rem]">{business.name}</strong>
-        <small className="flex items-center gap-1 truncate text-[0.72rem] font-medium text-fg-subtle">{t("shell.poweredBy")}<Icon name="chevronDown" className="size-3.5 shrink-0" /></small>
+        {/* Le texte se tronque seul : la flèche reste visible même quand la place manque (« Géré avec Qadr Ops » à 390 px). */}
+        <small className="flex min-w-0 items-center gap-1 text-[0.72rem] font-medium text-fg-subtle"><span className="truncate">{t("shell.poweredBy")}</span><Icon name="chevronDown" className="size-3.5 shrink-0" /></small>
       </span>
     </Link>
   );

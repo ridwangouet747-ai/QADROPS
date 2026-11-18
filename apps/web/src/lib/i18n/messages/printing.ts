@@ -44,7 +44,7 @@ export const printingFr = {
   arabic: "L’arabe est imprimé en image (mode automatique ou image), comme le logo du commerce. Rien n’a encore été vérifié sur une imprimante réelle : faites une page de test en image.",
   /** Contenu du ticket (écran et imprimante) : un seul jeu de libellés pour les deux rendus. */
   receipt: {
-    ticket: "Ticket", date: "Date", subtotal: "Sous-total", discount: "Remise", total: "TOTAL", due: "Reste à payer", paid: "Encaissé", tendered: "Espèces remises", change: "Monnaie rendue", settlementLabel: "Statut", settlement: { paid: "Payé", partial: "Partiellement payé", credit: "À crédit" },
+    ticket: "Ticket", date: "Date", cashier: "Caissier", subtotal: "Sous-total", discount: "Remise", total: "TOTAL", due: "Reste à payer", paid: "Encaissé", tendered: "Espèces remises", change: "Monnaie rendue", settlementLabel: "Statut", settlement: { paid: "Payé", partial: "Partiellement payé", credit: "À crédit" },
     item: "Article", quantity: "Qté", amount: "Montant", payments: "Paiements",
     paymentStatuses: { pending: "en attente", failed: "échoué", refunded: "remboursé", partially_refunded: "remboursé en partie" },
     banners: { voided: "VENTE ANNULÉE", refunded: "VENTE REMBOURSÉE", partially_refunded: "REMBOURSÉE EN PARTIE" },
@@ -56,7 +56,8 @@ export const printingFr = {
   screen: {
     options: "Options du reçu", width: "Largeur du papier", language: "Langue du ticket", print: "Imprimer ou enregistrer en PDF",
     note: "Aperçu du reçu enregistré. Réimprimer ne crée aucune nouvelle vente.", printUnavailable: "Impression indisponible. Vérifiez le navigateur ou utilisez l’option « Enregistrer au format PDF » du dialogue d’impression.",
-    label: "Reçu {reference}", logoAlt: "Logo de {name}", timeZone: "Heure du commerce ({zone})",
+    label: "Reçu {reference}", logoAlt: "Logo de {name}",
+    back: { pos: "Retour à la caisse", sales: "Retour au journal des ventes", sale: "Retour à la vente", dashboard: "Retour au tableau de bord" }, timeZone: "Heure du commerce ({zone})",
     errors: { forbidden: "Votre rôle ne permet pas de voir ce reçu.", generic: "Le reçu ne peut pas être affiché pour le moment. Réessayez." },
   },
 };
@@ -105,7 +106,7 @@ export const printingEn: typeof printingFr = {
     business_blocked: "this business’s operations are blocked", not_printed: "the receipt did not come out", generic: "unknown error" },
   arabic: "Arabic is printed as an image (automatic or image mode), like the business logo. Nothing has been checked on a real printer yet: print an image test page.",
   receipt: {
-    ticket: "Receipt", date: "Date", subtotal: "Subtotal", discount: "Discount", total: "TOTAL", due: "Still due", paid: "Received", tendered: "Cash given", change: "Change", settlementLabel: "Status", settlement: { paid: "Paid", partial: "Partly paid", credit: "On credit" },
+    ticket: "Receipt", date: "Date", cashier: "Cashier", subtotal: "Subtotal", discount: "Discount", total: "TOTAL", due: "Still due", paid: "Received", tendered: "Cash given", change: "Change", settlementLabel: "Status", settlement: { paid: "Paid", partial: "Partly paid", credit: "On credit" },
     item: "Item", quantity: "Qty", amount: "Amount", payments: "Payments",
     paymentStatuses: { pending: "pending", failed: "failed", refunded: "refunded", partially_refunded: "partly refunded" },
     banners: { voided: "SALE VOIDED", refunded: "SALE REFUNDED", partially_refunded: "PARTLY REFUNDED" },
@@ -116,7 +117,8 @@ export const printingEn: typeof printingFr = {
   screen: {
     options: "Receipt options", width: "Paper width", language: "Receipt language", print: "Print or save as PDF",
     note: "Preview of the recorded receipt. Reprinting never creates a new sale.", printUnavailable: "Printing unavailable. Check the browser or use “Save as PDF” in the print dialog.",
-    label: "Receipt {reference}", logoAlt: "{name} logo", timeZone: "Business time ({zone})",
+    label: "Receipt {reference}", logoAlt: "{name} logo",
+    back: { pos: "Back to the till", sales: "Back to the sales journal", sale: "Back to the sale", dashboard: "Back to the dashboard" }, timeZone: "Business time ({zone})",
     errors: { forbidden: "Your role does not allow viewing this receipt.", generic: "The receipt cannot be shown right now. Try again." },
   },
 };
@@ -165,7 +167,7 @@ export const printingAr: typeof printingFr = {
     business_blocked: "عمليات هذا المتجر موقوفة", not_printed: "لم يخرج الإيصال", generic: "خطأ غير معروف" },
   arabic: "تُطبع العربية كصورة (الوضع التلقائي أو وضع الصورة)، مثل شعار المتجر. لم يُختبر ذلك بعد على طابعة حقيقية: اطبع صفحة اختبار كصورة.",
   receipt: {
-    ticket: "إيصال", date: "التاريخ", subtotal: "المجموع الفرعي", discount: "خصم", total: "المجموع", due: "المتبقّي للدفع", paid: "المقبوض", tendered: "النقد المسلَّم", change: "الباقي المُرجَع", settlementLabel: "الحالة", settlement: { paid: "مدفوع", partial: "مدفوع جزئيًا", credit: "بالآجل" },
+    ticket: "إيصال", date: "التاريخ", cashier: "أمين الصندوق", subtotal: "المجموع الفرعي", discount: "خصم", total: "المجموع", due: "المتبقّي للدفع", paid: "المقبوض", tendered: "النقد المسلَّم", change: "الباقي المُرجَع", settlementLabel: "الحالة", settlement: { paid: "مدفوع", partial: "مدفوع جزئيًا", credit: "بالآجل" },
     item: "الصنف", quantity: "الكمية", amount: "المبلغ", payments: "المدفوعات",
     paymentStatuses: { pending: "قيد الانتظار", failed: "فشل", refunded: "مُستردّ", partially_refunded: "مُستردّ جزئيًا" },
     banners: { voided: "بيع ملغى", refunded: "بيع مُستردّ", partially_refunded: "مُستردّ جزئيًا" },
@@ -176,7 +178,8 @@ export const printingAr: typeof printingFr = {
   screen: {
     options: "خيارات الإيصال", width: "عرض الورق", language: "لغة الإيصال", print: "طباعة أو حفظ كملف PDF",
     note: "معاينة الإيصال المسجّل. إعادة الطباعة لا تُنشئ أي عملية بيع جديدة.", printUnavailable: "الطباعة غير متاحة. تحقّق من المتصفح أو استخدم خيار «حفظ كملف PDF» في نافذة الطباعة.",
-    label: "إيصال {reference}", logoAlt: "شعار {name}", timeZone: "توقيت المتجر ({zone})",
+    label: "إيصال {reference}", logoAlt: "شعار {name}",
+    back: { pos: "العودة إلى الصندوق", sales: "العودة إلى سجل المبيعات", sale: "العودة إلى عملية البيع", dashboard: "العودة إلى لوحة التحكم" }, timeZone: "توقيت المتجر ({zone})",
     errors: { forbidden: "دورك لا يسمح بعرض هذا الإيصال.", generic: "تعذّر عرض الإيصال حاليًا. حاول مرة أخرى." },
   },
 };

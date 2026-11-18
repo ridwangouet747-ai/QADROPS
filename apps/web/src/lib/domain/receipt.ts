@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { hasBusinessPermission } from "../auth/permissions";
 import type { CommercialDatabase } from "./commercial";
 import { CommercialError } from "./commercial";
-import { businessProfile, member, organization, payment, receiptSettings, sale, saleLine } from "../db/schema";
+import { businessProfile, member, organization, payment, receiptSettings, sale, saleLine, user } from "../db/schema";
 import { buildReceiptDocument, type ReceiptLanguage } from "../printing/receipt-document";
 
 /**
@@ -18,8 +18,8 @@ export async function getSaleReceipt(db: CommercialDatabase, input: { businessId
   }
   const [saleRecord] = await db.select({
     id: sale.id, reference: sale.reference, status: sale.status, totalXof: sale.totalXof, occurredAt: sale.occurredAt,
-    subtotalXof: sale.subtotalXof, discountXof: sale.discountXof,
-  }).from(sale).where(and(
+    subtotalXof: sale.subtotalXof, discountXof: sale.discountXof, cashierName: user.name,
+  }).from(sale).leftJoin(user, eq(user.id, sale.cashierUserId)).where(and(
     eq(sale.businessId, input.businessId), eq(sale.id, input.saleId),
   )).limit(1);
   if (!saleRecord) throw new CommercialError("Vente introuvable.", 404, "not_found");
@@ -48,4 +48,13 @@ export async function getSaleReceipt(db: CommercialDatabase, input: { businessId
 /** Ticket unique (I-5) d'une vente de ce commerce, dans la langue demandée : écran et imprimante l'affichent tel quel. */
 export async function getSaleReceiptDocument(db: CommercialDatabase, input: { businessId: string; actorUserId: string; saleId: string; language: ReceiptLanguage }) {
   return buildReceiptDocument(await getSaleReceipt(db, input), { language: input.language });
+}
+
+/**
+ * Page du reçu : le ticket, plus l'identité du commerce pour l'en-tête de retour (logo du commerce même si le ticket
+ * est réglé sans logo, et nom du commerce plutôt que le nom d'affichage du ticket).
+ */
+export async function getSaleReceiptPage(db: CommercialDatabase, input: { businessId: string; actorUserId: string; saleId: string; language: ReceiptLanguage }) {
+  const source = await getSaleReceipt(db, input);
+  return { document: buildReceiptDocument(source, { language: input.language }), identity: { name: source.business.name, logo: source.business.logo ?? null } };
 }

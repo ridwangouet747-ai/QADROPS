@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { BusinessLogo } from "@/components/business/business-identity";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/controls";
@@ -10,6 +12,7 @@ import { Alert } from "@/components/ui/feedback";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/components/ui/cn";
 import type { ReceiptDocument, ReceiptLanguage } from "@/lib/printing/receipt-document";
+import type { ReceiptOrigin } from "@/lib/printing/receipt-return";
 import { layoutReceipt, type TicketBlock } from "@/lib/printing/receipt-ticket";
 
 /*
@@ -32,8 +35,12 @@ export function ReceiptTicketView({ document, width, logoAlt, label }: { documen
         : null;
       case "text": return <p key={index} className={cn("m-0 break-words", block.align === "center" ? "text-center" : "text-start", weight(block))}>{block.text}</p>;
       case "pair": return (
-        <p key={index} className={cn("m-0 flex items-baseline justify-between gap-3", block.indent && "ps-3", weight(block))}>
-          <span className="min-w-0 break-words">{block.start}</span><bdi dir="ltr" className="shrink-0 whitespace-nowrap">{block.end}</bdi>
+        // Si le libellé et la valeur ne tiennent pas sur une ligne (58 mm, arabe), la valeur passe à la ligne suivante,
+        // alignée en fin de ligne : un libellé n'est jamais coupé au milieu d'un mot (« التاريخ » coupé en deux).
+        // La marge `ms-auto` est sur un span qui suit le sens du ticket : posée sur le <bdi dir="ltr">, elle se lirait
+        // à gauche-droite et collerait le montant à son libellé en arabe.
+        <p key={index} className={cn("m-0 flex flex-wrap items-baseline justify-between gap-x-3", block.indent && "ps-3", weight(block))}>
+          <span className="min-w-0 [overflow-wrap:break-word]">{block.start}</span><span className="ms-auto shrink-0 whitespace-nowrap"><bdi dir="ltr">{block.end}</bdi></span>
         </p>
       );
       case "rule": return <hr key={index} className={cn("my-1.5 border-0 border-t border-[#777]", block.char === "=" ? "border-double border-t-[3px]" : "border-dashed")} />;
@@ -48,7 +55,26 @@ export function ReceiptTicketView({ document, width, logoAlt, label }: { documen
   );
 }
 
-export function ThermalReceipt({ document, languages = ["fr", "en", "ar"] }: { document: ReceiptDocument; languages?: ReceiptLanguage[] }) {
+/**
+ * En-tête de retour (écran seulement, jamais imprimé) : le logo et le nom du commerce ramènent à l'écran d'origine,
+ * normalement la caisse. L'adresse vient du serveur (liste fermée, lib/printing/receipt-return.ts).
+ */
+export function ReceiptBackLink({ identity, back, label }: { identity: { name: string; logo: string | null }; back: { href: string }; label: string }) {
+  return (
+    <Link href={back.href} aria-label={`${label} · ${identity.name}`}
+      className="receipt-back group flex min-h-12 min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface px-3 py-2 text-ink no-underline shadow-sm hover:border-brand focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-brand print:hidden">
+      <BusinessLogo name={identity.name} logo={identity.logo} className="size-11" />
+      <span className="grid min-w-0">
+        <strong className="truncate text-[0.95rem] font-bold">{identity.name}</strong>
+        <span className="flex items-center gap-1 text-sm font-semibold text-brand-strong"><Icon name="back" className="size-4" />{label}</span>
+      </span>
+    </Link>
+  );
+}
+
+export function ThermalReceipt({ document, identity, back, languages = ["fr", "en", "ar"] }: {
+  document: ReceiptDocument; identity: { name: string; logo: string | null }; back: { origin: ReceiptOrigin; href: string }; languages?: ReceiptLanguage[];
+}) {
   const { t } = useI18n();
   const router = useRouter();
   const [width, setWidth] = useState<58 | 80>(document.paperWidthMm);
@@ -66,13 +92,16 @@ export function ThermalReceipt({ document, languages = ["fr", "en", "ar"] }: { d
 
   return (
     <main className="receipt-page">
+      <nav className="mx-auto mb-4 flex max-w-[440px] print:hidden" aria-label={t(`printing.screen.back.${back.origin}`)}>
+        <ReceiptBackLink identity={identity} back={back} label={t(`printing.screen.back.${back.origin}`)} />
+      </nav>
       <div className="mx-auto mb-3 grid max-w-[440px] gap-3 receipt-controls" aria-label={t("printing.screen.options")}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <Segmented label={t("printing.screen.width")} value={String(width) as "58" | "80"} onChange={(value) => setWidth(value === "80" ? 80 : 58)}
             options={[{ value: "58", label: "58 mm" }, { value: "80", label: "80 mm" }]} />
           <Button variant="cta" onClick={printReceipt} icon={<Icon name="print" />}>{t("printing.screen.print")}</Button>
         </div>
-        <Segmented label={t("printing.screen.language")} value={document.language} onChange={(value) => router.replace(`?lang=${value}`, { scroll: false })}
+        <Segmented label={t("printing.screen.language")} value={document.language} onChange={(value) => router.replace(`?lang=${value}${back.origin === "pos" ? "" : `&from=${back.origin}`}`, { scroll: false })}
           options={languages.map((value) => ({ value, label: languageNames[value] }))} />
       </div>
       <p className="receipt-note-screen">{t("printing.screen.note")} {t("printing.screen.timeZone", { zone: document.sale.timeZoneLabel })}</p>

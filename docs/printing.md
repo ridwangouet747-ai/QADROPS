@@ -36,6 +36,8 @@ Le ticket à l'écran, le ticket ESC/POS en texte et le ticket en image affichen
 
 `/business/sales/:id/receipt?lang=fr|en|ar` : langue choisie par la personne (par défaut, celle de l'interface), indépendante de la langue de l'interface. En arabe, l'article est en `dir="rtl"` ; montants, références, dates et téléphones sont isolés (`<bdi dir="ltr">` et caractères LRI/PDI) pour ne jamais se lire à l'envers. Aperçu 58 / 80 mm (largeur par défaut : celle des réglages du ticket). Impression par le dialogue du navigateur : elle ne prouve pas qu'un ticket est sorti. Erreurs traduites (403 : accès refusé ; 404 : page introuvable ; sinon message générique, jamais le texte brut du serveur).
 
+**Retour depuis le ticket (2026-11-17)** : en tête de page, le logo et le nom du commerce forment un lien de retour (`ReceiptBackLink`, masqué à l'impression par `print:hidden`). La destination vient d'une **liste fermée** (`lib/printing/receipt-return.ts`) : `?from=sales` → journal des ventes, `sale` → fiche de la vente, `dashboard` → tableau de bord ; absent ou toute autre valeur (URL, `//…`, `/platform`, `javascript:`) → **la caisse** (`/business/pos`). Aucune adresse fournie par la requête n'est suivie. Les liens vers le ticket ajoutent `from` ; le changement de langue le conserve. Le ticket (écran et ESC/POS) porte aussi la ligne « Caissier : nom » (nom du compte qui a enregistré la vente, 60 caractères au plus, absente si inconnu).
+
 ## 3. Profils d'imprimante
 
 Chaque imprimante déclarée porte un profil (migration `0016_printer_profiles`, colonnes `print_device.code_page` et `render_mode`, avec contraintes `CHECK`) :

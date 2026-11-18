@@ -50,13 +50,17 @@ function DeckPage({ t, locale, screen, index }: { t: Translate; locale: Locale; 
 
 function Companion({ t, locale, screen, frame }: { t: Translate; locale: Locale; screen: "mobile" | "receipt"; frame: "phone" | "paper" }) {
   return (
+    // Le visuel occupe la hauteur restante et y est centré : téléphone et ticket côte à côte gardent leurs légendes
+    // sur la même ligne.
     <figure className="m-0 flex min-w-0 flex-col">
-      <div className={cn(
-        "mx-auto w-full overflow-hidden",
-        frame === "phone" && "max-w-[17rem] rounded-[2.2rem] bg-ink p-[3.5%] shadow-[0_30px_60px_-34px_rgb(3_16_142/0.55)]",
-        frame === "paper" && "max-w-[16rem] rounded-md bg-surface shadow-[0_18px_40px_-28px_rgb(3_16_142/0.5)]",
-      )}>
-        <ScreenImage t={t} locale={locale} screen={screen} className={frame === "phone" ? "rounded-[1.85rem]" : undefined} />
+      <div className="flex flex-1 items-center">
+        <div className={cn(
+          "mx-auto w-full overflow-hidden",
+          frame === "phone" && "max-w-[17rem] rounded-[2.2rem] bg-ink p-[3.5%] shadow-[0_30px_60px_-34px_rgb(3_16_142/0.55)]",
+          frame === "paper" && "max-w-[16rem] rounded-md bg-surface shadow-[0_18px_40px_-28px_rgb(3_16_142/0.5)]",
+        )}>
+          <ScreenImage t={t} locale={locale} screen={screen} className={frame === "phone" ? "rounded-[1.85rem]" : undefined} />
+        </div>
       </div>
       <figcaption className="mt-4 text-center">
         <h3 className="m-0 font-display text-[1.15rem] font-bold text-ink">{t(`landing.screens.items.${screen}.title`)}</h3>

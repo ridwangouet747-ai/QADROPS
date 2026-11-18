@@ -183,7 +183,7 @@ export function DashboardWorkspace() {
                         </div>
                         <div className="mt-auto flex flex-wrap gap-2">
                           <Link href={`/business/sales/${selected.id}`} className="inline-flex min-h-11 items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-brand-strong no-underline hover:bg-brand-soft">{t("dashboard.openSale")}</Link>
-                          <Link href={`/business/sales/${selected.id}/receipt`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/35 px-4 text-sm font-semibold text-white no-underline hover:bg-white/10"><Icon name="receipt" className="size-4" />{t("dashboard.receipt")}</Link>
+                          <Link href={`/business/sales/${selected.id}/receipt?from=dashboard`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/35 px-4 text-sm font-semibold text-white no-underline hover:bg-white/10"><Icon name="receipt" className="size-4" />{t("dashboard.receipt")}</Link>
                         </div>
                       </article>
                     );

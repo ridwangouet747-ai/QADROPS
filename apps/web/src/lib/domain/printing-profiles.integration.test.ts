@@ -7,7 +7,7 @@ import { databaseSchema } from "../db/schema";
 import { layoutReceipt } from "../printing/receipt-ticket";
 import { createProduct, createSale } from "./commercial";
 import { addPrintDevice, createPrintJob, getPrinterSetup, reportPrintResult, updatePrintDevice, updatePrinterSettings } from "./printing";
-import { getSaleReceiptDocument } from "./receipt";
+import { getSaleReceiptDocument, getSaleReceiptPage } from "./receipt";
 
 /*
  * Mission 11, phase 5 : ticket unique, profils d'imprimante, réimpression idempotente.
@@ -74,11 +74,15 @@ describe("impression, phase 5 : profils, document unique et réimpression idempo
 
   it("le ticket à l'écran et le ticket imprimé viennent du même document", async () => {
     const document = await getSaleReceiptDocument(db, { ...A, saleId: saleA, language: "fr" });
-    expect(document).toMatchObject({ business: { name: "Quincaillerie Koné" }, sale: { timeZone: "Africa/Abidjan" }, totals: { totalXof: "13000", paidXof: "13000", dueXof: null } });
+    expect(document).toMatchObject({ business: { name: "Quincaillerie Koné" }, sale: { timeZone: "Africa/Abidjan", cashier: cashierA }, totals: { totalXof: "13000", paidXof: "13000", dueXof: null } });
     const job = await createPrintJob(db, A, { deviceId: deviceA, kind: "receipt", saleId: saleA });
     expect(job.render).toBe("text");
     expect(job.layout!.blocks).toEqual(layoutReceipt(document).blocks);
     expect(job.preview!.join("\n")).toMatch(/TOTAL\s+13 000 F/);
+    // Le caissier (auteur de la vente) figure sur le ticket imprimé comme à l'écran.
+    expect(job.preview!.join("\n")).toContain(`Caissier : ${cashierA}`);
+    // L'en-tête de la page du reçu garde le nom et le logo du commerce, même quand le ticket est réglé sans logo.
+    expect((await getSaleReceiptPage(db, { ...A, saleId: saleA, language: "fr" })).identity).toEqual({ name: "Quincaillerie Koné", logo: null });
   });
 
   it("double demande de réimpression avec la même clé : une seule tâche, un seul audit", async () => {

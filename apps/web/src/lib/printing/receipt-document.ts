@@ -18,7 +18,9 @@ export const isReceiptLanguage = (value: unknown): value is ReceiptLanguage => t
 export type ReceiptSource = {
   business: { name: string; displayName?: string | null; phone: string | null; address: string | null; footer: string | null; timezone?: string | null;
     email?: string | null; logo?: string | null; showLogo?: boolean | null; paperWidthMm?: number | null };
-  sale: { id?: string; reference: string; status?: string; occurredAt: Date | string; totalXof: bigint | string; subtotalXof?: bigint | string; discountXof?: bigint | string };
+  sale: { id?: string; reference: string; status?: string; occurredAt: Date | string; totalXof: bigint | string; subtotalXof?: bigint | string; discountXof?: bigint | string;
+    /** Nom du membre qui a enregistré la vente (caissier), tel qu il apparaît dans l équipe. */
+    cashierName?: string | null };
   lines: { name: string; variant: string; quantity: string; unitPriceXof: bigint | string; totalXof: bigint | string; lineDiscountXof?: bigint | string | null }[];
   // tenderedXof / changeXof : espèces remises et monnaie rendue (vente encaissée depuis la migration 0027).
   payments: { method: string; amountXof: bigint | string; status: string; tenderedXof?: bigint | string | null; changeXof?: bigint | string | null }[];
@@ -30,8 +32,8 @@ export type ReceiptDocument = {
   direction: "ltr" | "rtl";
   paperWidthMm: 58 | 80;
   business: { name: string; address: string | null; phone: string | null; email: string | null; footer: string | null; logo: string | null };
-  sale: { id: string | null; reference: string; status: string; banner: string | null; occurredAt: string; dateText: string; timeZone: string; timeZoneLabel: string };
-  labels: { ticket: string; date: string; subtotal: string; discount: string; total: string; due: string; paid: string; item: string; quantity: string; amount: string; payments: string; tendered: string; change: string; settlement: string };
+  sale: { id: string | null; reference: string; status: string; banner: string | null; occurredAt: string; dateText: string; timeZone: string; timeZoneLabel: string; cashier: string | null };
+  labels: { ticket: string; date: string; cashier: string; subtotal: string; discount: string; total: string; due: string; paid: string; item: string; quantity: string; amount: string; payments: string; tendered: string; change: string; settlement: string };
   lines: { label: string; name: string; variant: string | null; quantity: string; quantityText: string; unitPriceXof: string; lineDiscountXof: string | null; totalXof: string }[];
   totals: { subtotalXof: string | null; discountXof: string | null; totalXof: string; paidXof: string; dueXof: string | null; tenderedXof: string | null; changeXof: string | null };
   /** Payé, partiellement payé ou à crédit ; null pour une vente annulée ou remboursée (bandeau). */
@@ -108,9 +110,9 @@ export function buildReceiptDocument(source: ReceiptSource, options: { language?
       logo: source.business.showLogo !== false && source.business.logo ? source.business.logo : null,
     },
     sale: { id: source.sale.id ?? null, reference: source.sale.reference, status, banner, occurredAt: new Date(source.sale.occurredAt).toISOString(),
-      dateText: date.text, timeZone, timeZoneLabel: date.zone },
+      dateText: date.text, timeZone, timeZoneLabel: date.zone, cashier: source.sale.cashierName?.trim().slice(0, 60) || null },
     labels: {
-      ticket: t("printing.receipt.ticket"), date: t("printing.receipt.date"), subtotal: t("printing.receipt.subtotal"), discount: t("printing.receipt.discount"),
+      ticket: t("printing.receipt.ticket"), date: t("printing.receipt.date"), cashier: t("printing.receipt.cashier"), subtotal: t("printing.receipt.subtotal"), discount: t("printing.receipt.discount"),
       total: t("printing.receipt.total"), due: t("printing.receipt.due"), paid: t("printing.receipt.paid"), item: t("printing.receipt.item"),
       quantity: t("printing.receipt.quantity"), amount: t("printing.receipt.amount"), payments: t("printing.receipt.payments"),
       tendered: t("printing.receipt.tendered"), change: t("printing.receipt.change"), settlement: t("printing.receipt.settlementLabel"),

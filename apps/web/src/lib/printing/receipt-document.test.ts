@@ -94,6 +94,17 @@ describe("ReceiptDocument : modèle unique du ticket", () => {
     expect(isReceiptLanguage("de")).toBe(false);
     expect(isReceiptLanguage(undefined)).toBe(false);
   });
+
+  it("caissier : nom de l'auteur de la vente, traduit en arabe, absent s'il est inconnu", () => {
+    const named = buildReceiptDocument({ ...source, sale: { ...source.sale, cashierName: "  Awa Koné  " } });
+    expect(named.sale.cashier).toBe("Awa Koné");
+    expect(layoutReceipt(named).blocks).toContainEqual(expect.objectContaining({ type: "text", text: "Caissier : Awa Koné" }));
+    const arabic = buildReceiptDocument({ ...source, sale: { ...source.sale, cashierName: "Awa Koné" } }, { language: "ar" });
+    expect(layoutReceipt(arabic).blocks).toContainEqual(expect.objectContaining({ type: "text", text: "أمين الصندوق : Awa Koné" }));
+    const anonymous = buildReceiptDocument({ ...source, sale: { ...source.sale, cashierName: "  " } });
+    expect(anonymous.sale.cashier).toBeNull();
+    expect(layoutReceipt(anonymous).blocks.some((block) => block.type === "text" && block.text.startsWith("Caissier"))).toBe(false);
+  });
 });
 
 describe("mise en page partagée : texte 58/80 mm et arabe", () => {
