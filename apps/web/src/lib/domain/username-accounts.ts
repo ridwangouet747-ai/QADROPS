@@ -5,7 +5,7 @@ import { z } from "zod";
 import { account, accountRecoveryCode, auditEvent, session, twoFactor, user } from "../db/schema";
 import { CODE_ALPHABET } from "../security/access-codes";
 import { CommercialError, type CommercialDatabase } from "./commercial";
-import { isPlatformOwnerUsername, usernameSchema } from "./team-codes";
+import { isPlatformOwnerUsername, usernameSchema, usernameTakenOnRace } from "./team-codes";
 
 /*
  * Comptes sans adresse e-mail (mission CTO du 2026-11-17, § 7).
@@ -76,7 +76,7 @@ export async function createUsernameAccount(db: CommercialDatabase, raw: unknown
     const recoveryCode = await storeRecoveryCode(tx as CommercialDatabase, userId, now);
     await tx.insert(auditEvent).values({ id: randomUUID(), businessId: null, actorUserId: userId, eventType: "account.created_without_email", entityType: "user", entityId: userId, metadata: {}, occurredAt: now });
     return { userId, username: input.username, recoveryCode };
-  });
+  }).catch(usernameTakenOnRace);
 }
 
 export const recoverySchema = z.object({ username: usernameSchema, recoveryCode: z.string().max(64), newPassword: passwordSchema });

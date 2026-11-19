@@ -93,6 +93,29 @@ autres. Pendant la suite complète (phase d'import cumulée : 1 338 s), ce charg
 **Correction** : l'import se fait une fois dans un `beforeAll` (limite des hooks : 120 s) ; les assertions sont
 identiques. Après correction : 172 ms pour ce test, 8/8 verts. La route n'avait aucun défaut.
 
+### Parcours métier sur Neon staging
+
+Le projet Vercel `web` n'a aucune variable de base pour Preview (toutes limitées à Production) : un déploiement
+Preview n'aurait pas de base, donc ni parcours métier possible ni risque d'écrire en production. Les parcours ont
+été validés par le harnais HTTP sur PostgreSQL réel (`QADR_TEST_POSTGRES_TARGET=staging`, branche
+`mission-14-staging`, rôle `qadr_m14_staging`, une base jetable `qadr_t_*` par fichier, supprimée ensuite), un
+fichier à la fois :
+
+| Fichier | Résultat |
+| --- | --- |
+| `merchant-journey.http.test.ts` | 11/11 |
+| `team-invite-codes.http.test.ts` (reconnexion employé comprise) | 18/18 |
+| `public-plans-publication.http.test.ts` | 4/4 |
+| `tenant-isolation.http.test.ts` | 21/21 |
+| `commercial-sign-up.http.test.ts` | 10/11, puis **11/11** après correction |
+
+**Défaut trouvé sur PostgreSQL réel (présent en production depuis le 2026-11-18)** : deux inscriptions simultanées
+avec le même nom d'utilisateur lisaient toutes deux « libre » ; l'index `user_username_unique` refusait la seconde
+(SQLSTATE 23505), non convertie, d'où un **500** au lieu de 409. PGlite sérialise les requêtes et ne pouvait pas le
+montrer. Correction : `usernameTakenOnRace` (`lib/domain/team-codes.ts`, via `lib/db/unique-violation.ts`, testé)
+transforme cette violation en 409 `username_taken`, pour l'inscription sans e-mail et pour l'entrée d'un employé par
+code `EQP-`.
+
 Le premier passage complet (74 fichiers « en échec ») est écarté : 73 fichiers n'avaient pas pu se charger
 (`ENOENT` sur un fichier temporaire de Vitest, effacé par un second Vitest lancé en parallèle), aucun test
 n'avait échoué sur une assertion.

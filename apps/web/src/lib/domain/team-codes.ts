@@ -11,6 +11,7 @@ import { accessCodeFamilyOf, accessCodeHint, generateAccessCode, hashAccessCode,
 import { assertActiveMembership, BusinessContextError } from "./business-context";
 import type { CommercialDatabase } from "./commercial";
 import { CommercialError } from "./commercial";
+import { isUniqueViolation } from "../db/unique-violation";
 import { assertPlanQuota } from "./plan-limits";
 import { businessLifecycle } from "./subscription-lifecycle";
 
@@ -213,6 +214,17 @@ const acceptSchema = z.object({
 });
 
 /**
+ * Deux inscriptions simultanées avec le même nom d'utilisateur lisent toutes deux « libre » : l'index unique
+ * `user_username_unique` en refuse une. Cette course doit répondre comme le cas ordinaire (409), jamais 500.
+ */
+export function usernameTakenOnRace(error: unknown): never {
+  if (isUniqueViolation(error, "user_username_unique")) {
+    throw new CommercialError("Ce nom d’utilisateur est déjà pris. Choisissez-en un autre.", 409, "username_taken");
+  }
+  throw error;
+}
+
+/**
  * Crée le compte de l'employé et son appartenance au commerce, consomme le code, trace : une seule transaction.
  * Le rôle vient du code, jamais du corps de la requête. Rend l'identifiant du compte et du commerce ; la session
  * est ouverte ensuite par l'appelant (connexion par nom d'utilisateur côté serveur).
@@ -246,7 +258,7 @@ export async function acceptInviteCode(db: Db, raw: unknown, now = new Date()) {
       metadata: { role: row.role, codeId: row.id, hint: row.codeHint, createdBy: row.createdByUserId }, occurredAt: now,
     });
     return { userId, memberId, businessId: row.businessId, role: row.role as InviteCodeRole, username: input.username };
-  });
+  }).catch(usernameTakenOnRace);
 }
 
 /** Compte du propriétaire de la plateforme : jamais connecté par cette voie (même réponse qu'un mauvais mot de passe). */
