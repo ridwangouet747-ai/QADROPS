@@ -7,10 +7,11 @@ import { formatXof } from "@/lib/i18n/format";
 import type { Translate } from "@/lib/i18n/translate";
 import { whatsappHref, whatsappNumber } from "@/lib/commercial/mode";
 import { readContactChannel, type ContactChannel } from "@/lib/landing/contact";
+import { pricingColumnsClass, pricingLayout } from "@/lib/landing/pricing-layout";
 
 /*
  * Tarifs lus dans `subscription_plan` (formules actives en XOF), jamais écrits dans le code : le prix affiché
- * est celui qui sera facturé. Modèle commercial du 2026-11-16 : seule la formule STANDARD est montrée ; on la
+ * est celui qui sera facturé. Chaque formule publiée dans /platform/plans a sa carte (2026-11-19). On la
  * commande auprès de Qadr Agency (WhatsApp, numéro `QADR_WHATSAPP_NUMBER`), qui remet un code d'accès vérifié sur
  * /redeem-code. Aucun lien n'ouvre l'inscription sans code. Sans numéro configuré, aucun lien WhatsApp n'est inventé.
  *
@@ -70,15 +71,17 @@ function BusinessCard({ t, contact }: { t: Translate; contact: ContactChannel | 
 
 export async function PricingSection({ t, locale, container }: { t: Translate; locale: Locale; container: string }) {
   const result = await getPublicPlans();
-  // Une seule formule publique (2026-11-16) : les autres restent en base, invisibles ici.
-  const plans = result.status === "ok" ? result.plans.filter((plan) => plan.code === "STANDARD") : [];
+  // Toutes les formules publiées (actives, XOF) depuis la console, quel que soit leur nombre (2026-11-19 ; avant,
+  // seule STANDARD était montrée et tout autre forfait publié restait invisible).
+  const plans = result.status === "ok" ? result.plans : [];
   const whatsapp = whatsappNumber();
   const contact = readContactChannel();
   // Sans canal de contact, l'offre Business ne promet rien de joignable : elle est retirée en production.
   const showBusiness = contact !== null || process.env.NODE_ENV !== "production";
-  const cards = plans.length + (showBusiness ? 1 : 0);
+  const layout = pricingLayout(plans.length, showBusiness);
+  const cards = layout.cards;
   // Jusqu'à deux cartes, l'encart du code tient à côté ; au-delà il passe dessous pour laisser leur largeur aux prix.
-  const wide = cards > 2;
+  const wide = !layout.asideBeside;
   return (
     <section id="pricing" aria-labelledby="pricing-title" className="scroll-mt-20 py-20 sm:py-28">
       <div className={container}>
@@ -105,7 +108,7 @@ export async function PricingSection({ t, locale, container }: { t: Translate; l
               </div>
             )}
             {cards > 0 && (
-              <ul className={cn("m-0 grid list-none gap-5 p-0", cards > 1 && "md:grid-cols-2", wide && "lg:grid-cols-3")}>
+              <ul className={cn("m-0 grid list-none gap-5 p-0", pricingColumnsClass(layout.columns))}>
                 {plans.map((plan) => <PlanCard key={plan.code} plan={plan} t={t} locale={locale} whatsapp={whatsapp} />)}
                 {showBusiness && <BusinessCard t={t} contact={contact} />}
               </ul>

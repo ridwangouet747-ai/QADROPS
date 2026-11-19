@@ -44,7 +44,7 @@ export const printingFr = {
   arabic: "L’arabe est imprimé en image (mode automatique ou image), comme le logo du commerce. Rien n’a encore été vérifié sur une imprimante réelle : faites une page de test en image.",
   /** Contenu du ticket (écran et imprimante) : un seul jeu de libellés pour les deux rendus. */
   receipt: {
-    ticket: "Ticket", date: "Date", cashier: "Caissier", subtotal: "Sous-total", discount: "Remise", total: "TOTAL", due: "Reste à payer", paid: "Encaissé", tendered: "Espèces remises", change: "Monnaie rendue", settlementLabel: "Statut", settlement: { paid: "Payé", partial: "Partiellement payé", credit: "À crédit" },
+    ticket: "Ticket", date: "Date", cashier: "Caissier", subtotal: "Sous-total", discount: "Remise", total: "TOTAL", due: "Reste à payer", paid: "Encaissé", tendered: "Espèces remises", change: "Monnaie rendue", settlementLabel: "Statut", settlement: { paid: "Payé", partial: "Partiellement payé", credit: "À crédit" }, manual: "enregistré manuellement", reference: "Réf.",
     item: "Article", quantity: "Qté", amount: "Montant", payments: "Paiements",
     paymentStatuses: { pending: "en attente", failed: "échoué", refunded: "remboursé", partially_refunded: "remboursé en partie" },
     banners: { voided: "VENTE ANNULÉE", refunded: "VENTE REMBOURSÉE", partially_refunded: "REMBOURSÉE EN PARTIE" },
@@ -106,7 +106,7 @@ export const printingEn: typeof printingFr = {
     business_blocked: "this business’s operations are blocked", not_printed: "the receipt did not come out", generic: "unknown error" },
   arabic: "Arabic is printed as an image (automatic or image mode), like the business logo. Nothing has been checked on a real printer yet: print an image test page.",
   receipt: {
-    ticket: "Receipt", date: "Date", cashier: "Cashier", subtotal: "Subtotal", discount: "Discount", total: "TOTAL", due: "Still due", paid: "Received", tendered: "Cash given", change: "Change", settlementLabel: "Status", settlement: { paid: "Paid", partial: "Partly paid", credit: "On credit" },
+    ticket: "Receipt", date: "Date", cashier: "Cashier", subtotal: "Subtotal", discount: "Discount", total: "TOTAL", due: "Still due", paid: "Received", tendered: "Cash given", change: "Change", settlementLabel: "Status", settlement: { paid: "Paid", partial: "Partly paid", credit: "On credit" }, manual: "recorded manually", reference: "Ref.",
     item: "Item", quantity: "Qty", amount: "Amount", payments: "Payments",
     paymentStatuses: { pending: "pending", failed: "failed", refunded: "refunded", partially_refunded: "partly refunded" },
     banners: { voided: "SALE VOIDED", refunded: "SALE REFUNDED", partially_refunded: "PARTLY REFUNDED" },
@@ -167,7 +167,7 @@ export const printingAr: typeof printingFr = {
     business_blocked: "عمليات هذا المتجر موقوفة", not_printed: "لم يخرج الإيصال", generic: "خطأ غير معروف" },
   arabic: "تُطبع العربية كصورة (الوضع التلقائي أو وضع الصورة)، مثل شعار المتجر. لم يُختبر ذلك بعد على طابعة حقيقية: اطبع صفحة اختبار كصورة.",
   receipt: {
-    ticket: "إيصال", date: "التاريخ", cashier: "أمين الصندوق", subtotal: "المجموع الفرعي", discount: "خصم", total: "المجموع", due: "المتبقّي للدفع", paid: "المقبوض", tendered: "النقد المسلَّم", change: "الباقي المُرجَع", settlementLabel: "الحالة", settlement: { paid: "مدفوع", partial: "مدفوع جزئيًا", credit: "بالآجل" },
+    ticket: "إيصال", date: "التاريخ", cashier: "أمين الصندوق", subtotal: "المجموع الفرعي", discount: "خصم", total: "المجموع", due: "المتبقّي للدفع", paid: "المقبوض", tendered: "النقد المسلَّم", change: "الباقي المُرجَع", settlementLabel: "الحالة", settlement: { paid: "مدفوع", partial: "مدفوع جزئيًا", credit: "بالآجل" }, manual: "مسجَّل يدويًا", reference: "المرجع",
     item: "الصنف", quantity: "الكمية", amount: "المبلغ", payments: "المدفوعات",
     paymentStatuses: { pending: "قيد الانتظار", failed: "فشل", refunded: "مُستردّ", partially_refunded: "مُستردّ جزئيًا" },
     banners: { voided: "بيع ملغى", refunded: "بيع مُستردّ", partially_refunded: "مُستردّ جزئيًا" },

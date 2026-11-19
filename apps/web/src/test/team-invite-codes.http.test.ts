@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as activeBusinessRoute from "@/app/api/account/active-business/route";
+import * as authRoute from "@/app/api/auth/[...all]/route";
 import * as meRoute from "@/app/api/account/me/route";
 import * as usernameSignInRoute from "@/app/api/account/sign-in/username/route";
 import * as productsRoute from "@/app/api/business/products/route";
@@ -12,7 +13,7 @@ import * as memberRoute from "@/app/api/business/team/members/[memberId]/route";
 import * as memberSessionsRoute from "@/app/api/business/team/members/[memberId]/sessions/route";
 import * as acceptRoute from "@/app/api/public/team-codes/accept/route";
 import * as checkRoute from "@/app/api/public/team-codes/check/route";
-import { startHttpHarness, type Actor, type HttpHarness, type HttpResult } from "./http-harness";
+import { HARNESS_ORIGIN, startHttpHarness, type Actor, type HttpHarness, type HttpResult } from "./http-harness";
 
 vi.mock("@/lib/db/client", () => import("@/test/harness-database"));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
@@ -172,6 +173,27 @@ describe("codes d'invitation des employés (mandat § 13.3)", () => {
     expect(wrong.body).toEqual(unknown.body);
     expect(wrong.body.code).toBe("invalid_credentials");
     expect(wrong.headers.getSetCookie()).toHaveLength(0);
+  });
+
+  it("8 bis. déconnexion puis reconnexion de l'employé avec ses identifiants : même commerce, même rôle, code non requis", async () => {
+    const { employee, username: name, invite } = await join(owner, "cashier", "retour");
+    const signOut = await authRoute.POST(new Request(`${HARNESS_ORIGIN}/api/auth/sign-out`, {
+      method: "POST", headers: { "content-type": "application/json", origin: HARNESS_ORIGIN, cookie: employee.cookie }, body: "{}",
+    }));
+    expect(signOut.status).toBe(200);
+    expect((await h.call(meRoute.GET, { method: "GET", path: "/api/account/me", actor: employee })).status).toBe(401);
+    expect((await listProducts(employee)).status).toBe(401);
+    // Retour sur /login : nom d'utilisateur + mot de passe seulement ; le code d'invitation déjà consommé ne sert plus.
+    const again = await signInByUsername(name);
+    expect(again.status, again.text).toBe(200);
+    const returning: Actor = { name, email: "", userId: employee.userId, cookie: cookiesOf(again) };
+    const me = await h.call(meRoute.GET, { method: "GET", path: "/api/account/me", actor: returning });
+    expect(me.status, me.text).toBe(200);
+    const businesses = (me.body as { businesses: { id: string; disabled: boolean; role: string }[] }).businesses;
+    expect(businesses.map((row) => [row.id, row.disabled, row.role])).toEqual([[businessId, false, "cashier"]]);
+    expect((await h.call(activeBusinessRoute.POST, { path: "/api/account/active-business", actor: returning, body: { businessId } })).status).toBe(200);
+    expect((await listProducts(returning)).status).toBe(200);
+    expect((await accept({ code: invite.code, name: "Autre", username: username("reprise"), password: EMPLOYEE_PASSWORD })).status).toBe(409);
   });
 
   it("9 et 10. permissions du rôle : le caissier lit le catalogue mais ne crée ni article ni code, ne change aucun rôle", async () => {

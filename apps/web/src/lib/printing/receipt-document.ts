@@ -23,7 +23,8 @@ export type ReceiptSource = {
     cashierName?: string | null };
   lines: { name: string; variant: string; quantity: string; unitPriceXof: bigint | string; totalXof: bigint | string; lineDiscountXof?: bigint | string | null }[];
   // tenderedXof / changeXof : espèces remises et monnaie rendue (vente encaissée depuis la migration 0027).
-  payments: { method: string; amountXof: bigint | string; status: string; tenderedXof?: bigint | string | null; changeXof?: bigint | string | null }[];
+  // reference : numéro de transaction Mobile Money saisi par le caissier (facultatif, jamais vérifié auprès d'un opérateur).
+  payments: { method: string; amountXof: bigint | string; status: string; tenderedXof?: bigint | string | null; changeXof?: bigint | string | null; reference?: string | null }[];
 };
 
 export type ReceiptDocument = {
@@ -33,12 +34,13 @@ export type ReceiptDocument = {
   paperWidthMm: 58 | 80;
   business: { name: string; address: string | null; phone: string | null; email: string | null; footer: string | null; logo: string | null };
   sale: { id: string | null; reference: string; status: string; banner: string | null; occurredAt: string; dateText: string; timeZone: string; timeZoneLabel: string; cashier: string | null };
-  labels: { ticket: string; date: string; cashier: string; subtotal: string; discount: string; total: string; due: string; paid: string; item: string; quantity: string; amount: string; payments: string; tendered: string; change: string; settlement: string };
+  labels: { ticket: string; date: string; cashier: string; subtotal: string; discount: string; total: string; due: string; paid: string; item: string; quantity: string; amount: string; payments: string; tendered: string; change: string; settlement: string; manual: string; reference: string };
   lines: { label: string; name: string; variant: string | null; quantity: string; quantityText: string; unitPriceXof: string; lineDiscountXof: string | null; totalXof: string }[];
   totals: { subtotalXof: string | null; discountXof: string | null; totalXof: string; paidXof: string; dueXof: string | null; tenderedXof: string | null; changeXof: string | null };
   /** Payé, partiellement payé ou à crédit ; null pour une vente annulée ou remboursée (bandeau). */
   settlement: string | null;
-  payments: { method: string; methodLabel: string; status: string; statusLabel: string | null; amountXof: string }[];
+  /** manual : règlement déclaré par le caissier (tout sauf espèces), jamais confirmé par un opérateur. */
+  payments: { method: string; methodLabel: string; status: string; statusLabel: string | null; amountXof: string; manual: boolean; reference: string | null }[];
 };
 
 /** « 12 500 F » : groupes de trois chiffres séparés par une espace simple (lisible par toutes les imprimantes), chiffres latins. */
@@ -94,7 +96,8 @@ export function buildReceiptDocument(source: ReceiptSource, options: { language?
       if (payment.changeXof != null && BigInt(payment.changeXof) > 0n) { tendered += BigInt(payment.tenderedXof ?? payment.amountXof); change += BigInt(payment.changeXof); }
     }
     return { method: payment.method, methodLabel: known(`printing.receipt.methods.${payment.method}`) ?? payment.method, status: payment.status,
-      statusLabel: known(`printing.receipt.paymentStatuses.${payment.status}`), amountXof: amountString(payment.amountXof) };
+      statusLabel: known(`printing.receipt.paymentStatuses.${payment.status}`), amountXof: amountString(payment.amountXof),
+      manual: payment.method !== "cash", reference: payment.method !== "cash" ? payment.reference?.trim().slice(0, 64) || null : null };
   });
   // Le « reste à payer » n'a de sens que pour une vente en cours ; après annulation ou remboursement il serait trompeur.
   const due = banner ? 0n : BigInt(source.sale.totalXof) - paid;
@@ -116,6 +119,7 @@ export function buildReceiptDocument(source: ReceiptSource, options: { language?
       total: t("printing.receipt.total"), due: t("printing.receipt.due"), paid: t("printing.receipt.paid"), item: t("printing.receipt.item"),
       quantity: t("printing.receipt.quantity"), amount: t("printing.receipt.amount"), payments: t("printing.receipt.payments"),
       tendered: t("printing.receipt.tendered"), change: t("printing.receipt.change"), settlement: t("printing.receipt.settlementLabel"),
+      manual: t("printing.receipt.manual"), reference: t("printing.receipt.reference"),
     },
     lines: source.lines.map((line) => {
       const variant = line.variant && line.variant !== "Standard" ? line.variant : null;

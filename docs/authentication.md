@@ -332,7 +332,7 @@ adresse, rien ne change (`/api/auth/sign-up/email` de Better Auth).
 | Création | `createUsernameAccount` (`lib/domain/username-accounts.ts`) : `user` + compte `credential` dont le mot de passe est haché par Better Auth (`better-auth/crypto`, scrypt), code de secours et audit `account.created_without_email`, dans une seule transaction. Même mécanisme que les employés invités par code (`team-codes.ts`). La session est ouverte par `auth.api.signInUsername` côté serveur (`employee-auth.ts`) : les sessions restent celles de Better Auth. |
 | Barrières | Origine, Turnstile `register`, compteur partagé `auth.sign_up.ip` (le même que l'inscription par e-mail), puis laissez-passer du code d'accès commercial quand `accessCodeRequired()` (la liste n'est alors pas consultée, 2026-11-18), sinon liste d'inscription (`registrationAllowsUsername` : une entrée sans « @ » de `QADR_REGISTRATION_ALLOWLIST` désigne un nom d'utilisateur). Un refus de liste ou de code donne `422 SIGN_UP_FAILED`, comme l'inscription par e-mail. |
 | Unicité | `409 username_taken` si le nom existe déjà (compte de commerçant, d'employé ou de la plateforme). Le nom d'utilisateur se choisit à l'écran : il doit pouvoir être signalé comme pris ; le compteur par adresse IP borne l'énumération. |
-| Connexion | `/login`, onglet « Nom d'utilisateur » (`/api/account/sign-in/username`, inchangé). |
+| Connexion | `/login`, champ unique « E-mail ou nom d'utilisateur » (2026-11-19, `lib/auth/login-identifier.ts`) : sans « @ », la saisie part vers `/api/account/sign-in/username` (inchangé). Avant, l'onglet e-mail était sélectionné par défaut avec un champ `type=email` : un employé déconnecté ne pouvait pas se reconnecter avec son nom d'utilisateur. |
 | Commerce | Le compte crée ensuite son commerce sur `/onboarding` comme tout compte ; il en est propriétaire. |
 
 ### 12.1 Mot de passe oublié sans e-mail : code de secours
@@ -343,7 +343,7 @@ adresse, rien ne change (`/api/auth/sign-up/email` de Better Auth).
 - Il est stocké haché comme un mot de passe (scrypt de Better Auth) dans `account_recovery_code` (migration
   0028, une ligne par compte, sans `business_id`, donc hors RLS), indépendamment de tout secret du serveur :
   changer `BETTER_AUTH_SECRET` ou `QADR_CODE_SECRET` ne le rend pas caduc.
-- `/recover-account` (lien « Mot de passe oublié » de l'onglet nom d'utilisateur, et lien depuis
+- `/recover-account` (lien « Mot de passe oublié » quand l'identifiant saisi est un nom d'utilisateur, et lien depuis
   `/forgot-password`) : nom d'utilisateur + code de secours + nouveau mot de passe →
   `POST /api/account/recover`. Turnstile `password-reset`, compteurs `auth.recovery.ip` (20 / 15 min) et
   `auth.recovery.account` (5 / 15 min), rendus en cas de succès. Nom inconnu, code faux ou mal formé, compte sans

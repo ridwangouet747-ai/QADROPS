@@ -66,8 +66,16 @@ vide), nombre de clients, logos de partenaires, notes, contact, conditions gén�
 
 - Les prix ne sont jamais écrits dans le code de la page. `getPublicPlans()` lit les formules **actives** en
   XOF de `subscription_plan`, triées par prix puis par code, avec les limites d'articles et de membres.
-- Cache `unstable_cache` de 10 minutes, étiquette `public-plans` : une formule modifiée dans la console
-  apparaît au plus tard 10 minutes après (ou tout de suite après `revalidateTag("public-plans")`, non branché).
+- **Toutes** les formules publiées (case « Publié » cochée dans `/platform/plans`) ont leur carte, quel que soit
+  leur nombre (2026-11-19 ; avant, seule `STANDARD` était montrée). Disposition `lib/landing/pricing-layout.ts` :
+  une colonne sur téléphone, deux sur tablette, trois au-delà ; quatre cartes en deux rangées de deux.
+- Cache `unstable_cache` de 10 minutes, étiquette `public-plans`. Les routes `POST /api/platform/plans` et
+  `PATCH /api/platform/plans/[planId]` appellent `invalidatePublicPlans()` (`revalidateTag(…, { expire: 0 })`) :
+  la visite suivante relit la base, sans redéploiement. Les 10 minutes restent un filet (script
+  `ensure-standard-plan.ts`, écrit hors de Next.js).
+- Statuts : un forfait est **publié** (`active`) ou **non publié** ; il n'existe pas encore d'état distinct
+  « brouillon » ni « archivé » (il faudrait une migration). Un forfait n'est jamais supprimé : le retirer le masque,
+  ses abonnements gardent leur référence. Champs publics seulement : code, nom, prix, durée, description, limites.
 - Aucune formule publiée : la section le dit et renvoie vers l'inscription. Base injoignable : état
   « indisponible », jamais un prix inventé ni une page en erreur.
 - En aperçu local, les formules viennent de la base de démonstration PGlite et un badge « Formules fictives
@@ -98,7 +106,7 @@ vide), nombre de clients, logos de partenaires, notes, contact, conditions gén�
   | Fonctions (caisse, rapports, stock, achats) | **toutes activées** (confirmé par le propriétaire le 2026-11-10) |
   | Articles max, utilisateurs max | **laisser vides** : sans limite (confirmé par le propriétaire le 2026-11-10). La page affichera « Articles sans limite » et « Membres d'équipe sans limite » |
 
-  La formule apparaît sur la page publique au plus tard 10 minutes après (cache). Elle n'est créée dans
+  La formule apparaît sur la page publique dès la visite suivante (cache invalidé par la console). Elle n'est créée dans
   aucune base à ce jour : la production n'est pas migrée, et l'écrire en préproduction demande votre
   accord (écriture dans une base distante).
 - **Qadr Ops Business** (« Solution personnalisée », « Sur devis ») : carte ajoutée à la suite des

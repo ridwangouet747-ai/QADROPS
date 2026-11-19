@@ -7,8 +7,11 @@
  * - La part affectée aux espèces ne dépasse jamais ce qui reste dû après les autres moyens ; l'excédent est la monnaie.
  * - Wave, Orange Money, MTN MoMo, Moov Money et « autre » sont des règlements déclarés : le montant saisi est affecté
  *   tel quel ; il ne peut pas dépasser le total (aucune monnaie n'est rendue sur un transfert).
+ * - Chaque règlement déclaré doit être **confirmé** par le caissier (« Confirmer la réception », 2026-11-19) : il
+ *   a vu le transfert arrivé sur le téléphone du commerce. Sans cette confirmation la vente ne part pas. La
+ *   référence de transaction est facultative ; Qadr Ops ne la vérifie auprès d'aucun opérateur.
  */
-export type SettlementInput = { method: string; amountXof: string; touched: boolean };
+export type SettlementInput = { method: string; amountXof: string; touched: boolean; received?: boolean; reference?: string };
 
 export type SettlementRow = { method: string; value: bigint; applied: bigint; tendered: bigint | null; change: bigint };
 
@@ -22,8 +25,12 @@ export type Settlement = {
   changeXof: bigint;
   /** Les règlements déclarés hors espèces dépassent le total : la vente ne peut pas être validée. */
   overpaid: boolean;
+  /** Un règlement déclaré (Mobile Money, autre) n'a pas encore été confirmé reçu par le caissier. */
+  unconfirmed: boolean;
+  /** Billets et pièces qui restent dans le tiroir : remis moins rendu (jamais de Mobile Money). */
+  drawerNetXof: bigint;
   /** Corps `payments` attendu par `POST /api/business/sales`. */
-  payload: { method: string; amountXof: string; tenderedXof?: string }[];
+  payload: { method: string; amountXof: string; tenderedXof?: string; reference?: string }[];
 };
 
 export function wholeXof(value: string): bigint {
@@ -45,14 +52,21 @@ export function computeSettlement(total: bigint, parts: SettlementInput[]): Sett
     return { method: part.method, value: tendered, applied, tendered, change: tendered - applied };
   });
   const paidXof = rows.reduce((sum, row) => sum + row.applied, 0n);
-  const payload = rows.filter((row) => row.applied > 0n).map((row) => (
-    row.tendered !== null && row.change > 0n
+  const payload = rows.flatMap((row, index) => {
+    if (row.applied <= 0n) return [];
+    if (row.tendered !== null) return [row.change > 0n
       ? { method: row.method, amountXof: row.applied.toString(), tenderedXof: row.tendered.toString() }
-      : { method: row.method, amountXof: row.applied.toString() }));
+      : { method: row.method, amountXof: row.applied.toString() }];
+    const reference = parts[index]?.reference?.trim();
+    return [reference ? { method: row.method, amountXof: row.applied.toString(), reference } : { method: row.method, amountXof: row.applied.toString() }];
+  });
+  const cashGivenXof = rows.reduce((sum, row) => sum + (row.tendered ?? 0n), 0n);
+  const changeXof = rows.reduce((sum, row) => sum + row.change, 0n);
   return {
     rows, paidXof, dueXof: total > paidXof ? total - paidXof : 0n,
-    cashGivenXof: rows.reduce((sum, row) => sum + (row.tendered ?? 0n), 0n),
-    changeXof: rows.reduce((sum, row) => sum + row.change, 0n),
-    overpaid: declared > total, payload,
+    cashGivenXof, changeXof, drawerNetXof: cashGivenXof - changeXof,
+    overpaid: declared > total,
+    unconfirmed: rows.some((row, index) => row.tendered === null && row.applied > 0n && !parts[index]?.received),
+    payload,
   };
 }

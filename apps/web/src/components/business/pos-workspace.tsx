@@ -26,7 +26,8 @@ type Customer = { id: string; name: string; phone: string | null; balanceXof: st
 type CartLine = { product: Product; quantity: string };
 type PayMethod = ManualPaymentMethod;
 // touched : le caissier a saisi le montant ; sinon une ligne espèces suit le montant restant dû.
-type PaymentPart = { method: PayMethod; amountXof: string; touched: boolean };
+// received / reference : Mobile Money et « autre » seulement (confirmation de réception, numéro de transaction facultatif).
+type PaymentPart = { method: PayMethod; amountXof: string; touched: boolean; received?: boolean; reference?: string };
 type SaleResult = { id: string; reference: string; totalXof: string; paidXof: string; dueXof: string; tenderedXof?: string; changeXof?: string };
 const methods: readonly PayMethod[] = manualPaymentMethods;
 const freshPayments = (): PaymentPart[] => [{ method: "cash", amountXof: "", touched: false }];
@@ -116,7 +117,9 @@ export function PosWorkspace() {
   }
   const setQuantity = (variantId: string, value: string) => setCart((current) => current.map((line) => line.product.variantId === variantId ? { ...line, quantity: value } : line));
   const removeLine = (variantId: string) => setCart((current) => current.filter((line) => line.product.variantId !== variantId));
-  const changePayment = (index: number, patch: Partial<PaymentPart>) => setPayments((current) => current.map((part, i) => i === index ? { ...part, ...patch } : part));
+  // Un montant ou un moyen modifié après confirmation doit être reconfirmé : la confirmation porte sur ce que le caissier a vu.
+  const changePayment = (index: number, patch: Partial<PaymentPart>) => setPayments((current) => current.map((part, i) => i === index
+    ? { ...part, ...patch, ...("amountXof" in patch || "method" in patch ? { received: patch.received ?? false } : {}) } : part));
 
   async function finishSale(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(""); setPending(true);
@@ -125,6 +128,7 @@ export function PosWorkspace() {
       const invalid = cart.find((line) => !parseQuantityInput(line.quantity));
       if (invalid) throw new Error(t("pos.invalidQty", { product: invalid.product.name }));
       if (settlement.overpaid) throw new Error(t("pos.overpaid"));
+      if (settlement.unconfirmed) throw new Error(t("pos.confirmReceiptNeeded"));
       if (customerRequired && !customerId) throw new Error(t("pos.customerNeeded"));
       const salePayload = { customerId: customerId || undefined,
         lines: cart.map((line) => ({ variantId: line.product.variantId, quantity: toApiQuantity(line.quantity) })),
@@ -137,8 +141,8 @@ export function PosWorkspace() {
       const response = await fetch("/api/business/sales", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
         body: JSON.stringify({ ...salePayload, idempotencyKey }),
       });
-      const body = await response.json() as { sale?: SaleResult; error?: string };
-      if (!response.ok || !body.sale) throw new Error(body.error || t("pos.saleFailed"));
+      const body = await response.json() as { sale?: SaleResult; error?: string; code?: string };
+      if (!response.ok || !body.sale) throw new Error(body.code === "payment_reference_used" ? t("pos.referenceUsed") : body.error || t("pos.saleFailed"));
       setSuccess(body.sale); setPrintState(""); attemptRef.current = null;
       const methods = new Set(salePayload.payments.map((part) => part.method));
       track("sale_recorded", { line_count: countBucket(salePayload.lines.length), has_customer: Boolean(salePayload.customerId),
@@ -300,15 +304,36 @@ export function PosWorkspace() {
                     }}>{t("pos.exactAmount")}</Button>}
                     {payments.length > 1 && <button type="button" onClick={() => setPayments((current) => current.filter((_, i) => i !== index))} aria-label={t("pos.removeMethod")} className="grid size-12 shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-surface text-fg-subtle hover:text-danger"><Icon name="trash" className="size-4" /></button>}
                   </div>
+                  {part.method !== "cash" && (
+                    <>
+                      <Field label={t("pos.reference")} hint={t("pos.referenceHint")}>
+                        {(props) => <Input {...props} value={part.reference ?? ""} maxLength={64} dir="ltr" autoComplete="off" autoCapitalize="characters" spellCheck={false}
+                          onChange={(event) => changePayment(index, { reference: event.target.value })} />}
+                      </Field>
+                      {(settlement.rows[index]?.applied ?? 0n) > 0n && (
+                        <label className={cn("flex min-h-12 cursor-pointer items-start gap-3 rounded-[12px] border p-3 text-sm font-semibold",
+                          part.received ? "border-ok bg-ok-soft text-ok" : "border-warn-line bg-warn-soft text-warn")}>
+                          <input type="checkbox" checked={Boolean(part.received)} onChange={(event) => changePayment(index, { received: event.target.checked })} className="mt-0.5 size-5 shrink-0 accent-brand" />
+                          <span>{part.received ? t("pos.receiptConfirmed") : t("pos.confirmReceipt")}</span>
+                        </label>
+                      )}
+                    </>
+                  )}
                 </div>
               ))}
               <Button variant="ghost" className="justify-self-start" onClick={() => setPayments((current) => [...current, { method: "wave", amountXof: "", touched: false }])} icon={<Icon name="plus" className="size-4" />}>{t("pos.addMethod")}</Button>
               {declaredPartExists && <p className="m-0 rounded-[12px] bg-brand-soft p-2.5 text-xs text-brand-strong">{t("pos.manualNote")}</p>}
               {settlement.changeXof > 0n && (
-                <p role="status" className="m-0 flex items-baseline justify-between gap-3 rounded-[12px] bg-ok-soft p-3 text-ok">
-                  <span className="text-sm font-semibold">{t("pos.changeDue")}</span>
-                  <strong className="numeric text-xl">{money(settlement.changeXof)}</strong>
-                </p>
+                <div role="status" className="grid gap-1 rounded-[12px] bg-ok-soft p-3 text-ok">
+                  <p className="m-0 flex items-baseline justify-between gap-3">
+                    <span className="text-sm font-semibold">{t("pos.changeDue")}</span>
+                    <strong className="numeric text-xl">{money(settlement.changeXof)}</strong>
+                  </p>
+                  <p className="m-0 flex items-baseline justify-between gap-3 text-sm">
+                    <span>{t("pos.drawerNet")}</span>
+                    <span className="numeric font-semibold">{money(settlement.drawerNetXof)}</span>
+                  </p>
+                </div>
               )}
             </fieldset>
 
@@ -326,7 +351,7 @@ export function PosWorkspace() {
                 <span className="text-sm text-white/85">{t("pos.total")}</span>
                 <strong className="numeric text-[1.9rem] leading-none font-bold tracking-[-0.03em]">{money(total)}</strong>
               </div>
-              <button disabled={pending || !cart.length || settlement.overpaid}
+              <button disabled={pending || !cart.length || settlement.overpaid || settlement.unconfirmed}
                 className="inline-flex min-h-13 w-full cursor-pointer items-center justify-center gap-2 rounded-full border-0 bg-white px-5 text-base font-bold text-brand-strong shadow-card hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-60">
                 {pending ? t("pos.submitting") : <><Icon name="check" />{t("pos.submit", { amount: money(total) })}</>}
               </button>

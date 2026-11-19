@@ -101,17 +101,26 @@ const saleInputSchema = z.object({
   customerId: z.string().min(1).optional(),
   lines: z.array(z.object({ variantId: z.string().min(1), quantity: z.string().min(1).max(32) })).min(1).max(100),
   // amountXof : part affectée à la vente. tenderedXof (espèces seulement) : somme remise par le client, monnaie comprise.
-  payments: z.array(z.object({ method: z.enum(manualPaymentMethods), amountXof: z.string().regex(/^[1-9]\d{0,17}$/), tenderedXof: z.string().regex(/^[1-9]\d{0,17}$/).optional() })
+  // reference (Mobile Money et « autre » seulement, facultative) : numéro de transaction lu par le caissier sur le
+  // téléphone du commerce. Simple note de rapprochement : Qadr Ops ne la vérifie auprès d'aucun opérateur.
+  payments: z.array(z.object({ method: z.enum(manualPaymentMethods), amountXof: z.string().regex(/^[1-9]\d{0,17}$/), tenderedXof: z.string().regex(/^[1-9]\d{0,17}$/).optional(),
+    reference: z.string().trim().max(64).regex(/^[\p{L}\p{N}._\-/#: ]*$/u, "Référence de transaction invalide.").optional().transform((value) => value || undefined) })
     .refine((part) => part.tenderedXof === undefined || (part.method === "cash" && BigInt(part.tenderedXof) >= BigInt(part.amountXof)),
-      { message: "La somme remise ne concerne que les espèces et ne peut pas être inférieure à la part payée en espèces." })).max(20).default([]),
+      { message: "La somme remise ne concerne que les espèces et ne peut pas être inférieure à la part payée en espèces." })
+    .refine((part) => part.reference === undefined || part.method !== "cash", { message: "Une référence de transaction ne concerne pas les espèces." })).max(20).default([])
+    .refine((parts) => { const refs = parts.flatMap((part) => part.reference ? [part.reference.toUpperCase()] : []); return new Set(refs).size === refs.length; },
+      { message: "La même référence de transaction apparaît deux fois." }),
 });
 
 type SaleInput = z.infer<typeof saleInputSchema>;
 type SaleResult = { id: string; reference: string; subtotalXof: bigint; totalXof: bigint; paidXof: bigint; dueXof: bigint; tenderedXof: bigint; changeXof: bigint; replayed: boolean };
 
 /** Empreinte d'un règlement pour comparer une requête rejouée avec celle déjà enregistrée. */
-const paymentFingerprint = (part: { method: string; amountXof: string | bigint; tenderedXof?: string | bigint | null }) =>
-  `${part.method}:${BigInt(part.amountXof)}:${part.tenderedXof == null ? "" : BigInt(part.tenderedXof)}`;
+const paymentFingerprint = (part: { method: string; amountXof: string | bigint; tenderedXof?: string | bigint | null; reference?: string | null; providerReference?: string | null }) =>
+  `${part.method}:${BigInt(part.amountXof)}:${part.tenderedXof == null ? "" : BigInt(part.tenderedXof)}:${part.reference ?? part.providerReference ?? ""}`;
+
+/** Une référence de transaction déjà enregistrée dans ce commerce signale très probablement un transfert déclaré deux fois. */
+const duplicateReference = () => new CommercialError("Cette référence de transaction est déjà enregistrée pour une autre vente. Vérifiez le transfert reçu.", 409, "payment_reference_used");
 
 function parseScaledDecimal(value: string, scale: number): bigint {
   const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(value);
@@ -224,12 +233,19 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
         quantityDelta: `-${line.quantity}`, reason: "sale", saleLineId: lineIds[index]!, unitCostXof: line.row.variant.averageCostXof, createdByUserId: input.actorUserId })));
       // Les espèces vont dans la caisse ouverte du vendeur (s'il en a une), pour leur part nette ; le Mobile Money reste hors caisse.
       const cashSessionId = input.payments.some((part) => part.method === "cash") ? await attachOpenCashSession(tx, input.businessId, input.actorUserId) : null;
+      const references = input.payments.flatMap((part) => part.reference ? [part.reference] : []);
+      if (references.length) {
+        const [used] = await tx.select({ id: payment.id }).from(payment)
+          .where(and(eq(payment.businessId, input.businessId), inArray(payment.providerReference, references))).limit(1);
+        if (used) throw duplicateReference();
+      }
       if (input.payments.length) {
         const confirmedAt = new Date();
         await tx.insert(payment).values(input.payments.map((part, index) => ({ id: randomUUID(), businessId: input.businessId, saleId, method: part.method,
           amountXof: BigInt(part.amountXof), status: "confirmed", recordedByUserId: input.actorUserId,
           idempotencyKey: `${input.idempotencyKey}:${index}`, confirmedAt,
           tenderedXof: part.tenderedXof ? BigInt(part.tenderedXof) : null, changeXof: part.tenderedXof ? BigInt(part.tenderedXof) - BigInt(part.amountXof) : null,
+          providerReference: part.reference ?? null,
           cashSessionId: part.method === "cash" ? cashSessionId : null })));
       }
       await tx.insert(auditEvent).values({ id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId,
@@ -252,6 +268,8 @@ export async function createSale(db: CommercialDatabase, rawInput: unknown): Pro
       await assertCanCreateSale(db, input.businessId, input.actorUserId);
       const replay = await findIdempotentSale(db, input);
       if (replay) return replay;
+      // Course entre deux caisses déclarant la même référence : l'index unique tranche, la réponse reste un 409.
+      if (String((error as { constraint?: unknown }).constraint ?? (error as { message?: unknown }).message ?? "").includes("payment_provider_reference_unique")) throw duplicateReference();
     }
     throw error;
   }

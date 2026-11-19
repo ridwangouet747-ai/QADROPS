@@ -36,6 +36,15 @@ monnaie = remis − affecté. La monnaie ne compte jamais dans le payé, le chif
 - Un montant inférieur laisse un reste dû : il faut alors choisir un client (vente à crédit, règles inchangées).
 - Plusieurs lignes possibles (paiement mixte), chacune modifiable ou supprimable avant validation. Un montant
   Mobile Money ou « autre » supérieur au total est refusé (aucune monnaie n'est rendue sur un transfert).
+- **Confirmer la réception** (2026-11-19) : chaque ligne Mobile Money ou « autre » porte une case que le caissier
+  coche après avoir vu le transfert arrivé sur le téléphone du commerce ; tant qu'une ligne n'est pas confirmée, la
+  vente ne part pas. Modifier le montant ou le moyen décoche la case. Le serveur enregistre le caissier
+  (`recorded_by_user_id`) et l'heure (`confirmed_at`).
+- **Référence de transaction** facultative (Mobile Money et « autre », jamais espèces), conservée dans
+  `payment.provider_reference`. Elle n'est vérifiée auprès d'aucun opérateur. Unique par commerce : une référence
+  déjà enregistrée est refusée (409 `payment_reference_used`), signe d'un transfert déclaré deux fois.
+- Formules : R = max(0, T − M) ; A = min(C, R) ; D = max(0, C − R) ; P = M + A ; S = max(0, T − P) ; reste dans le
+  tiroir = C − D (affiché sous la monnaie à rendre).
 - Le serveur (`createSale`) refait tous les contrôles ; le calcul du navigateur sert seulement à l'affichage.
   La clé d'idempotence couvre la somme remise : un rejeu identique renvoie la même vente, un rejeu différent 409.
 
@@ -51,7 +60,8 @@ ils restent exclus des encaissements et se confirment toujours depuis le détail
   « dont billets reçus » (1 000 F) et « dont monnaie rendue » (200 F), hors calcul.
 - Reçu (`lib/printing/receipt-document.ts`, `receipt-ticket.ts`) : une ligne par moyen avec sa part affectée,
   puis « Espèces remises », « Monnaie rendue », le reste dû éventuel et le statut (Payé, Partiellement payé,
-  À crédit), en fr/en/ar.
+  À crédit), en fr/en/ar. Chaque ligne Mobile Money est suivie de « enregistré manuellement » et, si elle existe,
+  de sa référence. Le détail de la vente montre aussi la référence, la somme remise et la monnaie.
 
 ## 6. Tests
 

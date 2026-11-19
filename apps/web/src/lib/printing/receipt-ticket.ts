@@ -65,7 +65,12 @@ export function layoutReceipt(document: ReceiptDocument): TicketLayout {
     pair(labels.discount, amount(-BigInt(totals.discountXof)));
   }
   pair(labels.total, amount(totals.totalXof), { bold: true, size: "tall" });
-  for (const payment of document.payments) pair(payment.statusLabel ? `${payment.methodLabel} (${payment.statusLabel})` : payment.methodLabel, amount(payment.amountXof));
+  for (const payment of document.payments) {
+    pair(payment.statusLabel ? `${payment.methodLabel} (${payment.statusLabel})` : payment.methodLabel, amount(payment.amountXof));
+    // Mobile Money : déclaré par le caissier, jamais confirmé par l'opérateur ; la référence éventuelle sert au rapprochement.
+    if (payment.manual && payment.reference) pair(labels.manual, ltr(`${labels.reference} ${payment.reference}`), { indent: true });
+    else if (payment.manual) text(labels.manual);
+  }
   // Total encaissé seulement s'il apporte une information : plusieurs paiements ou un reste à payer.
   if (document.payments.length > 1 || totals.dueXof || totals.changeXof) pair(labels.paid, amount(totals.paidXof));
   if (totals.tenderedXof && totals.changeXof) {

@@ -122,6 +122,39 @@ describe("commercial flow on PGlite", () => {
     await client.query("update product_variant set on_hand=$3 where business_id=$1 and id=$2", [businessA, variantId, stockBefore]);
   });
 
+  it("Mobile Money déclaré : référence facultative conservée, doublon refusé, nouvel essai idempotent, jamais dans la caisse", async () => {
+    const stock = await client.query<{ on_hand: string }>("select on_hand::text from product_variant where business_id=$1 and id=$2", [businessA, variantId]);
+    const stockBefore = stock.rows[0]!.on_hand;
+    await client.query("update product_variant set on_hand=100 where business_id=$1 and id=$2", [businessA, variantId]);
+    const each = [["wave", "WV-0001"], ["orange_money", "OM-0001"], ["mtn_momo", "MM-0001"], ["moov_money", null]] as const;
+    for (const [method, reference] of each) {
+      const sold = await createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: `sale-mm-${method}`,
+        lines: [{ variantId, quantity: "1" }], payments: [{ method, amountXof: "1500", ...(reference ? { reference } : {}) }] });
+      expect(sold).toMatchObject({ totalXof: 1500n, paidXof: 1500n, dueXof: 0n, tenderedXof: 0n, changeXof: 0n });
+      const stored = await client.query<{ status: string; provider_reference: string | null; cash_session_id: string | null; recorded_by_user_id: string; confirmed: boolean }>(
+        "select status, provider_reference, cash_session_id, recorded_by_user_id, confirmed_at is not null as confirmed from payment where sale_id=$1", [sold.id]);
+      expect(stored.rows).toEqual([{ status: "confirmed", provider_reference: reference, cash_session_id: null, recorded_by_user_id: actor, confirmed: true }]);
+    }
+    // Même clé, même requête (double clic, réseau) : la vente existante est rendue, rien n'est doublé.
+    const replay = await createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-mm-wave",
+      lines: [{ variantId, quantity: "1" }], payments: [{ method: "wave", amountXof: "1500", reference: "WV-0001" }] });
+    expect(replay.replayed).toBe(true);
+    // Même clé, autre référence : requête différente, refusée.
+    await expect(createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-mm-wave",
+      lines: [{ variantId, quantity: "1" }], payments: [{ method: "wave", amountXof: "1500", reference: "WV-0002" }] })).rejects.toMatchObject({ status: 409 });
+    // Nouvelle vente avec une référence déjà enregistrée : transfert probablement déclaré deux fois, rien n'est écrit.
+    const salesBefore = await client.query<{ n: string }>("select count(*)::text n from sale where business_id=$1", [businessA]);
+    await expect(createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-mm-dup",
+      lines: [{ variantId, quantity: "1" }], payments: [{ method: "orange_money", amountXof: "1500", reference: "OM-0001" }] })).rejects.toMatchObject({ status: 409, code: "payment_reference_used" });
+    expect((await client.query<{ n: string }>("select count(*)::text n from sale where business_id=$1", [businessA])).rows[0]!.n).toBe(salesBefore.rows[0]!.n);
+    // Référence sur des espèces, ou deux fois dans la même vente : refusées par la validation.
+    await expect(createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-mm-cashref",
+      lines: [{ variantId, quantity: "1" }], payments: [{ method: "cash", amountXof: "1500", reference: "X-1" }] })).rejects.toThrow();
+    await expect(createSale(db, { businessId: businessA, actorUserId: actor, idempotencyKey: "sale-mm-tworef",
+      lines: [{ variantId, quantity: "2" }], payments: [{ method: "wave", amountXof: "1500", reference: "R-9" }, { method: "mtn_momo", amountXof: "1500", reference: "r-9" }] })).rejects.toThrow();
+    await client.query("update product_variant set on_hand=$3 where business_id=$1 and id=$2", [businessA, variantId, stockBefore]);
+  });
+
   it("rejects overselling and overpayment without partial writes", async () => {
     const before = await client.query<{ sales: string; movements: string }>(
       "select (select count(*) from sale where business_id=$1)::text as sales, (select count(*) from stock_movement where business_id=$1)::text as movements",

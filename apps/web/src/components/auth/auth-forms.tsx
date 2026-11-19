@@ -10,6 +10,7 @@ import { controlClasses, Field, Input } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/components/ui/cn";
 import { authClient } from "@/lib/auth/client";
+import { loginMode } from "@/lib/auth/login-identifier";
 import { track } from "@/lib/analytics/client";
 import { turnstileHeader } from "@/lib/auth/turnstile";
 import { safeNext } from "@/lib/client/redirect";
@@ -98,10 +99,11 @@ export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = safeNext(params.get("next"));
-  const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
-  // Employé invité par code (2026-11-16) : compte sans adresse e-mail, connexion par nom d'utilisateur.
-  const [mode, setMode] = useState<"email" | "username">(params.get("mode") === "username" ? "username" : "email");
+  // Un seul champ « E-mail ou nom d'utilisateur » (2026-11-19). Avant, la page s'ouvrait sur un onglet e-mail
+  // (`type="email"`) : après sa déconnexion, un employé invité par code (compte sans e-mail) y tapait son nom
+  // d'utilisateur et le navigateur bloquait l'envoi. Un « @ » désigne une adresse, sinon un nom d'utilisateur.
+  const [identifier, setIdentifier] = useState("");
+  const mode = loginMode(identifier);
   const [password, setPassword] = useState("");
   const socialError = params.get("social_error") ? (params.get("error") === "account_not_linked" ? t("auth.social.notLinked") : t("auth.social.failed")) : "";
   const [error, setError] = useState(params.get("expired") ? t("auth.login.expired") : socialError);
@@ -118,7 +120,7 @@ export function LoginForm() {
     if (mode === "username") {
       const status = await fetch("/api/account/sign-in/username", {
         method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...(security.token ? { [turnstileHeader]: security.token } : {}) },
-        body: JSON.stringify({ username: username.trim().toLowerCase(), password }),
+        body: JSON.stringify({ username: identifier.trim().toLowerCase(), password }),
       }).then(async (response) => response.ok ? 200 : (await response.json().catch(() => ({})) as { code?: string }).code === "turnstile_failed" ? -1 : response.status).catch(() => 0);
       if (status !== 200) {
         track("login_failed", { reason: status === -1 ? "turnstile" : status === 401 ? "credentials" : "other" });
@@ -128,7 +130,7 @@ export function LoginForm() {
       await routeAfterSignIn(router.push, next);
       return;
     }
-    const { error: failure } = await authClient.signIn.email({ email: email.trim(), password, fetchOptions: securityHeaders(security.token) });
+    const { error: failure } = await authClient.signIn.email({ email: identifier.trim(), password, fetchOptions: securityHeaders(security.token) });
     if (failure) {
       track("login_failed", { reason: turnstileRejected(failure) ? "turnstile" : failure.status === 403 ? "verification" : failure.status === 401 ? "credentials" : "other" });
       // 429 : limite du compte ou de l'adresse atteinte ; « mot de passe incorrect » ferait réessayer en vain.
@@ -145,22 +147,12 @@ export function LoginForm() {
         <span className="mt-1 flex flex-wrap justify-center gap-x-4"><Link href="/privacy" className="inline-flex min-h-11 items-center px-1 text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("privacy.footer")}</Link><Link href="/platform/login" className="inline-flex min-h-11 items-center px-1 text-xs font-medium text-fg-subtle no-underline hover:text-ink">{t("auth.login.adminAccess")}</Link></span></>}>
       <form method="post" onSubmit={(event) => void submit(event)} className="grid gap-4">
         {error && <Alert tone="danger">{error}</Alert>}
-        {mode === "email" && <SocialButtons next={next} onError={setError} />}
-        <div role="radiogroup" aria-label={t("access.signIn.mode")} className="grid grid-cols-2 gap-1 rounded-full bg-paper p-1">
-          {(["email", "username"] as const).map((value) => (
-            <button key={value} type="button" role="radio" aria-checked={mode === value} onClick={() => { setMode(value); setError(""); }}
-              className={cn("min-h-10 cursor-pointer rounded-full border-0 px-3 text-sm font-semibold", mode === value ? "bg-surface text-ink shadow-sm" : "bg-transparent text-fg-muted hover:text-ink")}>
-              {value === "email" ? t("access.signIn.withEmail") : t("access.signIn.withUsername")}
-            </button>
-          ))}
-        </div>
-        {mode === "email"
-          ? <Field label={t("auth.email")}>{(props) => <Input {...props} type="email" dir="ltr" required autoComplete="email" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} />}</Field>
-          : <Field label={t("access.signIn.username")} hint={t("access.signIn.employeeHint")}>{(props) => <Input {...props} dir="ltr" required autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={30} value={username} onChange={(event) => setUsername(event.target.value)} />}</Field>}
+        <SocialButtons next={next} onError={setError} />
+        <Field label={t("access.signIn.identifier")} hint={t("access.signIn.identifierHint")}>{(props) => <Input {...props} name="identifier" dir="ltr" required autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} maxLength={254} value={identifier} onChange={(event) => setIdentifier(event.target.value)} />}</Field>
         <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-2">
             <label htmlFor="login-password" className="text-sm font-semibold text-ink">{t("auth.password")}</label>
-            <Link href={mode === "email" ? "/forgot-password" : "/recover-account"} className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>
+            <Link href={mode === "username" && identifier.trim() ? "/recover-account" : "/forgot-password"} className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-strong no-underline">{t("auth.login.forgot")}</Link>
           </div>
           <PasswordInput id="login-password" value={password} onChange={setPassword} autoComplete="current-password" />
         </div>

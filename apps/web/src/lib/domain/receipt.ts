@@ -39,7 +39,7 @@ export async function getSaleReceipt(db: CommercialDatabase, input: { businessId
     name: saleLine.productNameSnapshot, variant: saleLine.variantSnapshot,
     quantity: saleLine.quantity, unitPriceXof: saleLine.unitPriceXof, totalXof: saleLine.lineTotalXof, lineDiscountXof: saleLine.lineDiscountXof,
   }).from(saleLine).where(and(eq(saleLine.businessId, input.businessId), eq(saleLine.saleId, input.saleId)));
-  const payments = await db.select({ method: payment.method, amountXof: payment.amountXof, status: payment.status, tenderedXof: payment.tenderedXof, changeXof: payment.changeXof })
+  const payments = await db.select({ method: payment.method, amountXof: payment.amountXof, status: payment.status, tenderedXof: payment.tenderedXof, changeXof: payment.changeXof, reference: payment.providerReference })
     .from(payment).where(and(eq(payment.businessId, input.businessId), eq(payment.saleId, input.saleId)));
 
   return { business: identity, sale: saleRecord, lines, payments };

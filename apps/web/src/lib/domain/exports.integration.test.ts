@@ -201,7 +201,12 @@ describe("mission 11, phase 4 : exports XLSX et PDF sur PGlite (deux commerces)"
   });
 
   describe("route GET /api/business/reports/export", () => {
-    const call = async (query: string) => (await import("@/app/api/business/reports/export/route")).GET(new Request(`http://localhost/api/business/reports/export?${query}`));
+    // Le premier import de la route charge tout son graphe (Next, Better Auth, Sentry, générateurs) : ~12 s
+    // à froid, bien plus quand la suite complète occupe la machine. Il se fait ici, sous la limite des hooks
+    // (120 s), pour que la limite de 30 s des tests ne mesure que la route (2026-11-19).
+    let route: typeof import("@/app/api/business/reports/export/route");
+    beforeAll(async () => { route = await import("@/app/api/business/reports/export/route"); });
+    const call = async (query: string) => route.GET(new Request(`http://localhost/api/business/reports/export?${query}`));
 
     it("ignore les identifiants de commerce et d'utilisateur glissés dans la requête", async () => {
       session.current = { db, businessId: bizA, userId: ownerA, actorUserId: ownerA };

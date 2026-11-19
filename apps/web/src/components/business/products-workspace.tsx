@@ -263,7 +263,7 @@ export function ProductsWorkspace() {
             <Field label={t("products.form.name")} error={draftErrors.name}>
               {(props) => <Input {...props} dir="auto" maxLength={160} autoComplete="off" autoFocus={editing === "new"} placeholder={t("products.form.namePlaceholder")} value={draft.name} onChange={(event) => set({ name: event.target.value })} />}
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <Field label={t("products.form.category")}>
                 {(props) => (
                   <Select {...props} value={draft.categoryId} onChange={(event) => set({ categoryId: event.target.value })}>
@@ -277,7 +277,7 @@ export function ProductsWorkspace() {
               </Field>
             </div>
             {/* Prix et quantité de départ : deux champs séparés, chacun son libellé ; l'unité est rappelée dans l'aide, jamais dans le champ. */}
-            <div className={editing === "new" ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>
+            <div className={editing === "new" ? "grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "grid gap-4"}>
               <Field label={t("products.form.price")} error={draftErrors.salePriceXof}>
                 {(props) => <Input {...props} inputMode="numeric" pattern="[0-9]*" placeholder="0" className="numeric" value={draft.salePriceXof} onChange={(event) => set({ salePriceXof: event.target.value.replace(/\s/g, "") })} />}
               </Field>
@@ -287,7 +287,7 @@ export function ProductsWorkspace() {
                 </Field>
               )}
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <Field label={t("products.form.variant")} hint={t("products.form.variantHint")}>
                 {(props) => <Input {...props} dir="auto" maxLength={100} value={draft.variantLabel} onChange={(event) => set({ variantLabel: event.target.value })} />}
               </Field>

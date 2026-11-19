@@ -1,5 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
-import { unstable_cache } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { subscriptionPlan } from "@/lib/db/schema";
 import { getRuntimeDatabase } from "@/lib/db/runtime";
 import type { CommercialDatabase } from "@/lib/domain/commercial";
@@ -39,10 +39,26 @@ export async function readPublicPlans(db: Pick<CommercialDatabase, "select">): P
 }
 
 /**
- * Mise en cache 10 minutes : la page publique ne doit pas interroger la base à chaque visite. Une formule
- * modifiée dans la console apparaît donc au plus tard 10 minutes après (docs/product/landing-page.md).
+ * Mise en cache 10 minutes : la page publique ne doit pas interroger la base à chaque visite. Depuis le
+ * 2026-11-19, toute création ou modification de forfait dans la console appelle `invalidatePublicPlans()` : la
+ * visite suivante relit la base. Les 10 minutes ne restent qu'un filet (docs/product/landing-page.md).
  */
-const cachedPublicPlans = unstable_cache(async () => readPublicPlans(await getRuntimeDatabase()), ["landing-public-plans-v1"], { revalidate: 600, tags: ["public-plans"] });
+export const PUBLIC_PLANS_TAG = "public-plans";
+const cachedPublicPlans = unstable_cache(async () => readPublicPlans(await getRuntimeDatabase()), ["landing-public-plans-v1"], { revalidate: 600, tags: [PUBLIC_PLANS_TAG] });
+
+/**
+ * Rend périmée la liste publique des forfaits, appelée par les routes de la console après une écriture réussie.
+ * `expire: 0` : la visite suivante relit la base au lieu de servir l'ancienne liste. Hors d'une requête Next.js
+ * (tests, scripts), il n'existe aucun cache à invalider : l'appel ne fait rien.
+ */
+export function invalidatePublicPlans(): void {
+  try {
+    revalidateTag(PUBLIC_PLANS_TAG, { expire: 0 });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("static generation store missing")) return;
+    throw error;
+  }
+}
 
 /** Ne lève jamais : une base indisponible donne un état « indisponible », jamais une page en erreur ni un prix inventé. */
 export async function getPublicPlans(): Promise<PublicPlansResult> {

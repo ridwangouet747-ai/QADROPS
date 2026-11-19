@@ -179,3 +179,34 @@ describe("reçu d'une vente mixte avec monnaie rendue (exemple du mandat)", () =
     expect(buildReceiptDocument({ ...mixed, payments: [{ method: "moov_money", amountXof: "2000", status: "confirmed" }] }, { language: "en" }).payments[0]!.methodLabel).toBe("Moov Money");
   });
 });
+
+describe("Mobile Money déclaré sur le ticket (2026-11-19)", () => {
+  const mixed: ReceiptSource = { ...source, payments: [
+    { method: "cash", amountXof: "3000", status: "confirmed", tenderedXof: "5000", changeXof: "2000" },
+    { method: "wave", amountXof: "7000", status: "confirmed", reference: "WV-2611.88" },
+    { method: "moov_money", amountXof: "500", status: "confirmed", reference: null },
+  ], sale: { ...source.sale, totalXof: "10500", subtotalXof: "10500", discountXof: "0" } };
+
+  it("chaque règlement Mobile Money porte « enregistré manuellement », avec sa référence si elle existe", () => {
+    const layout = text(layoutReceipt(buildReceiptDocument(mixed, { language: "fr" })));
+    expect(layout).toContain("enregistré manuellement | Réf. WV-2611.88");
+    expect(layout.match(/enregistré manuellement/g)).toHaveLength(2);
+    expect(layout).toContain("Espèces remises | 5 000 F");
+    expect(layout).toContain("Monnaie rendue | 2 000 F");
+    expect(layout).toContain("Statut : Payé");
+  });
+
+  it("les espèces ne portent ni mention manuelle ni référence", () => {
+    const document = buildReceiptDocument(mixed, { language: "fr" });
+    expect(document.payments.map((payment) => [payment.method, payment.manual, payment.reference])).toEqual([
+      ["cash", false, null], ["wave", true, "WV-2611.88"], ["moov_money", true, null],
+    ]);
+  });
+
+  it("arabe : la référence reste isolée de gauche à droite", () => {
+    const layout = layoutReceipt(buildReceiptDocument(mixed, { language: "ar" }));
+    const pairs = layout.blocks.filter((block) => block.type === "pair");
+    for (const pair of pairs) expect(pair.end.startsWith(LRI) && pair.end.endsWith(PDI)).toBe(true);
+    expect(text(layout)).toContain("مسجَّل يدويًا");
+  });
+});
