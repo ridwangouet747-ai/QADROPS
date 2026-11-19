@@ -5,7 +5,7 @@
 > Branche `feat/mission-codes-2026-11-16`. **Aucune migration** : `drizzle-kit check` et `drizzle-kit generate`
 > répondent « No schema changes ».
 
-**Verdict : voir § K** (complété après la CI et le déploiement).
+**Verdict : livré en production (`9ea0e31`), voir § K.
 
 ## A. Connexion des employés (codes EQP-)
 
@@ -119,3 +119,26 @@ code `EQP-`.
 Le premier passage complet (74 fichiers « en échec ») est écarté : 73 fichiers n'avaient pas pu se charger
 (`ENOENT` sur un fichier temporaire de Vitest, effacé par un second Vitest lancé en parallèle), aucun test
 n'avait échoué sur une assertion.
+
+## H. Livraison
+
+| Étape | Preuve |
+| --- | --- |
+| Commits | `7f65df4` (mission), `9ea0e31` (course d'inscription), branche `feat/mission-codes-2026-11-16`, sans force |
+| CI GitHub | runs 44581540975 (`7f65df4`) et 44600908679 (`9ea0e31`) : succès |
+| `main` | avance rapide `7f64f6d..9ea0e31` (ancêtre vérifié, aucune fusion) |
+| Vercel `web`, production | `dpl_AsLe7m3bZWHFWmkNGubAQM8nL83K`, état READY, SHA `9ea0e31`, alias `web-phi-beryl-45.vercel.app`, `web-qadragency.vercel.app`, `web-git-main-qadragency.vercel.app` |
+| Pages (adresse canonique) | `/`, `/login`, `/register`, `/redeem-code`, `/join-business`, `/recover-account`, `/platform/login` : 200 ; `/business/sales` sans session : 307 ; `/api/account/me` sans session : 401 ; URL propre au déploiement : protection Vercel (302 SSO) |
+| Contenu servi | `/login` : un seul champ « E-mail ou nom d'utilisateur », aucun `type="email"`, lien « Zone de l'administration » ; Tarifs : la formule publiée en base (5 000 F CFA pour 30 jours) |
+| Erreurs | Sentry, production, dernière heure : aucune ; journaux Vercel de la fenêtre : 0 enregistrement renvoyé (ingestion non confirmée) |
+
+Rien n'a été écrit dans Neon Production : ni vente, ni paiement, ni compte, ni formule.
+
+## K. Verdict
+
+**Livré en production et vérifié** pour la connexion des employés, les forfaits publics, la caisse (Mobile Money
+déclaratif, référence, tiroir) et le ticket, ainsi que pour la course d'inscription trouvée sur staging.
+**Non vérifié** : affichage de 2 et 10 formules en production (une seule est publiée ; couvert par les tests),
+impression sur imprimante réelle (B-2), formulaire produit à 320 px, journaux Vercel de la fenêtre.
+**Non fait** : page publique « cinématique » (images de référence absentes), états « brouillon » et « archivé » des
+formules (migration nécessaire), Preview sur staging (le projet `web` n'a pas de base Preview).
