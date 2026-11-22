@@ -3,10 +3,11 @@ import { Plus_Jakarta_Sans } from "next/font/google";
 import { AnalyticsProvider } from "@/components/analytics-provider";
 import { I18nProvider } from "@/components/i18n/i18n-provider";
 import { PwaRegistrar } from "@/components/pwa/pwa-registrar";
+import { UpdateNotice } from "@/components/pwa/update-notice";
 import { brand } from "@/lib/brand";
 import { localeDirection } from "@/lib/i18n/config";
 import { getRequestLocale } from "@/lib/i18n/server";
-import { createTranslator } from "@/lib/i18n/translate";
+import { createTranslator, dictionaries } from "@/lib/i18n/translate";
 import "./globals.css";
 
 // Une seule police variable (latin uniquement, toutes graisses dans un fichier) ; l'arabe utilise la police du système.
@@ -37,8 +38,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang={locale} dir={localeDirection[locale]} className={jakarta.variable}>
       <body>
-        <I18nProvider locale={locale}>
+        <I18nProvider locale={locale} messages={dictionaries[locale]}>
           <AnalyticsProvider>{children}</AnalyticsProvider>
+          <UpdateNotice />
         </I18nProvider>
         <PwaRegistrar />
       </body>

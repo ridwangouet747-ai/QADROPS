@@ -54,10 +54,19 @@ export async function getBusinessContext(headers: Headers, options: { allowWitho
   const businessId = authSession.session.activeOrganizationId;
   if (!businessId) throw new BusinessContextError("Sélectionnez d’abord un commerce.", 403);
   const db = preview ? await (await import("@/lib/preview/database")).getPreviewDatabase() as unknown as CommercialDatabase : getDatabase();
+  // Les trois contrôles sont des lectures indépendantes : lancés ensemble (un aller-retour vers la base au lieu de
+  // trois), puis évalués dans l'ordre d'origine pour garder exactement les mêmes refus et la même priorité.
+  const [owner, membership, access] = await Promise.allSettled([
+    isPlatformOwnerAccount(db, authSession.user.id),
+    assertActiveMembership(db, businessId, authSession.user.id),
+    options.allowWithoutSubscription ? Promise.resolve(null) : commercialAccess(db, businessId),
+  ]);
+  if (owner.status === "rejected") throw owner.reason;
   // Le compte de la plateforme n'a pas d'espace commerçant (platform-owner-separation.ts) : traité comme sans session.
-  if (await isPlatformOwnerAccount(db, authSession.user.id)) throw new BusinessContextError("Authentification requise.", 401);
-  await assertActiveMembership(db, businessId, authSession.user.id);
-  if (!options.allowWithoutSubscription && !(await commercialAccess(db, businessId)).open) {
+  if (owner.value) throw new BusinessContextError("Authentification requise.", 401);
+  if (membership.status === "rejected") throw membership.reason;
+  if (access.status === "rejected") throw access.reason;
+  if (access.value && !access.value.open) {
     throw new BusinessContextError(subscriptionRequired.error, 403, subscriptionRequired.code);
   }
   return { db, businessId, userId: authSession.user.id, actorUserId: authSession.user.id, sessionId: authSession.session.id };

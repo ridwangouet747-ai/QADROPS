@@ -14,14 +14,25 @@ type Tier = "high" | "low";
  */
 function detectTier(): Tier | null {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
-  const nav = navigator as Navigator & { connection?: { saveData?: boolean }; deviceMemory?: number };
+  const nav = navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string }; deviceMemory?: number };
   if (nav.connection?.saveData) return null;
+  // Réseau lent annoncé par le navigateur : la 3D (≈ 240 Ko compressés) coûterait plus qu'elle n'apporte.
+  if (["slow-2g", "2g", "3g"].includes(nav.connection?.effectiveType ?? "")) return null;
   if ((nav.deviceMemory ?? 4) < 2 || (nav.hardwareConcurrency ?? 4) < 4) return null;
   const probe = document.createElement("canvas");
   const gl = probe.getContext("webgl2");
   if (!gl) return null;
   gl.getExtension("WEBGL_lose_context")?.loseContext();
   return window.matchMedia("(min-width: 1024px)").matches ? "high" : "low";
+}
+
+/** Après l'événement load, au premier moment de repos (au plus tard 3 s ; 1,5 s sans requestIdleCallback). */
+function whenPageIdle() {
+  return new Promise<void>((resolve) => {
+    const idle = () => { if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(() => resolve(), { timeout: 3000 }); else setTimeout(resolve, 1500); };
+    if (document.readyState === "complete") idle();
+    else window.addEventListener("load", idle, { once: true });
+  });
 }
 
 export function ReceiptStage({ data, label, className }: { data: ReceiptData; label: string; className?: string }) {
@@ -36,11 +47,14 @@ export function ReceiptStage({ data, label, className }: { data: ReceiptData; la
     if (!element || !tier) return;
     let dispose: (() => void) | undefined;
     let cancelled = false;
-    // La 3D n'est chargée que lorsque le ticket approche de l'écran : le premier affichage n'en dépend jamais.
+    // La 3D n'est chargée que lorsque le ticket approche de l'écran, et seulement après l'événement load puis un
+    // moment de repos du navigateur : elle ne concurrence ni le premier affichage ni le LCP.
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
       observer.disconnect();
-      import("./receipt-3d").then(({ mountReceipt3d }) => {
+      void whenPageIdle().then(() => (cancelled ? null : import("./receipt-3d"))).then((module) => {
+        if (!module) return;
+        const { mountReceipt3d } = module;
         const target = layer.current;
         if (cancelled || !target) return;
         // Un canvas neuf à chaque montage : un canvas dont le contexte WebGL a été libéré (démontage,
