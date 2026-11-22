@@ -65,6 +65,8 @@ les profils, celui de `/login` dès la 4G lente ; le CLS est conforme partout.
 | `src/lib/auth/logout.ts` | la déconnexion efface la vente en attente |
 | `src/lib/domain/business-context.ts` | contrôles d'accès lancés ensemble, évalués dans l'ordre d'origine |
 | `src/app/api/version/route.ts` (+ test), `src/components/pwa/update-notice.tsx`, `messages/pwa.ts` | avis de nouvelle version (fr/en/ar), sans rechargement imposé |
+| `src/lib/domain/business-page-access.ts` (+ test), `components/business/business-shell.tsx`, 10 pages `app/business/**/page.tsx` | (2026-11-22, `3cb5147`) la garde serveur renvoie le rôle déjà lu ; l'en-tête l'affiche dès le premier rendu (CLS 0,192 → 0 sur la page des produits, § D bis) |
+| `src/components/business/business-suite-workspace.tsx` | (2026-11-22, `a174374`) `prefetch={false}` sur les liens de chaque ligne de vente (fiche et ticket) : 26 requêtes RSC de préchargement → 1 à l'ouverture de la liste |
 
 **Ce qui n'a pas été changé, volontairement :**
 
@@ -72,14 +74,18 @@ les profils, celui de `/login` dès la 4G lente ; le CLS est conforme partout.
   immuable d'un an ; les recopier dans le cache du service worker n'apporte rien tant qu'aucune page de
   l'application n'est servie hors ligne, et ajoute un risque de version périmée. `sw.js` est inchangé
   (`OFFLINE_CACHE` reste `qadr-offline-v3`, `offline.html` n'a pas changé).
-- **Coquille du commerce** (`BusinessShell`) : elle reste dans chaque page. Entre deux sections de
-  `/business/[section]`, React garde le même composant (pas de nouveau montage) ; la déplacer dans une mise en page
-  toucherait la garde `requireBusinessPageAccess()` de chaque page, pour un gain non mesuré.
+- **Coquille du commerce** (`BusinessShell`) : elle reste dans chaque page. **Correction du 2026-11-22** : la
+  mesure sur la Preview montre qu'elle est **remontée à chaque navigation** (le segment dynamique change), donc
+  `/api/account/me` et `/api/notifications/unread-count` sont rappelés à chaque clic du menu (§ D bis). Laissé en
+  attente : la déplacer dans un `layout.tsx` touche la garde de chaque page et l'état de la caisse ; à décider
+  après la question de la région (chaque appel coûte surtout le trajet vers la base).
 - **Rechargement du catalogue après une vente** : conservé. C'est la seule source du stock affiché ; un calcul local
   du stock contredirait la règle « jamais de stock diminué sur la foi d'une action locale ».
-- **Index SQL** : aucun ajouté. Les volumes de staging sont trop faibles pour qu'un `EXPLAIN` y soit
-  représentatif (B-1) et aucune lenteur de requête n'a été mesurée ; la mission 11 phase 6 a déjà posé les index
-  des requêtes réelles (migration 0017).
+- **Index SQL** : aucun ajouté. `EXPLAIN ANALYZE` (lecture seule) de la requête de la liste des produits sur la
+  base de test de staging, commerce de 250 articles : **0,33 ms d'exécution**, 0,25 ms de planification, tout en
+  mémoire (43 blocs lus dans le cache). Les requêtes ne sont pas la cause des lenteurs ; le trajet réseau vers la
+  base l'est (§ D bis). `pg_stat_statements` n'est pas installé sur `qadr_staging` : l'installer écrit dans la
+  base, ce n'a pas été fait. Volumes de staging faibles (B-1) : à remesurer sur un gros commerce.
 
 ## D. Avant / après (mesuré)
 
@@ -113,7 +119,9 @@ Le LCP local de `/` (≈ 9 s) est bien plus long qu'en production (3,4 s) : sans
 l'échec de sa requête. Il ne sert qu'à comparer les deux builds entre eux. **CLS** : 0 partout avant ; après, un
 décalage rare sur `/login`, observé deux fois (0,19 dans la comparaison, 0,081 dans un contrôle dédié) et absent
 des 15 autres chargements contrôlés un à un ; c'est le bloc centré du formulaire qui bouge (0 sur 6 avant). La police n'en est pas la cause (aucun décalage quand elle arrive après le premier affichage) ; cause
-**non identifiée**, à remesurer sur la Preview.
+**non identifiée**, à remesurer sur la Preview. **Remesuré le 2026-11-22 sur la Preview** : CLS 0 sur
+18 chargements de `/login` (6 contrôles dédiés + 12 du banc, deux builds après) ; le décalage local n'a pas été
+reproduit sur Vercel. Cause toujours non identifiée, donc surveillée plutôt que déclarée corrigée.
 
 ### Fragments partagés (gzip)
 
@@ -146,6 +154,77 @@ base (l'aperçu est réservé au développement). Coût du filtre seul, par frap
 d'accès (`getBusinessContext`) : PGlite exécute les requêtes l'une après l'autre, seule une mesure sur Neon le
 montrera.
 
+## D bis. Mesures sur la Preview Vercel (2026-11-22)
+
+**Environnement.** Projet Vercel `web`, alias de branche
+`web-git-perf-global-performance-optimization-qadragency.vercel.app`, protection SSO conservée (accès du banc par
+la clé de contournement d'automatisation, jamais publiée). Fonctions en `cpt1` (Le Cap, réglage du projet), base
+**de test** : branche Neon `mission-14-staging`, base `qadr_staging` (us-east-1), reliée par des variables
+**propres à la branche Git** `perf/global-performance-optimization` (Preview seulement ; les variables de
+production et le déploiement de production `9ea0e31` sont inchangés). Commerce de test dédié (250 articles), compte
+de test ouvert par l'API serveur de Better Auth avec le secret propre à la Preview ; Turnstile actif et inchangé.
+Aucune donnée réelle n'a été lue ni écrite.
+
+**Banc** (`preview-bench.mjs`, hors dépôt) : Chromium local, 360 × 740, processeur ×4, cache vidé avant chaque
+chargement, 3 passages par page, profils « sans limite » et « 3G lente » (400 ms, 400 kbit/s). Avant = `d0cf61e`
+(départ de la mission), après = `a174374` (fin de mission), même alias, même base, même commerce, même poste.
+
+| Page | Profil | LCP médian avant → après | CLS avant → après | JS avant → après | Transfert avant → après |
+| --- | --- | --- | --- | --- | --- |
+| `/` | sans limite | 3 240 → 4 024 ms | 0 → 0 | 695 → 435 Ko | 870 → 652 Ko |
+| `/` | 3G lente | 6 280 → 9 648 ms | 0 → 0 | 695 → 242 Ko | 870 → 460 Ko |
+| `/login` | sans limite | 2 984 → 2 444 ms | 0 → 0 | 476 → 210 Ko | 552 → 331 Ko |
+| `/login` | 3G lente | 3 940 → 4 852 ms | 0 → 0 | 475 → 210 Ko | 552 → 331 Ko |
+| Tableau de bord | sans limite | 5 760 → 5 384 ms | 0,007 → 0 | 526 → 263 Ko | 606 → 385 Ko |
+| Tableau de bord | 3G lente | 6 896 → 6 964 ms | 0,007 → 0 | 527 → 262 Ko | 606 → 384 Ko |
+| Produits | sans limite | 5 920 → 4 876 ms | **0,192 → 0** | 527 → 263 Ko | 609 → 386 Ko |
+| Produits | 3G lente | 7 696 → 7 212 ms | **0,192 → 0** | 527 → 263 Ko | 607 → 386 Ko |
+| Historique des ventes | sans limite | 5 128 → 4 084 ms | 0,024 → 0,017 | 527 → 263 Ko | 611 → 386 Ko |
+| Historique des ventes | 3G lente | 8 916 → 6 948 ms | 0,119 → 0,017 | 527 → 263 Ko | 609 → 386 Ko |
+
+| Caisse | Profil | LCP médian | Recherche « vis 20 » jusqu'au résultat (médiane) | Pire frappe (médiane) |
+| --- | --- | --- | --- | --- |
+| avant → après | sans limite | 4 616 → 4 280 ms | 1 511 → 2 452 ms | 432 → 624 ms |
+| avant → après | 3G lente | 7 560 → 7 212 ms | 1 744 → 1 637 ms | 424 → 272 ms |
+
+| Vente (espèces, 1 article, statut 201 les 12 fois) | Profil | Clic → « Vente enregistrée » (médiane) | Attente du serveur (médiane) |
+| --- | --- | --- | --- |
+| avant → après | sans limite | 6 628 → 6 297 ms | 6 423 → 5 988 ms |
+| avant → après | 3G lente | 6 675 → 6 416 ms | 6 424 → 6 182 ms |
+
+**Lecture honnête.**
+
+- **Robuste** : JS divisé par deux sur chaque page (−37 à −65 %), transfert −25 à −47 %, CLS des produits 0,192 → 0.
+- **Dans le bruit** : les LCP. Le même build, au même endroit, mesuré deux fois de suite, donne pour les produits
+  4 876 ms puis 11 500 ms (médianes). Trois passages ne suffisent pas à départager des écarts de quelques
+  centaines de millisecondes ; aucune amélioration ni dégradation de LCP n'est donc revendiquée.
+- **Cause dominante des lenteurs, hors du code** : une vente attend **≈ 6 s le serveur** dans les deux builds. Les
+  fonctions tournent au Cap (`cpt1`) et la base en Virginie (us-east-1) : chaque aller-retour SQL coûte
+  ≈ 220 à 300 ms, et une vente en enchaîne plusieurs dans sa transaction. La production a **le même réglage**.
+  Essai de déploiement en `iad1` (à côté de la base) **non concluant** : le réglage de région par déploiement a été
+  ignoré (`regions: ["cpt1"]` sur le déploiement d'essai). Changer la région du projet toucherait aussi la
+  production : décision du propriétaire (§ H).
+
+**Réponse perdue sur PostgreSQL réel** (coupure de la première réponse de `POST /api/business/sales` par le
+protocole du navigateur, rechargement, même panier, nouvel « Encaisser ») :
+
+| Build | Message « Pas de réponse du serveur » | 2ᵉ essai | Stock avant → après coupure → après 2ᵉ essai | Résultat |
+| --- | --- | --- | --- | --- |
+| avant (`d0cf61e`) | oui | **201** (nouvelle vente) | 27 → 26 → **25** | **vente en double** |
+| après (`a174374`) | oui | **200** (vente déjà enregistrée) | 12 → 11 → **11** | une seule vente |
+
+**Navigation hors ligne** (réseau coupé puis clic de menu) : le banc n'a pas trouvé le bandeau dans le texte de la
+page, ni avant ni après ; un passage antérieur de l'ancien banc l'avait trouvé après. **Non concluant**, à vérifier
+à la main sur un téléphone.
+
+**Appels d'API.** Au chargement complet : tableau de bord 5, produits 4, ventes 4, caisse 6, connexion 2 (dont
+`/api/version`, nouveau) ; aucun appel en double dans un même chargement. En navigation interne (clic de menu,
+1 280 px) : chaque section rappelle `/api/account/me` et `/api/notifications/unread-count` (coquille remontée,
+§ C) ; l'ouverture de l'historique des ventes déclenchait **26 requêtes RSC** de préchargement, **1** après
+`a174374`.
+
+**SQL** : la requête de la liste des produits s'exécute en 0,33 ms (§ C) ; aucune requête lente constatée.
+
 ## E. Validation métier
 
 Aperçu local (PGlite en mémoire, commerce de démonstration ; aucune base distante), 2026-11-22 :
@@ -164,33 +243,94 @@ Aperçu local (PGlite en mémoire, commerce de démonstration ; aucune base dist
 
 ## F. Mode hors ligne et réseau dégradé
 
-- **Aucune vente hors ligne n'est implémentée.** Une file d'envoi (« outbox ») de ventes demanderait : chiffrement
-  local, résolution des conflits de stock entre appareils, et une règle sur les prix qui changent entre la saisie et
-  l'envoi. Rien de cela n'existe ni n'a été testé ; la mettre en place sans ces garanties risquerait des ventes
-  présentées comme faites alors que le serveur ne les a pas confirmées. Elle n'est donc pas livrée.
-- **Ce qui est sûr et livré** : une vente sans réponse n'est jamais annoncée comme enregistrée ni comme perdue ; sa
-  clé survit au rechargement de l'onglet, et un nouvel essai ne peut pas la doubler (§ E). La page hors ligne et le
-  bandeau réseau existants sont inchangés.
-- **Conception proposée pour plus tard** (non implémentée) : file IndexedDB par commerce et par utilisateur
-  (effacée à la déconnexion), opérations idempotentes uniquement, envoi à la reconnexion, état visible
-  « en attente / confirmée / refusée » ligne par ligne, refus serveur si le stock ou le prix a changé. À décider
-  après observation terrain.
+**Qadr Ops ne fonctionne pas hors ligne.** Sans réseau, aucune vente, aucun paiement, aucun mouvement de stock ne
+peut être enregistré, et l'application ne le prétend nulle part. État exact, capacité par capacité :
+
+| Capacité | État | Preuve ou limite |
+| --- | --- | --- |
+| Application installable (PWA) | **oui** | `manifest.ts`, icônes, `sw.js` enregistré partout, page `/business/install` (mission 11 phase 2) ; installation non vérifiée sur un vrai téléphone Android pendant cette mission |
+| Cache des ressources statiques | **par le navigateur seulement** | `/_next/static` servi par Vercel avec un cache immuable d'un an ; le service worker ne garde que `/offline.html` (`OFFLINE_CACHE` = `qadr-offline-v3`, inchangé) |
+| Page hors ligne | **oui** | une navigation sans réseau vers une page jamais chargée affiche `/offline.html` |
+| Conservation locale des données (catalogue, clients, ventes) | **non** | aucune donnée commerciale n'est copiée dans IndexedDB, `localStorage` ou le service worker |
+| Conservation des formulaires | **partielle** | le panier de la caisse reste en mémoire tant que l'onglet est ouvert ; il est perdu au rechargement. Les autres formulaires ne sont pas conservés |
+| Mise en attente des opérations | **non** | aucune file d'envoi. Seule exception, de sécurité : l'**empreinte** d'une vente sans réponse et sa clé d'idempotence (pas son contenu), dans `sessionStorage`, 2 h, effacées à la déconnexion |
+| Synchronisation après reconnexion | **non** | rien n'est renvoyé automatiquement ; c'est la caissière qui appuie de nouveau sur « Encaisser », et le serveur rejoue la vente déjà enregistrée au lieu d'en créer une seconde (§ E) |
+
+Sur un réseau dégradé, ce qui est garanti et testé en local (§ E) puis sur la Preview reliée à PostgreSQL (§ D bis) : une vente sans réponse
+n'est annoncée ni comme enregistrée ni comme perdue (« Pas de réponse du serveur… ») ; après rechargement de la
+page et nouvel essai, la vente n'est pas doublée et le stock n'est diminué qu'une fois.
+
+**Pourquoi rien de plus n'est livré** : une file de ventes hors ligne demande des garanties qui n'existent pas
+encore (conflits de stock entre plusieurs appareils, prix modifié entre la saisie et l'envoi, chiffrement local,
+statut visible de chaque opération, effacement à la déconnexion). La livrer sans elles exposerait à des ventes
+présentées comme faites alors que le serveur ne les a pas confirmées, ou à un stock diminué sur la foi d'une action
+locale. Les deux sont interdits par les règles du projet.
+
+**Progression proposée** (aucune étape n'est commencée ; chacune se décide après la précédente et après
+observation sur le terrain) :
+
+1. **Lecture hors ligne du catalogue** (sans risque financier) : copie du catalogue du commerce actif dans
+   IndexedDB, rattachée au commerce et à l'utilisateur, effacée à la déconnexion et au changement de commerce,
+   affichée comme « catalogue du JJ/MM à HH:MM ». Aucune écriture.
+2. **Panier conservé** : le panier en cours survit au rechargement (même onglet, même commerce), sans rien envoyer.
+3. **Brouillon de vente hors ligne, jamais une vente** : la caissière peut préparer une vente sans réseau ; elle
+   reste « Non enregistrée, en attente de connexion » et n'est envoyée qu'après une action explicite, avec sa clé
+   d'idempotence. Le serveur refuse si le prix ou le stock a changé, et la caissière voit le refus ligne par ligne.
+   Pas de Mobile Money hors ligne : la réception d'un paiement Mobile Money ne peut pas être confirmée sans le
+   serveur.
+4. **Envoi automatique à la reconnexion** : seulement après des essais sur plusieurs appareils, coupures répétées
+   et conflits de stock, sur de vrais téléphones Android.
+
+## F bis. Statut des problèmes examinés
+
+| Problème | Statut | Détail |
+| --- | --- | --- |
+| CLS intermittent de `/login` | **non reproduit sur Vercel**, surveillé | 0 sur 18 chargements de la Preview ; cause du cas local inconnue (§ D) |
+| CLS des produits (0,192, présent avant la mission) | **corrigé** (`3cb5147`) | boutons réservés affichés dès le rendu serveur ; 0 sur 9 chargements de la Preview |
+| Appels répétés de l'en-tête commun | **en attente** | `/api/account/me` + compteur de notifications à chaque navigation ; déplacer la coquille dans un `layout.tsx` est un changement plus large (§ C) |
+| Allers-retours séquentiels des requêtes métier | **en partie corrigé** | contrôles d'accès de `getBusinessContext` lancés ensemble (mission du 2026-11-21) ; le rôle reste lu deux fois (garde + permission), conservé volontairement : les deux lectures partent ensemble et l'une sert de garde indépendante |
+| Chargements redondants | **corrigé** pour l'historique des ventes (`a174374`, 26 → 1 requête RSC) ; aucun doublon d'appel d'API dans un chargement |
+| Performance SQL | **sans problème constaté** | 0,33 ms pour la liste des produits ; la latence vient du trajet Le Cap ↔ Virginie |
+| Région des fonctions ≠ région de la base | **en attente d'une décision du propriétaire** | même réglage en production ; essai `iad1` non concluant (§ D bis) |
 
 ## G. Livraison
 
 | Étape | État |
 | --- | --- |
-| Branche | `perf/global-performance-optimization` (partie de `d0cf61e`) |
+| Branche | `perf/global-performance-optimization` (partie de `d0cf61e`) : `3b7c798`, `3cb5147`, `a174374`, puis ce rapport |
+| Pull Request | [ridwangouet747-ai/QADROPS#1](https://github.com/ridwangouet747-ai/QADROPS/pull/1), non fusionnée ; créée hors brouillon, passage en brouillon demandé au propriétaire |
+| Intégration continue | 7 contrôles verts sur `3b7c798` (run 44997901058), `3cb5147` (run 45012193949) et `a174374` (run 45013008460) : TypeScript, ESLint, schéma/migrations, Vitest, build, audit |
+| Suite complète en local | `npm test` (2026-11-22, `a174374` + rapport) : **123 fichiers, 1 065 tests réussis, 10 ignorés (R2), 0 échec** ; ventes, paiements mixtes, monnaie rendue, stock, crédits, authentification, isolation des commerces et idempotence y compris |
+| Preview | alias de branche (protégé), base de test de staging, région `cpt1` |
 | Migrations | aucune (`drizzle-kit check` : « Everything's fine » ; `generate` : « No schema changes ») |
 | Production | **non déployée** : attend la validation explicite du propriétaire |
 | Retour arrière | redéployer `9ea0e31` (`dpl_AsLe7m3bZWHFWmkNGubAQM8nL83K`) ; aucune donnée ni schéma à restaurer |
 
+**À nettoyer après la mission (sur accord)** : les variables Vercel propres à la branche
+`perf/global-performance-optimization` (base de test, secrets d'authentification de la Preview) ; sur
+`qadr_staging`, le compte et le commerce de test, ses 250 articles, ses ventes de test et la formule
+`perf-test-access-plan` ; les déploiements Preview de la branche.
+
+**Tests R2 (10 ignorés)** : `src/lib/storage/r2.integration.test.ts` ne tourne qu'avec `QADR_TEST_R2_ACCOUNT_ID`,
+`QADR_TEST_R2_BUCKET_NAME` (nom contenant `test`, `staging`, `dev` ou `preview`, par exemple
+`qadr-ops-fichiers-staging`), `QADR_TEST_R2_ACCESS_KEY_ID`, `QADR_TEST_R2_SECRET_ACCESS_KEY` (et
+`QADR_TEST_R2_JURISDICTION` si besoin). Seul le bucket `qadr` existe : il faut créer un bucket de test et un jeton
+limité à ce bucket, puis lancer `npx vitest run src/lib/storage/r2.integration.test.ts` depuis `apps/web`.
+
 ## H. Risques restants
 
-- **CLS de `/login`** : décalage rare observé localement après la mission (§ D), cause non identifiée ; à remesurer
-  sur la Preview avant toute mise en production.
-- **Temps réels** : les LCP comparés viennent d'un serveur local ; l'objectif LCP ≤ 2,5 s n'est **pas démontré**
-  pour `/` (3,4 s en production avant la mission). L'INP n'a aucune mesure de terrain.
+- **Région** : fonctions au Cap, base en Virginie, en Preview comme en production ; une vente attend ≈ 6 s le
+  serveur. Rapprocher les deux (fonctions en `iad1`, ou base et fonctions dans une même région européenne) est la
+  plus forte amélioration disponible, mais elle change la production : décision du propriétaire, puis mesure.
+- **Temps réels** : l'objectif LCP ≤ 2,5 s n'est **pas atteint** sur la Preview (pages du commerce ≈ 4 à 7 s,
+  `/` ≈ 3 à 4 s sans limite) et les écarts de LCP restent dans le bruit de mesure (§ D bis). L'INP n'a aucune
+  mesure de terrain.
+- **Téléphone Android réel** : rien n'a été vérifié sur un vrai appareil. Restent à faire : installation de
+  l'application, page hors ligne et bandeau réseau, caisse (recherche, vente, réponse perdue) sur 3G réelle,
+  impression, ticket en arabe.
+- **Banc k6** : `load-tests/README.md` suppose que le jeton Turnstile factice passe en préproduction, alors que le
+  code refuse les clés de test quand `NODE_ENV=production` (cas de toute Preview Vercel) ; à corriger avant tout
+  essai de charge.
 - **Grand catalogue** : la caisse charge encore tout le catalogue d'un coup (sans `?limit=`) ; au-delà de quelques
   milliers d'articles, le transfert et l'index (≈ 168 ms pour 5 000 articles sur ordinateur) deviendront visibles
   sur téléphone. Étape suivante possible : recherche côté serveur paginée.
