@@ -291,20 +291,20 @@ observation sur le terrain) :
 | Allers-retours séquentiels des requêtes métier | **en partie corrigé** | contrôles d'accès de `getBusinessContext` lancés ensemble (mission du 2026-11-21) ; le rôle reste lu deux fois (garde + permission), conservé volontairement : les deux lectures partent ensemble et l'une sert de garde indépendante |
 | Chargements redondants | **corrigé** pour l'historique des ventes (`a174374`, 26 → 1 requête RSC) ; aucun doublon d'appel d'API dans un chargement |
 | Performance SQL | **sans problème constaté** | 0,33 ms pour la liste des produits ; la latence vient du trajet Le Cap ↔ Virginie |
-| Région des fonctions ≠ région de la base | **en attente d'une décision du propriétaire** | même réglage en production ; essai `iad1` non concluant (§ D bis) |
+| Région des fonctions ≠ région de la base | **corrigé le 2026-11-23** | région du projet passée à `iad1` par le propriétaire ; attente serveur d'une vente ≈ 6 s → ≈ 0,5 s sur la Preview (§ I) |
 
 ## G. Livraison
 
 | Étape | État |
 | --- | --- |
 | Branche | `perf/global-performance-optimization` (partie de `d0cf61e`) : `3b7c798`, `3cb5147`, `a174374`, puis ce rapport |
-| Pull Request | [ridwangouet747-ai/QADROPS#1](https://github.com/ridwangouet747-ai/QADROPS/pull/1), non fusionnée ; créée hors brouillon, passage en brouillon demandé au propriétaire |
+| Pull Request | [ridwangouet747-ai/QADROPS#1](https://github.com/ridwangouet747-ai/QADROPS/pull/1), fusionnée le 2026-11-23 (`5e6e6eb`) |
 | Intégration continue | 7 contrôles verts sur `3b7c798` (run 44997901058), `3cb5147` (run 45012193949) et `a174374` (run 45013008460) : TypeScript, ESLint, schéma/migrations, Vitest, build, audit |
 | Suite complète en local | `npm test` (2026-11-22, `a174374` + rapport) : **123 fichiers, 1 065 tests réussis, 10 ignorés (R2), 0 échec** ; ventes, paiements mixtes, monnaie rendue, stock, crédits, authentification, isolation des commerces et idempotence y compris |
 | Preview | alias de branche (protégé), base de test de staging, région `cpt1` |
 | Migrations | aucune (`drizzle-kit check` : « Everything's fine » ; `generate` : « No schema changes ») |
-| Production | **non déployée** : attend la validation explicite du propriétaire |
-| Retour arrière | redéployer `9ea0e31` (`dpl_AsLe7m3bZWHFWmkNGubAQM8nL83K`) ; aucune donnée ni schéma à restaurer |
+| Production | **déployée le 2026-11-23** : `5e6e6eb`, `dpl_H7yhwjgug4WGLb7Dmq2VBFNANEKr`, région `iad1` (§ I) |
+| Retour arrière | redéployer `9ea0e31` (`dpl_AsLe7m3bZWHFWmkNGubAQM8nL83K`, région `cpt1` : le retour arrière ramène aussi l'ancienne région) ; aucune donnée ni schéma à restaurer |
 
 **À nettoyer après la mission (sur accord)** : les variables Vercel propres à la branche
 `perf/global-performance-optimization` (base de test, secrets d'authentification de la Preview) ; sur
@@ -319,12 +319,13 @@ limité à ce bucket, puis lancer `npx vitest run src/lib/storage/r2.integration
 
 ## H. Risques restants
 
-- **Région** : fonctions au Cap, base en Virginie, en Preview comme en production ; une vente attend ≈ 6 s le
-  serveur. Rapprocher les deux (fonctions en `iad1`, ou base et fonctions dans une même région européenne) est la
-  plus forte amélioration disponible, mais elle change la production : décision du propriétaire, puis mesure.
-- **Temps réels** : l'objectif LCP ≤ 2,5 s n'est **pas atteint** sur la Preview (pages du commerce ≈ 4 à 7 s,
-  `/` ≈ 3 à 4 s sans limite) et les écarts de LCP restent dans le bruit de mesure (§ D bis). L'INP n'a aucune
-  mesure de terrain.
+- **Région** : **réglée le 2026-11-23** (fonctions en `iad1`, à côté de la base us-east-1 ; § I). Reste la
+  distance entre la Côte d'Ivoire et Washington pour chaque requête du navigateur, inévitable tant que base et
+  fonctions sont aux États-Unis.
+- **Temps réels** : sur 3G lente, le LCP reste de 4 à 6 s (le réseau lui-même) ; sans limite, `/` reste à ≈ 3 s,
+  au-dessus de l'objectif de 2,5 s. L'INP n'a aucune mesure de terrain.
+- **Pages métier en production** : vérifiées seulement sans session (redirections et refus) ; aucune connexion à
+  un compte réel n'a été faite. Une connexion du propriétaire sur son vrai commerce reste à faire.
 - **Téléphone Android réel** : rien n'a été vérifié sur un vrai appareil. Restent à faire : installation de
   l'application, page hors ligne et bandeau réseau, caisse (recherche, vente, réponse perdue) sur 3G réelle,
   impression, ticket en arabe.
@@ -339,3 +340,61 @@ limité à ce bucket, puis lancer `npx vitest run src/lib/storage/r2.integration
 - **Hors ligne** : aucune vente hors ligne (§ F).
 - **Avis de nouvelle version** : dépend de `VERCEL_DEPLOYMENT_ID` (ou du commit) au moment de l'exécution ; non
   vérifié sur un vrai changement de déploiement.
+- **Journaux de production** : `vercel logs` ne renvoie aucune ligne pour le projet (ni par l'API ni par la CLI,
+  2026-11-23) ; la surveillance repose sur Sentry (aucune erreur dans les 24 h suivant la mise en production).
+
+## I. Mise en production du 2026-11-23
+
+Autorisée par le propriétaire (fusion et déploiement), après son passage de la région du projet Vercel `web` à
+`iad1` (Washington), à côté de la base Neon (us-east-1, Virginie).
+
+| Étape | Résultat |
+| --- | --- |
+| Région | projet : `serverlessFunctionRegion` = `iad1`, `functionDefaultRegions` = `["iad1"]` ; aucune région dans `vercel.json` ni dans le code ; Preview `dpl_4M3UKw5XdPqzSxYshHezFEL4baib` et production `dpl_H7yhwjgug4WGLb7Dmq2VBFNANEKr` : `regions: ["iad1"]` (l'ancienne production `9ea0e31` était en `cpt1`) |
+| CI | verte sur `36b32ed` (run 45018848282, 7 contrôles) |
+| Fusion | PR #1 fusionnée : commit `5e6e6eb` (fusion `--no-ff`, arbre identique à `36b32ed`, aucun commit intermédiaire sur `main`). L'intégration GitHub de l'agent n'avait pas le droit de fusionner (403) : la même fusion a été poussée sur `main` sans forcer, GitHub a marqué la PR fusionnée |
+| Déploiement | lancé par Vercel à la poussée sur `main` (un seul), `READY`, URL `web-mvuqst4bk-qadragency.vercel.app`, domaine `web-phi-beryl-45.vercel.app` (`web-qadragency.vercel.app` y renvoie en 307) |
+| Migrations | aucune ; la base de production n'a pas été touchée |
+| Pages publiques | `/`, `/login`, `/register`, `/redeem-code`, `/privacy`, `robots.txt`, manifeste, `offline.html`, `/api/version` : 200 ; les formules (5 000 et 10 000 F CFA) sont lues dans `subscription_plan` |
+| Protections | `/business/dashboard` et `/platform` sans session → 307 `/login` ; `/api/account/me`, `/api/business/products`, cookie forgé → 401 |
+| Erreurs | Sentry : aucune erreur non résolue dans les 24 h ; journaux Vercel non disponibles (§ H) |
+
+**Preview en `iad1`** (même base de test, même commerce, même banc qu'au § D bis ; médianes de 3) :
+
+| Mesure | `cpt1` (2026-11-22, `a174374`) | `iad1` (2026-11-23, `36b32ed`) |
+| --- | --- | --- |
+| Vente : attente du serveur | 5 988 ms (sans limite), 6 182 ms (3G) | **≈ 490 ms** (médiane des 10 ventes : 349 à 1 201 ms) |
+| Vente : clic → « Vente enregistrée » | 6 297 / 6 416 ms | 525 à 1 417 ms |
+| Tableau de bord, LCP sans limite / 3G | 5 384 / 6 964 ms | **1 492 / 4 160 ms** |
+| Produits | 4 876 / 7 212 ms | **1 272 / 4 216 ms** |
+| Historique des ventes | 4 084 / 6 948 ms | **1 268 / 4 172 ms** |
+| `/login` | 2 444 / 4 852 ms | 1 256 / 4 316 ms |
+| `/` | 4 024 / 9 648 ms | 2 324 / 6 128 ms |
+| Caisse : LCP sans limite (3 chargements) | 4 280 ms | 1 480 à 5 112 ms |
+| Recherche « vis 20 » jusqu'au résultat | 2 452 ms | 1 891 à 1 944 ms |
+| TTFB des pages | non relevé | 113 à 142 ms |
+
+Réponse perdue (iad1) : stock 54 → 53 → **53**, second essai **200** (vente déjà enregistrée), aucun doublon.
+CLS des produits : 0 (2 chargements). Navigation interne : 1 requête RSC par clic, `/api/account/me` et le compteur
+de notifications toujours rappelés à chaque section. Contrôles d'accès et de cache (12) : tous conformes, dont
+`private, no-store` sur les API privées, 403 pour une écriture d'origine étrangère, 401 après déconnexion. Le
+banc a réapprovisionné l'article de test par un achat reçu (fournisseur de test, 60 unités) sur `qadr_staging`.
+
+**Production, pages publiques** (même banc qu'au § A, 2ᵉ passage ; le 1ᵉʳ a subi des TTFB de 2,6 à 6,3 s dus au
+réseau du poste, écartés) :
+
+| Page | Profil | Avant (2026-11-21, `9ea0e31`) | Après (2026-11-23, `5e6e6eb`) |
+| --- | --- | --- | --- |
+| `/` | sans limite | LCP 3 444 ms, JS 694 Ko | LCP 3 032 ms, JS 434 Ko |
+| `/` | 4G lente | 4 200 ms | 3 700 ms |
+| `/` | 3G lente | 5 980 ms, JS 695 Ko | 6 368 ms, JS 241 Ko |
+| `/login` | sans limite | 1 744 ms, JS 503 Ko | 1 640 ms, JS 237 Ko |
+| `/login` | 4G lente | 2 508 ms | 2 396 ms |
+| `/login` | 3G lente | 3 740 ms | 4 500 ms |
+
+Les écarts de LCP des pages publiques restent dans le bruit de mesure ; la baisse du JS est nette.
+Le gain en production est attendu surtout sur les pages du commerce et les ventes (mesuré sur la Preview), qui
+n'ont pas pu être mesurées en production sans compte.
+
+**Conclusion : déployé avec réserves non bloquantes** (pages du commerce non vérifiées avec un vrai compte en
+production, journaux Vercel indisponibles, essais Android à faire).
