@@ -3,6 +3,7 @@
 import { authClient } from "./client";
 import { resetAnalyticsIdentity } from "@/lib/analytics/client";
 import { forgetThisDevice } from "@/lib/notifications/client";
+import { forgetPendingSale } from "@/lib/pos/pending-sale";
 
 export async function signOutAndResetAnalytics() {
   try {
@@ -11,5 +12,6 @@ export async function signOutAndResetAnalytics() {
     return await authClient.signOut();
   } finally {
     resetAnalyticsIdentity();
+    forgetPendingSale();
   }
 }

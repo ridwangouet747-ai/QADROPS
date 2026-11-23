@@ -6,7 +6,7 @@ import { requireBusinessPageAccess } from "@/lib/domain/business-page-access";
 export const generateMetadata = () => localizedPageMetadata("meta.team");
 
 export default async function TeamPage() {
-  await requireBusinessPageAccess();
+  const initialRole = await requireBusinessPageAccess();
   const preview = process.env.NODE_ENV === "development" && process.env.QADR_PREVIEW_MODE === "true";
-  return <BusinessShell active="team" preview={preview}><TeamWorkspace /></BusinessShell>;
+  return <BusinessShell initialRole={initialRole} active="team" preview={preview}><TeamWorkspace /></BusinessShell>;
 }

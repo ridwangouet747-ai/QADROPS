@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
   // PGlite (preview mode only) loads its WASM/data files from `new URL(..., import.meta.url)`; webpack bundling
   // breaks that path ("Received an instance of URL"), so it must be loaded with Node's native resolution.
   serverExternalPackages: ["@electric-sql/pglite"],
+  // Navigateur : Sentry n'envoie aucune trace (tracesSampleRate 0, instrumentation-client.ts) ; ces constantes
+  // retirent du fragment partagé le code de traçage et de débogage qu'il chargeait quand même (mesures :
+  // docs/engineering/mission-performance-2026-11-21.md). Les erreurs restent signalées ; le serveur est inchangé.
+  webpack: (config, { isServer, webpack }) => {
+    if (!isServer) config.plugins.push(new webpack.DefinePlugin({ __SENTRY_DEBUG__: false, __SENTRY_TRACING__: false }));
+    return config;
+  },
   turbopack: {
     root: process.cwd(),
   },

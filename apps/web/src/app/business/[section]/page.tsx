@@ -19,14 +19,14 @@ export async function generateMetadata({ params }: { params: Promise<{ section: 
 }
 
 export default async function BusinessSectionPage({ params }: { params: Promise<{ section: string }> }) {
-  await requireBusinessPageAccess();
+  const initialRole = await requireBusinessPageAccess();
   const { section } = await params;
   if (!sections.has(section as BusinessRouteSection)) notFound();
   const area = section as BusinessRouteSection;
   const preview = process.env.NODE_ENV === "development" && process.env.QADR_PREVIEW_MODE === "true";
-  if (area === "dashboard") return <BusinessShell active={area} preview={preview}><DashboardWorkspace /></BusinessShell>;
-  if (area === "products") return <BusinessShell active={area} preview={preview}><ProductsWorkspace /></BusinessShell>;
-  if (area === "stock") return <BusinessShell active={area} preview={preview}><StockWorkspace /></BusinessShell>;
-  if (area === "pos") return <BusinessShell active={area} preview={preview}><PosWorkspace /></BusinessShell>;
-  return <BusinessShell active={area} preview={preview}><BusinessSuiteWorkspace key={area} section={area} /></BusinessShell>;
+  if (area === "dashboard") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><DashboardWorkspace /></BusinessShell>;
+  if (area === "products") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><ProductsWorkspace /></BusinessShell>;
+  if (area === "stock") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><StockWorkspace /></BusinessShell>;
+  if (area === "pos") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><PosWorkspace /></BusinessShell>;
+  return <BusinessShell initialRole={initialRole} active={area} preview={preview}><BusinessSuiteWorkspace key={area} section={area} /></BusinessShell>;
 }

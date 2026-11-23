@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button, buttonClasses } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import { printThroughAgent, readPairing } from "@/lib/printing/agent-client";
 import { track } from "@/lib/analytics/client";
 import { countBucket } from "@/lib/analytics/events";
 import { manualPaymentMethods, type ManualPaymentMethod } from "@/lib/payment-methods";
+import { filterCatalog, indexCatalog } from "@/lib/pos/catalog-search";
+import { forgetPendingSale, pendingSaleKey, rememberPendingSale, saleDigest } from "@/lib/pos/pending-sale";
 import { computeSettlement } from "@/lib/pos/settlement";
 
 type Product = { id: string; name: string; categoryId: string | null; categoryName: string | null; baseUnit: string; variantId: string; variantLabel: string; sku: string | null; salePriceXof: string; onHand: string };
@@ -39,7 +41,41 @@ function lineTotal(price: string, quantity: string) {
 }
 /** Variante affichée seulement si elle apporte une information (ni « Standard », ni l'unité répétée). */
 const variantName = (item: Product) => (item.variantLabel === "Standard" || item.variantLabel.toLocaleLowerCase() === item.baseUnit.toLocaleLowerCase() ? "" : item.variantLabel);
-const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase();
+/** Cartes affichées d'un coup ; « Afficher plus » ajoute la page suivante (la recherche porte toujours sur tout le catalogue). */
+const catalogPage = 60;
+
+/**
+ * Grille du catalogue, mémorisée : une frappe dans la recherche ne la redessine que lorsque la liste filtrée
+ * (différée) ou le panier change réellement.
+ */
+const ProductGrid = memo(function ProductGrid({ items, cartQuantities, onAdd }: { items: Product[]; cartQuantities: Map<string, string>; onAdd: (product: Product) => void }) {
+  const { t, locale } = useI18n();
+  return (
+    <ul className="m-0 grid list-none grid-cols-2 gap-2.5 p-0 sm:gap-3 xl:grid-cols-3">
+      {items.map((item) => {
+        const inCart = cartQuantities.get(item.variantId);
+        return (
+          <li key={item.variantId} className="min-w-0">
+            <button type="button" onClick={() => onAdd(item)} aria-label={t("pos.add", { product: item.name })}
+              className={cn("relative flex h-full w-full cursor-pointer flex-col gap-2 rounded-lg border bg-surface p-3 text-start transition-[border-color,box-shadow] sm:p-3.5",
+                inCart ? "border-brand shadow-brand" : "border-line hover:border-brand-tint hover:shadow-card")}>
+              <span className="flex items-start justify-between gap-2">
+                <Monogram text={item.name} className="size-11 rounded-[14px]" />
+                {inCart && <span className="numeric rounded-full bg-brand px-2.5 py-1 text-xs font-bold text-white">× {formatQuantity(toApiQuantity(inCart), locale)}</span>}
+              </span>
+              <strong className="line-clamp-2 text-[0.92rem] leading-snug text-ink">{item.name}</strong>
+              <small className="truncate text-xs text-fg-subtle">{variantName(item) ? `${variantName(item)} · ` : ""}{t("pos.inStock", { qty: `${formatQuantity(item.onHand, locale)} ${item.baseUnit}` })}</small>
+              <span className="mt-auto flex items-center justify-between gap-2 pt-1">
+                <strong className="numeric text-start text-[0.98rem] text-ink rtl:text-end">{formatXof(item.salePriceXof, locale)}</strong>
+                <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-brand"><Icon name="plus" className="size-4" /></span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+});
 
 export function PosWorkspace() {
   const { t, locale } = useI18n();
@@ -93,28 +129,31 @@ export function PosWorkspace() {
     return () => { active = false; };
   }, [t]);
 
-  const filteredProducts = useMemo(() => {
-    const needle = normalize(search.trim());
-    return products.filter((item) => (!categoryId || item.categoryId === categoryId)
-      && (!needle || normalize(`${item.name} ${item.sku ?? ""} ${item.variantLabel}`).includes(needle))
-      && (parseQuantityInput(item.onHand) ?? 0n) > 0n);
-  }, [products, categoryId, search]);
+  // Clés de recherche calculées une fois par chargement du catalogue, pas à chaque frappe ; la liste suit la saisie
+  // en priorité basse (useDeferredValue) : le champ reste fluide même avec un grand catalogue.
+  const catalogIndex = useMemo(() => indexCatalog(products), [products]);
+  const deferredSearch = useDeferredValue(search);
+  const deferredCategory = useDeferredValue(categoryId);
+  const filteredProducts = useMemo(() => filterCatalog(catalogIndex, deferredSearch, deferredCategory), [catalogIndex, deferredSearch, deferredCategory]);
+  const listKey = `${deferredCategory}|${deferredSearch}`;
+  const [shown, setShown] = useState({ key: listKey, count: catalogPage });
+  const visibleCount = shown.key === listKey ? shown.count : catalogPage;
+  const cartQuantities = useMemo(() => new Map(cart.map((line) => [line.product.variantId, line.quantity])), [cart]);
   const total = cart.reduce((sum, line) => sum + lineTotal(line.product.salePriceXof, line.quantity), 0n);
   // Affichage seulement : le serveur recalcule et contrôle tout (part affectée, monnaie, reste dû).
   const settlement = computeSettlement(total, payments);
   const declaredPartExists = payments.some((part) => part.method !== "cash" && part.amountXof !== "");
   const customerRequired = settlement.dueXof > 0n;
   const itemCount = cart.length;
-  const quantityInCart = (variantId: string) => cart.find((line) => line.product.variantId === variantId)?.quantity;
 
-  function addProduct(product: Product) {
+  const addProduct = useCallback((product: Product) => {
     setError(""); setSuccess(null);
     setCart((current) => {
       const found = current.find((line) => line.product.variantId === product.variantId);
       if (found) return current.map((line) => line.product.variantId === product.variantId ? { ...line, quantity: stepQuantity(line.quantity, 1, locale) } : line);
       return [...current, { product, quantity: "1" }];
     });
-  }
+  }, [locale]);
   const setQuantity = (variantId: string, value: string) => setCart((current) => current.map((line) => line.product.variantId === variantId ? { ...line, quantity: value } : line));
   const removeLine = (variantId: string) => setCart((current) => current.filter((line) => line.product.variantId !== variantId));
   // Un montant ou un moyen modifié après confirmation doit être reconfirmé : la confirmation porte sur ce que le caissier a vu.
@@ -134,16 +173,19 @@ export function PosWorkspace() {
         lines: cart.map((line) => ({ variantId: line.product.variantId, quantity: toApiQuantity(line.quantity) })),
         payments: settlement.payload,
       };
-      // Une même vente répétée (double clic, réseau lent) réutilise la même clé d'idempotence.
+      // Une même vente répétée (double clic, réseau lent, ou page rechargée sans réponse) réutilise la même clé
+      // d'idempotence : le serveur rejoue la première vente au lieu d'en créer une seconde (lib/pos/pending-sale.ts).
       const fingerprint = JSON.stringify(salePayload);
-      if (attemptRef.current?.fingerprint !== fingerprint) attemptRef.current = { fingerprint, key: crypto.randomUUID() };
+      const digest = await saleDigest(fingerprint);
+      if (attemptRef.current?.fingerprint !== fingerprint) attemptRef.current = { fingerprint, key: pendingSaleKey(digest) ?? crypto.randomUUID() };
       const idempotencyKey = attemptRef.current.key;
+      rememberPendingSale(digest, idempotencyKey);
       const response = await fetch("/api/business/sales", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
         body: JSON.stringify({ ...salePayload, idempotencyKey }),
       });
       const body = await response.json() as { sale?: SaleResult; error?: string; code?: string };
       if (!response.ok || !body.sale) throw new Error(body.code === "payment_reference_used" ? t("pos.referenceUsed") : body.error || t("pos.saleFailed"));
-      setSuccess(body.sale); setPrintState(""); attemptRef.current = null;
+      setSuccess(body.sale); setPrintState(""); attemptRef.current = null; forgetPendingSale();
       const methods = new Set(salePayload.payments.map((part) => part.method));
       track("sale_recorded", { line_count: countBucket(salePayload.lines.length), has_customer: Boolean(salePayload.customerId),
         payment_mix: body.sale.dueXof !== "0" && !salePayload.payments.length ? "credit" : methods.size > 1 ? "mixed" : methods.has("cash") ? "cash" : "mobile" });
@@ -203,29 +245,16 @@ export function PosWorkspace() {
           ) : filteredProducts.length === 0 ? (
             <EmptyState icon="search" title={t("pos.noProducts")} />
           ) : (
-            <ul className="m-0 grid list-none grid-cols-2 gap-2.5 p-0 sm:gap-3 xl:grid-cols-3">
-              {filteredProducts.map((item) => {
-                const inCart = quantityInCart(item.variantId);
-                return (
-                  <li key={item.variantId} className="min-w-0">
-                    <button type="button" onClick={() => addProduct(item)} aria-label={t("pos.add", { product: item.name })}
-                      className={cn("relative flex h-full w-full cursor-pointer flex-col gap-2 rounded-lg border bg-surface p-3 text-start transition-[border-color,box-shadow] sm:p-3.5",
-                        inCart ? "border-brand shadow-brand" : "border-line hover:border-brand-tint hover:shadow-card")}>
-                      <span className="flex items-start justify-between gap-2">
-                        <Monogram text={item.name} className="size-11 rounded-[14px]" />
-                        {inCart && <span className="numeric rounded-full bg-brand px-2.5 py-1 text-xs font-bold text-white">× {formatQuantity(toApiQuantity(inCart), locale)}</span>}
-                      </span>
-                      <strong className="line-clamp-2 text-[0.92rem] leading-snug text-ink">{item.name}</strong>
-                      <small className="truncate text-xs text-fg-subtle">{variantName(item) ? `${variantName(item)} · ` : ""}{t("pos.inStock", { qty: `${formatQuantity(item.onHand, locale)} ${item.baseUnit}` })}</small>
-                      <span className="mt-auto flex items-center justify-between gap-2 pt-1">
-                        <strong className="numeric text-start text-[0.98rem] text-ink rtl:text-end">{money(item.salePriceXof)}</strong>
-                        <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-brand"><Icon name="plus" className="size-4" /></span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <ProductGrid items={filteredProducts.slice(0, visibleCount)} cartQuantities={cartQuantities} onAdd={addProduct} />
+              {filteredProducts.length > visibleCount && (
+                <div className="mt-3 flex justify-center">
+                  <Button variant="secondary" onClick={() => setShown({ key: listKey, count: visibleCount + catalogPage })}>
+                    {t("common.showMore", { count: Math.min(catalogPage, filteredProducts.length - visibleCount) })}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </Card>
 

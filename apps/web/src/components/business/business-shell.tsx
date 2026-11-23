@@ -115,11 +115,15 @@ function MoreMenu({ entries, active }: { entries: NavItem[]; active: BusinessAre
   );
 }
 
-export function BusinessShell({ active, preview = false, children }: { active: BusinessArea; preview?: boolean; children: ReactNode }) {
+/**
+ * `initialRole` : rôle lu par la garde serveur de la page, affiché avant la réponse de `/api/account/me` pour
+ * que menus et boutons réservés ne décalent pas la page à leur arrivée. Indication d'affichage seulement.
+ */
+export function BusinessShell({ active, preview = false, initialRole = null, children }: { active: BusinessArea; preview?: boolean; initialRole?: string | null; children: ReactNode }) {
   const { t } = useI18n();
   const router = useRouter();
   const [business, setBusiness] = useState<ActiveBusiness | null>(preview ? { name: "Commerce Démo QADR", logo: null, role: "owner", timezone: null, lifecycle: "active" } : null);
-  const role = business?.role ?? "member";
+  const role = business?.role ?? (initialRole && roleModules[initialRole] ? initialRole : "member");
   const timeZone = safeTimeZone(business?.timezone ?? BUSINESS_DEFAULT_TIME_ZONE);
   useEffect(() => {
     const features = ["dashboard", "pos", "stock", "inventory", "reports", "cash", "sales", "notifications", "printing", "subscription", "team"] as const;

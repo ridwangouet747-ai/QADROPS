@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({ redirect: (to: string) => { throw new Error(
  */
 describe("pages de gestion : garde serveur du droit d'usage", () => {
   let h: HttpHarness;
-  let guard: () => Promise<void>;
+  let guard: () => Promise<string | null>;
 
   beforeAll(async () => {
     h = await startHttpHarness();
@@ -36,5 +36,8 @@ describe("pages de gestion : garde serveur du droit d'usage", () => {
     expect(await outcome(owner.cookie)).toBe("REDIRECT:/business/subscription");
     await h.grantTrialAccess(businessId);
     expect(await outcome(owner.cookie)).toBe("open");
+    // Le rôle lu pour l'accès est rendu à la page (premier affichage de l'en-tête, sans décalage).
+    requestCookie.value = owner.cookie;
+    expect(await guard()).toBe("owner");
   });
 });

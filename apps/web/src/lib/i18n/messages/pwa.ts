@@ -1,5 +1,10 @@
 /** Application installable, état du réseau et invitation à installer (mission 11, phase 2). */
 export const pwaFr = {
+  update: {
+    available: "Une nouvelle version de Qadr Ops est disponible. Enregistrez votre travail puis actualisez la page.",
+    refresh: "Actualiser la page",
+    later: "Plus tard",
+  },
   network: {
     saleUnknown: "Pas de réponse du serveur : nous ne savons pas si la vente est enregistrée. Vérifiez la connexion, puis appuyez de nouveau sur « Encaisser » : la même vente ne sera jamais enregistrée deux fois.",
     requestFailed: "Pas de réponse du serveur. Vérifiez la connexion, puis réessayez.",
@@ -41,6 +46,11 @@ export const pwaFr = {
 };
 
 export const pwaEn: typeof pwaFr = {
+  update: {
+    available: "A new version of Qadr Ops is available. Save your work, then refresh the page.",
+    refresh: "Refresh the page",
+    later: "Later",
+  },
   network: {
     saleUnknown: "No answer from the server: we do not know whether the sale was saved. Check the connection, then press “Take” again: the same sale will never be saved twice.",
     requestFailed: "No answer from the server. Check the connection, then try again.",
@@ -82,6 +92,11 @@ export const pwaEn: typeof pwaFr = {
 };
 
 export const pwaAr: typeof pwaFr = {
+  update: {
+    available: "يتوفر إصدار جديد من Qadr Ops. احفظ عملك ثم حدّث الصفحة.",
+    refresh: "تحديث الصفحة",
+    later: "لاحقًا",
+  },
   network: {
     saleUnknown: "لا يوجد رد من الخادم: لا نعرف إن كان البيع قد سُجّل. تحقّق من الاتصال ثم اضغط «تحصيل» مرة أخرى: لن يُسجَّل البيع نفسه مرتين أبدًا.",
     requestFailed: "لا يوجد رد من الخادم. تحقّق من الاتصال ثم أعد المحاولة.",

@@ -6,7 +6,7 @@ import { requireBusinessPageAccess } from "@/lib/domain/business-page-access";
 export const generateMetadata = () => localizedPageMetadata("meta.printing");
 
 export default async function PrintingPage() {
-  await requireBusinessPageAccess();
+  const initialRole = await requireBusinessPageAccess();
   const preview = process.env.NODE_ENV === "development" && process.env.QADR_PREVIEW_MODE === "true";
-  return <BusinessShell active="printing" preview={preview}><PrintingWorkspace /></BusinessShell>;
+  return <BusinessShell initialRole={initialRole} active="printing" preview={preview}><PrintingWorkspace /></BusinessShell>;
 }
