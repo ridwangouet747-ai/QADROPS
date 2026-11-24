@@ -12,6 +12,7 @@ import { cn } from "@/components/ui/cn";
 import { authClient } from "@/lib/auth/client";
 import { loginMode } from "@/lib/auth/login-identifier";
 import { turnstileHeader } from "@/lib/auth/turnstile";
+import { announceAccountChange } from "@/lib/client/data-cache";
 import { safeNext } from "@/lib/client/redirect";
 import { AuthShell } from "./auth-shell";
 import { TurnstileWidget, turnstileSiteKey } from "./turnstile-widget";
@@ -30,6 +31,8 @@ function useSecurityCheck() {
 
 /** Après connexion : invitation ou page demandée, sinon commerce actif, choix du commerce, ou création. */
 export async function routeAfterSignIn(push: (url: string) => void, next: string | null) {
+  // Nouveau compte dans ce navigateur : les autres onglets oublient les données gardées de l'ancien.
+  announceAccountChange();
   const response = await fetch("/api/account/me", { cache: "no-store" });
   const me = await response.json() as { businesses?: { id: string; disabled: boolean }[]; activeBusinessId?: string | null };
   const usable = (me.businesses ?? []).filter((row) => !row.disabled);

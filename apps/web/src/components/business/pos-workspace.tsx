@@ -16,7 +16,7 @@ import { MICROS, parseQuantityInput, stepQuantity, toApiQuantity } from "@/lib/c
 import { formatQuantity, formatXof } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { printThroughAgent, readPairing } from "@/lib/printing/agent-client";
-import { forgetCached, readCached, writeCached } from "@/lib/client/data-cache";
+import { forgetAfterRefusal, forgetCached, readCached, writeCached } from "@/lib/client/data-cache";
 import { manualPaymentMethods, type ManualPaymentMethod } from "@/lib/payment-methods";
 import { filterCatalog, indexCatalog } from "@/lib/pos/catalog-search";
 import { forgetPendingSale, pendingSaleKey, rememberPendingSale, saleDigest } from "@/lib/pos/pending-sale";
@@ -132,7 +132,7 @@ export function PosWorkspace() {
       const [productData, customerData] = await Promise.all([productResponse.json(), customerResponse.json()]) as [CatalogBody & { error?: string }, CustomersBody & { error?: string }];
       if (!productResponse.ok || !customerResponse.ok) {
         // Refus du serveur (session, droit, abonnement) : le catalogue gardé n'est plus affiché.
-        forgetCached(catalogKey); forgetCached(customersKey);
+        forgetAfterRefusal(catalogKey, productResponse.ok ? customerResponse.status : productResponse.status); forgetCached(customersKey);
         if (active) { setProducts([]); setCategories([]); setCustomers([]); }
         throw new Error((!productResponse.ok ? productData.error : customerData.error) || t("pos.loadFailed"));
       }

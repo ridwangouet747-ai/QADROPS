@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { forgetCached, readCached, writeCached } from "@/lib/client/data-cache";
+import { forgetAfterRefusal, readCached, writeCached } from "@/lib/client/data-cache";
 
 export class RequestError extends Error {
   constructor(public status: number | null, message?: string) { super(message); }
@@ -66,7 +66,7 @@ export function usePagedList<T, S>(url: string, params: Record<string, string>) 
       const failure = caught instanceof RequestError ? caught : new RequestError(null);
       // Refus du serveur (session, droit, abonnement) : rien de l'ancienne réponse ne reste affiché ni gardé.
       // Réseau coupé : la dernière liste reçue reste visible, avec le message d'erreur qui signale qu'elle peut être ancienne.
-      if (failure.status !== null || !cached) { forgetCached(key); setItems([]); setNextCursor(null); }
+      if (failure.status !== null || !cached) { forgetAfterRefusal(key, failure.status); setItems([]); setNextCursor(null); }
       setError(failure);
     } finally {
       if (!current.signal.aborted) setLoading(false);

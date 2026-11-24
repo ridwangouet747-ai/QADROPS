@@ -12,6 +12,7 @@ import { Field, Input } from "@/components/ui/field";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { authClient } from "@/lib/auth/client";
 import { signOutOfThisDevice } from "@/lib/auth/logout";
+import { announceAccountChange } from "@/lib/client/data-cache";
 import { intlLocale } from "@/lib/i18n/config";
 import { LOGO_MAX_CHARS } from "@/lib/business-logo-limits";
 import { AuthShell } from "./auth-shell";
@@ -138,6 +139,8 @@ export function BusinessPicker() {
     setBusy(business.id); setError("");
     const response = await fetch("/api/account/active-business", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ businessId: business.id }) }).catch(() => null);
     if (!response?.ok) { setError(t("selectBusiness.failed")); setBusy(""); return; }
+    // Autre commerce : les onglets ouverts sur l'ancien oublient leurs données gardées.
+    announceAccountChange();
     router.push("/business/dashboard");
   };
   return (

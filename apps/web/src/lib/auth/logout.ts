@@ -1,7 +1,7 @@
 "use client";
 
 import { authClient } from "./client";
-import { clearClientCache } from "@/lib/client/data-cache";
+import { announceAccountChange } from "@/lib/client/data-cache";
 import { forgetThisDevice } from "@/lib/notifications/client";
 import { forgetPendingSale } from "@/lib/pos/pending-sale";
 
@@ -13,6 +13,6 @@ export async function signOutOfThisDevice() {
     return await authClient.signOut();
   } finally {
     forgetPendingSale();
-    clearClientCache();
+    announceAccountChange();
   }
 }

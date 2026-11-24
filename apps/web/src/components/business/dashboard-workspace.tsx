@@ -13,7 +13,7 @@ import { intlLocale } from "@/lib/i18n/config";
 import { formatDateTime, formatQuantity, formatXof } from "@/lib/i18n/format";
 import { SubscriptionNotice } from "./subscription-workspace";
 import { useBusinessTimeZone } from "@/components/business/business-time-zone";
-import { forgetCached, readCached, writeCached } from "@/lib/client/data-cache";
+import { forgetAfterRefusal, readCached, writeCached } from "@/lib/client/data-cache";
 
 const dashboardKey = "/api/business/dashboard";
 
@@ -61,7 +61,7 @@ export function DashboardWorkspace() {
         const body = await response.json() as Overview;
         if (!response.ok) {
           // Refus du serveur : les chiffres gardés disparaissent (session ou droit changé).
-          forgetCached(dashboardKey);
+          forgetAfterRefusal(dashboardKey, response.status);
           if (alive) setData(null);
           throw new Error(body.error ?? t("dashboard.loadFailed"));
         }

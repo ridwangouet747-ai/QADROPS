@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { BusinessShell, businessAreaFromPath } from "@/components/business/business-shell";
-import { setClientCacheScope } from "@/lib/client/data-cache";
+import { setClientCacheScope, watchApiWrites } from "@/lib/client/data-cache";
 
 /**
  * En-tête de l'espace commerçant monté UNE fois pour toutes les pages `/business/*` (mission performance du
@@ -14,6 +14,8 @@ export function BusinessFrame({ initialRole, cacheScope, preview, children }: { 
   const pathname = usePathname();
   // Portée des données gardées en mémoire : un autre compte ou un autre commerce les efface toutes.
   setClientCacheScope(cacheScope);
+  // Une écriture (vente, produit, stock…) efface les données gardées : jamais d'anciens chiffres au retour.
+  watchApiWrites();
   if (/^\/business\/sales\/[^/]+\/receipt\/?$/.test(pathname)) return <>{children}</>;
   return <BusinessShell active={businessAreaFromPath(pathname)} initialRole={initialRole} preview={preview}>{children}</BusinessShell>;
 }
