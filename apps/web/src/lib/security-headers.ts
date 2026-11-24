@@ -13,14 +13,13 @@ export const enforcedContentSecurityPolicy = "frame-ancestors 'none'; base-uri '
  *   D'où `'unsafe-inline'` dans `script-src` : un nonce exigerait un rendu dynamique de chaque page par le
  *   proxy, ce qui n'est pas fait. `'unsafe-eval'` seulement hors production (rechargement à chaud de `next dev`).
  *   Turnstile : `https://challenges.cloudflare.com/turnstile/v0/api.js` (components/auth/turnstile-widget.tsx).
- *   PostHog (après consentement, lib/analytics/client.ts) peut charger sa configuration depuis ses hôtes d'assets.
  *   Three.js, GSAP et Lottie (`lottie_light`, sans `eval`) sont empaquetés : même origine.
  * - styles : feuilles de Next.js et attributs `style` posés par React, GSAP et Three.js → `'unsafe-inline'`.
  * - images : même origine (`/_next/image`, icônes, captures), logos des commerces en `data:` (lib/domain/account.ts),
  *   trames et aperçus d'impression dessinés par le navigateur (`blob:`, `data:`).
  * - polices : `next/font` les sert depuis le site.
- * - connexions : API du site ; Sentry navigateur (ingestion `*.ingest[.us|.de].sentry.io`, src/instrumentation-client.ts) ;
- *   PostHog (`NEXT_PUBLIC_POSTHOG_HOST`, hébergement US ou UE) ; service d'impression local sur CET ordinateur
+ * - connexions : API du site ; Sentry navigateur à la première erreur (ingestion `*.ingest[.us|.de].sentry.io`,
+ *   lib/observability/client-errors.ts) ; service d'impression local sur CET ordinateur
  *   (`http://127.0.0.1:<port>` ou `http://localhost:<port>`, lib/printing/agent-client.ts ; l'adresse `[::1]`
  *   acceptée par le client ne peut pas s'écrire dans une CSP et serait signalée).
  * - cadres : Turnstile, lecteurs YouTube (`youtube-nocookie.com`) et Vimeo créés après un clic (lib/video/source.ts).
@@ -32,13 +31,11 @@ export const enforcedContentSecurityPolicy = "frame-ancestors 'none'; base-uri '
 export function reportOnlyContentSecurityPolicy(isProduction: boolean) {
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
-    "script-src": ["'self'", "'unsafe-inline'", ...(isProduction ? [] : ["'unsafe-eval'"]), "https://challenges.cloudflare.com",
-      "https://us-assets.i.posthog.com", "https://eu-assets.i.posthog.com"],
+    "script-src": ["'self'", "'unsafe-inline'", ...(isProduction ? [] : ["'unsafe-eval'"]), "https://challenges.cloudflare.com"],
     "style-src": ["'self'", "'unsafe-inline'"],
     "img-src": ["'self'", "data:", "blob:"],
     "font-src": ["'self'", "data:"],
-    "connect-src": ["'self'", "https://us.i.posthog.com", "https://eu.i.posthog.com", "https://us-assets.i.posthog.com", "https://eu-assets.i.posthog.com",
-      "https://*.ingest.sentry.io", "https://*.ingest.us.sentry.io", "https://*.ingest.de.sentry.io", "http://127.0.0.1:*", "http://localhost:*"],
+    "connect-src": ["'self'", "https://*.ingest.sentry.io", "https://*.ingest.us.sentry.io", "https://*.ingest.de.sentry.io", "http://127.0.0.1:*", "http://localhost:*"],
     "media-src": ["'self'", "https:"],
     "frame-src": ["https://challenges.cloudflare.com", "https://www.youtube-nocookie.com", "https://player.vimeo.com"],
     "worker-src": ["'self'"],
@@ -54,7 +51,7 @@ export function reportOnlyContentSecurityPolicy(isProduction: boolean) {
 /**
  * En-têtes HTTP appliqués par `next.config.ts` (guide Next.js « progressive-web-apps », § sécurité).
  * La CSP se limite volontairement aux directives sans risque pour les scripts en ligne de Next.js,
- * Turnstile, Sentry et PostHog : interdiction d'être affiché dans un cadre, de changer `<base>`,
+ * Turnstile et Sentry : interdiction d'être affiché dans un cadre, de changer `<base>`,
  * de charger des plugins et de soumettre un formulaire ailleurs. HSTS seulement en production.
  */
 export function securityHeaderRules(isProduction: boolean): HeaderRule[] {

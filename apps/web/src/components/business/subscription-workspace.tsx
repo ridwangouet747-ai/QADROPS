@@ -101,7 +101,11 @@ export function SubscriptionWorkspace() {
         </Card>
         <div className="grid gap-4">
           <PayCard overview={overview} />
-          <RedeemCard overview={overview} onActivated={reload} />
+          <RedeemCard overview={overview} onActivated={async () => {
+        await reload();
+        // L'en-tête reste monté d'une page à l'autre : il relit l'état du commerce pour rouvrir les menus aussitôt.
+        window.dispatchEvent(new Event("qadr:business-updated"));
+      }} />
         </div>
       </div>
     </div>

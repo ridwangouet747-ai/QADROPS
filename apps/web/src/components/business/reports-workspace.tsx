@@ -14,7 +14,6 @@ import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { intlLocale, type Locale } from "@/lib/i18n/config";
 import { formatDateTime, formatQuantity, formatXof } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/translate";
-import { track } from "@/lib/analytics/client";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly" | "custom";
 type Compared = { currentXof: string; previousXof: string; changeXof: string; changePercent: string | null };
@@ -128,7 +127,7 @@ export function ReportsWorkspace() {
         )}
       </Card>
 
-      {report && <ExportCard query={query} period={period} />}
+      {report && <ExportCard query={query} />}
 
       {failure === "load" && <Alert tone="danger" className="mb-4">{message || t("reports.loadFailed")}</Alert>}
       {!report ? (ready ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-36 rounded-xl" />)}</div> : null) : (
@@ -148,7 +147,7 @@ type ExportFormat = "xlsx" | "pdf" | "csv";
  * Téléchargements préparés par le serveur (docs/exports.md). Le fichier est demandé par fetch pour
  * afficher une erreur claire (période trop longue, rôle) au lieu d'enregistrer une page d'erreur.
  */
-function ExportCard({ query, period }: { query: string; period: Period }) {
+function ExportCard({ query }: { query: string }) {
   const { t, locale } = useI18n();
   const [busy, setBusy] = useState<ExportFormat | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
@@ -181,7 +180,6 @@ function ExportCard({ query, period }: { query: string; period: Period }) {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      track("report_exported", { format, period });
       setNotice({ tone: "success", text: t("exports.ready") });
     } catch {
       setNotice({ tone: "danger", text: t("exports.errors.network") });

@@ -6,7 +6,6 @@ import { useI18n } from "@/components/i18n/i18n-provider";
 import { cn } from "@/components/ui/cn";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { formatDateTime } from "@/lib/i18n/format";
-import { track } from "@/lib/analytics/client";
 import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 export type NotificationItem = { id: string; category: string; icon: string; title: string; body: string; linkPath: string | null; createdAt: string; readAt: string | null };
@@ -91,7 +90,7 @@ export function NotificationBell() {
               : items.length === 0 ? <p className="m-0 p-4 text-sm text-fg-muted">{t("notifications.empty")}</p>
               : <ul className="m-0 list-none p-0">{items.map((item) => (
                 <li key={item.id} className="border-b border-line last:border-0">
-                  <Link href={item.linkPath ?? "/business/notifications"} onClick={() => { track("notification_opened", { category: item.category as "system", surface: "bell" }); markOne(item.id); }} className={cn("flex gap-3 px-4 py-3 no-underline hover:bg-paper", !item.readAt && "bg-brand-soft/60")}>
+                  <Link href={item.linkPath ?? "/business/notifications"} onClick={() => markOne(item.id)} className={cn("flex gap-3 px-4 py-3 no-underline hover:bg-paper", !item.readAt && "bg-brand-soft/60")}>
                     <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-soft text-brand"><Icon name={notificationIcon(item.icon)} className="size-4" /></span>
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-ink" dir="auto">{item.title}</span>

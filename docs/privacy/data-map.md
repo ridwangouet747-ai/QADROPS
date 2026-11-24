@@ -19,7 +19,7 @@ Légende de la colonne « Vérifié » :
 | **Resend** | E-mails transactionnels (vérification, mot de passe, invitations) | Adresse e-mail, nom, nom du commerce, liens à usage unique | À vérifier (compte non créé) | Code ; non configuré |
 | **GeniusPay** | Paiement des abonnements Qadr Ops (pas des ventes des commerces) | Référence de facture, montant, nom et e-mail du payeur transmis au prestataire | Côte d'Ivoire (prestataire local) ; hébergement de son API à vérifier | Code ; bac à sable seulement |
 | **Sentry** | Erreurs techniques | Pile d'appels, URL, identifiant technique ; pas de corps de requête par défaut | Organisation `qard-ops` hébergée sur **de.sentry.io (Union européenne, Allemagne)** | Oui (2026-11-08) |
-| **PostHog** | Mesure d'audience, **après consentement uniquement** | Événements d'un catalogue fermé (`lib/analytics/events.ts`), sans montant ni nom | Selon `NEXT_PUBLIC_POSTHOG_HOST` (`eu.i.posthog.com` ou `us.i.posthog.com`) | Code ; non configuré |
+| ~~PostHog~~ | **Retiré le 2026-11-24** (mission performance) : plus aucun envoi, ni bibliothèque, ni bandeau. | — | — | — | — |
 | **Google / Apple** (facultatif) | Connexion « Continuer avec Google / Apple » | Identifiant de compte, e-mail, nom renvoyés par le fournisseur | Fournisseurs mondiaux | Code ; aucun identifiant configuré |
 | **Services push des navigateurs** (FCM, Mozilla, Apple) | Acheminement des notifications | Message chiffré pour l'appareil : titre court, texte générique, lien interne | Fournisseurs mondiaux | Code |
 

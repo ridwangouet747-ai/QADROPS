@@ -11,7 +11,7 @@ import { Alert, Badge, Skeleton } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { authClient } from "@/lib/auth/client";
-import { signOutAndResetAnalytics } from "@/lib/auth/logout";
+import { signOutOfThisDevice } from "@/lib/auth/logout";
 import { intlLocale } from "@/lib/i18n/config";
 import { LOGO_MAX_CHARS } from "@/lib/business-logo-limits";
 import { AuthShell } from "./auth-shell";
@@ -142,7 +142,7 @@ export function BusinessPicker() {
   };
   return (
     <AuthShell title={t("selectBusiness.title")} intro={t("selectBusiness.intro")}
-      footer={<button type="button" onClick={() => void signOutAndResetAnalytics().then(() => router.push("/login"))} className="cursor-pointer border-0 bg-transparent font-semibold text-fg-muted underline">{t("auth.logout")}</button>}>
+      footer={<button type="button" onClick={() => void signOutOfThisDevice().then(() => router.push("/login"))} className="cursor-pointer border-0 bg-transparent font-semibold text-fg-muted underline">{t("auth.logout")}</button>}>
       <div className="grid gap-3">
         {error && <Alert tone="danger">{error}</Alert>}
         {!data ? [0, 1].map((index) => <Skeleton key={index} className="h-16 rounded-[16px]" />) : data.businesses.length === 0 ? <p className="m-0 text-sm text-fg-muted">{t("selectBusiness.none")}</p> : (
@@ -200,7 +200,7 @@ export function InvitationView({ invitationId }: { invitationId: string }) {
     setVerification(failure.status === 400 ? "unavailable" : "idle");
     if (failure.status !== 400) setError(t("errors.generic"));
   };
-  const switchAccount = () => void signOutAndResetAnalytics().then(() => router.push(`/login?next=${encodeURIComponent(`/invitations/${invitationId}`)}`));
+  const switchAccount = () => void signOutOfThisDevice().then(() => router.push(`/login?next=${encodeURIComponent(`/invitations/${invitationId}`)}`));
   const loaded = invitation && invitation !== "missing" ? invitation : null;
   return (
     <AuthShell title={t("invitation.title")} intro={loaded ? t("invitation.intro", { business: loaded.businessName }) : undefined}>

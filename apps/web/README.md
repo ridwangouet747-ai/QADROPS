@@ -23,7 +23,7 @@ Depuis `apps/web`, lancer `npm run preview` puis ouvrir `http://localhost:3001/b
 
 Ce mode n'est pas une authentification et ne doit pas être exposé publiquement : il est accepté uniquement par le serveur de développement, et ses données sont fictives.
 
-Commandes de qualité : `npm test`, `npm run lint`, `npm run typecheck`, puis `npm run build`. Ces vérifications locales ne requièrent pas de base ou compte Sentry/PostHog/Cloudflare. `npm run typecheck` lance d'abord `next typegen`, qui génère les types de routes (`RouteContext`) indispensables à `tsc` sur une copie fraîche. Pour vérifier que le schéma et les migrations concordent sans contacter de base : `npx drizzle-kit check`, puis `npx drizzle-kit generate`, qui doit répondre « No schema changes ».
+Commandes de qualité : `npm test`, `npm run lint`, `npm run typecheck`, puis `npm run build`. Ces vérifications locales ne requièrent pas de base ou compte Sentry/Cloudflare. `npm run typecheck` lance d'abord `next typegen`, qui génère les types de routes (`RouteContext`) indispensables à `tsc` sur une copie fraîche. Pour vérifier que le schéma et les migrations concordent sans contacter de base : `npx drizzle-kit check`, puis `npx drizzle-kit generate`, qui doit répondre « No schema changes ».
 
 Les tests Vitest utilisent PGlite en mémoire. Leur réussite ne prouve ni la connexion à Neon, ni le comportement de plusieurs connexions PostgreSQL simultanées.
 
@@ -54,9 +54,9 @@ Les versions sont épinglées dans `package.json`; elles ont été vérifiées c
 - Next.js 16.4.2, React 19.3.1, TypeScript 5.9.3.
 - Better Auth 1.7.7 avec son adaptateur Drizzle intégré.
 - Drizzle ORM 0.45.4, Drizzle Kit 0.31.11, driver Neon Serverless 1.2.0.
-- Sentry Next.js SDK 10.73.0, PostHog JS 1.438.2, Zod 4.1.12.
+- Sentry Next.js SDK 10.73.0 (navigateur : chargé seulement à la première erreur), Zod 4.1.12. PostHog retiré le 2026-11-24.
 
-Références officielles : [Next.js instrumentation](https://nextjs.org/docs/app/guides/instrumentation), [Next.js instrumentation-client](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client), [Better Auth installation](https://better-auth.com/docs/installation), [Better Auth + Next.js](https://better-auth.com/docs/integrations/next), [Better Auth Drizzle](https://better-auth.com/docs/adapters/drizzle), [Drizzle + Neon](https://orm.drizzle.team/docs/connect-neon), [Sentry Next.js](https://docs.sentry.io/platforms/javascript/guides/nextjs/), [PostHog Next.js](https://posthog.com/docs/libraries/next-js), [Turnstile server validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/), [R2 S3 API](https://developers.cloudflare.com/r2/get-started/s3/), [Vercel domains](https://vercel.com/docs/domains/set-up-custom-domain), [Vercel Firewall](https://vercel.com/docs/vercel-firewall).
+Références officielles : [Next.js instrumentation](https://nextjs.org/docs/app/guides/instrumentation), [Next.js instrumentation-client](https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client), [Better Auth installation](https://better-auth.com/docs/installation), [Better Auth + Next.js](https://better-auth.com/docs/integrations/next), [Better Auth Drizzle](https://better-auth.com/docs/adapters/drizzle), [Drizzle + Neon](https://orm.drizzle.team/docs/connect-neon), [Sentry Next.js](https://docs.sentry.io/platforms/javascript/guides/nextjs/), [Turnstile server validation](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/), [R2 S3 API](https://developers.cloudflare.com/r2/get-started/s3/), [Vercel domains](https://vercel.com/docs/domains/set-up-custom-domain), [Vercel Firewall](https://vercel.com/docs/vercel-firewall).
 
 ## Authentification et base
 
@@ -80,9 +80,7 @@ Test contrôlé : dans une instance locale de développement seulement, définir
 
 ## PostHog
 
-Le SDK n'est initialisé que lorsque `NEXT_PUBLIC_POSTHOG_KEY` et `NEXT_PUBLIC_POSTHOG_HOST` sont présents. Autocapture, pageview automatique, pageleave et enregistrement de session sont désactivés ; la persistance est en mémoire. Les helpers n'acceptent que ces événements sans propriétés métier : `saas_signup_completed`, `first_product_created`, `first_sale_recorded`, ainsi que `feature_used` avec une catégorie limitée (`inventory`, `sales`, `reports`, `team`). L'identification attend un identifiant interne opaque et stable, jamais un e-mail ou téléphone. `signOutAndResetAnalytics()` efface l'identité après déconnexion.
-
-Ne jamais envoyer les montants, clients, produits individualisés, reçus, coordonnées, détails de paiement ou informations d'authentification. Aucun projet PostHog n'est configuré ici. Pour tester après configuration, contrôler les appels réseau et l'événement reçu dans le projet de développement ; vérifier qu'aucune propriété interdite n'est présente. En absence des variables, aucune capture n'est initialisée.
+Retiré le 2026-11-24 (mission performance, `docs/analytics.md`) : aucune mesure d'audience, aucun bandeau de consentement, aucune variable `NEXT_PUBLIC_POSTHOG_*`.
 
 ## Cloudflare avec Vercel
 
@@ -93,7 +91,7 @@ Ne jamais envoyer les montants, clients, produits individualisés, reçus, coord
 
 ## Limites actuelles
 
-Le logiciel commercial et ses opérations sont utilisables dans la prévisualisation PGlite locale. Les routes d'API appliquent le contexte d'organisation Better Auth et les permissions métier côté serveur ; les intégrations Neon, les pages de connexion/inscription, la sélection d'entreprise et la gestion d'équipe ne sont pas encore validées de bout en bout. Les paiements numériques sont enregistrés en attente et nécessitent une confirmation manuelle explicite ; aucun fournisseur de paiement n'est connecté. Les pages d'impression utilisent l'impression du navigateur ; aucune imprimante physique n'a été testée. Aucun compte Cloudflare/Vercel/Neon/PostHog/Sentry ni domaine n'est présumé. Aucune base distante n'a été contactée, aucune migration distante n'a été appliquée, aucun Worker/DNS/déploiement public n'a été effectué.
+Le logiciel commercial et ses opérations sont utilisables dans la prévisualisation PGlite locale. Les routes d'API appliquent le contexte d'organisation Better Auth et les permissions métier côté serveur ; les intégrations Neon, les pages de connexion/inscription, la sélection d'entreprise et la gestion d'équipe ne sont pas encore validées de bout en bout. Les paiements numériques sont enregistrés en attente et nécessitent une confirmation manuelle explicite ; aucun fournisseur de paiement n'est connecté. Les pages d'impression utilisent l'impression du navigateur ; aucune imprimante physique n'a été testée. Aucun compte Cloudflare/Vercel/Neon/Sentry ni domaine n'est présumé. Aucune base distante n'a été contactée, aucune migration distante n'a été appliquée, aucun Worker/DNS/déploiement public n'a été effectué.
 
 Dans le rapport de mission, distinguer :
 

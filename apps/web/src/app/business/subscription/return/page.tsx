@@ -1,4 +1,3 @@
-import { BusinessShell } from "@/components/business/business-shell";
 import { SubscriptionPaymentReturn } from "@/components/business/subscription-payment";
 import { localizedPageMetadata } from "@/lib/i18n/server";
 
@@ -11,6 +10,5 @@ export const generateMetadata = () => localizedPageMetadata("meta.subscription")
 export default async function SubscriptionPaymentReturnPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { attempt } = await searchParams;
   const attemptId = typeof attempt === "string" && /^[0-9a-f-]{36}$/i.test(attempt) ? attempt : null;
-  const preview = process.env.NODE_ENV === "development" && process.env.QADR_PREVIEW_MODE === "true";
-  return <BusinessShell active="subscription" preview={preview}><SubscriptionPaymentReturn attemptId={attemptId} /></BusinessShell>;
+  return <SubscriptionPaymentReturn attemptId={attemptId} />;
 }

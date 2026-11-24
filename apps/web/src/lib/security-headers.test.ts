@@ -34,11 +34,11 @@ describe("securityHeaderRules", () => {
     expect(headers["Content-Security-Policy-Report-Only"]).toBe(reportOnlyContentSecurityPolicy(true));
     expect(reportOnlyContentSecurityPolicy(true)).toBe([
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com",
+      "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self' https://us.i.posthog.com https://eu.i.posthog.com https://us-assets.i.posthog.com https://eu-assets.i.posthog.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io http://127.0.0.1:* http://localhost:*",
+      "connect-src 'self' https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io http://127.0.0.1:* http://localhost:*",
       "media-src 'self' https:",
       "frame-src https://challenges.cloudflare.com https://www.youtube-nocookie.com https://player.vimeo.com",
       "worker-src 'self'",

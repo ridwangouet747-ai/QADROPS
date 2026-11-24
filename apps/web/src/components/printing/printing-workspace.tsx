@@ -15,7 +15,6 @@ import {
 } from "@/lib/printing/agent-client";
 import { parseStatus } from "@/lib/printing/escpos";
 import { codePages, renderModes, type CodePage, type RenderMode } from "@/lib/printing/profiles";
-import { track } from "@/lib/analytics/client";
 import { useBusinessTimeZone } from "@/components/business/business-time-zone";
 
 type Device = { id: string; name: string; transport: string; paperWidthMm: number; codePage: CodePage; renderMode: RenderMode; agentId: string | null; lastStatus: string | null; lastSeenAt: string | null };
@@ -60,7 +59,6 @@ export function PrintingWorkspace() {
   if (failure === "load") return <><PageHeader title={t("printing.title")}>{t("printing.intro")}</PageHeader><Alert tone="danger">{t("printing.loadFailed")}</Alert></>;
 
   const saveSettings = async (enabled: boolean, autoPrint: boolean) => {
-    if (enabled !== setup?.enabled) track("printer_module_toggled", { enabled });
     const response = await fetch("/api/business/printing", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled, autoPrint }) });
     if (response.ok) setSetup(await response.json() as Setup);
     void load();
@@ -98,7 +96,6 @@ export function PrintingWorkspace() {
   };
   const printTest = async (language: "fr" | "en" | "ar") => {
     const result = await printThroughAgent({ kind: "test", language });
-    track("printer_test_printed", { result: result.status === "printed" ? "success" : "failure" });
     report(result, language === "ar" ? "rtl" : "ltr");
   };
   const device = setup?.devices.find((item) => item.id === pairing?.deviceId) ?? null;

@@ -818,5 +818,4 @@ export const ar: Messages = {
   imports: importsAr,
   exports: exportsAr,
   suite: suiteAr,
-  analytics: { consent: { title: "قياس الاستخدام", body: "هل توافق على أن يقيس Qadr Ops، بشكل مجهول، طريقة استخدام التطبيق لتحسينه؟ لا يُرسل أي مبلغ أو اسم أو محتوى بيع. يمكنك الرفض دون أي عواقب.", accept: "موافقة", refuse: "رفض" } },
 };

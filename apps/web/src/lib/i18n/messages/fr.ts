@@ -816,7 +816,6 @@ export const fr = {
   imports: importsFr,
   exports: exportsFr,
   suite: suiteFr,
-  analytics: { consent: { title: "Mesure d'audience", body: "Acceptez-vous que Qadr Ops mesure, de façon anonyme, l'usage de l'application pour l'améliorer ? Aucun montant, nom ou contenu de vente n'est envoyé. Vous pouvez refuser sans conséquence.", accept: "Accepter", refuse: "Refuser" } },
 };
 
 type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };

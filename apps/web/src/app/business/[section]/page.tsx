@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { BusinessShell, type BusinessArea } from "@/components/business/business-shell";
+import type { BusinessArea } from "@/components/business/business-shell";
 import { BusinessSuiteWorkspace } from "@/components/business/business-suite-workspace";
 import { DashboardWorkspace } from "@/components/business/dashboard-workspace";
 import { PosWorkspace } from "@/components/business/pos-workspace";
@@ -18,15 +18,15 @@ export async function generateMetadata({ params }: { params: Promise<{ section: 
   return localizedPageMetadata(`meta.${section as BusinessRouteSection}`);
 }
 
+/** L'en-tête vient de app/business/layout.tsx (monté une fois) ; la page n'affiche que son module. */
 export default async function BusinessSectionPage({ params }: { params: Promise<{ section: string }> }) {
-  const initialRole = await requireBusinessPageAccess();
+  await requireBusinessPageAccess();
   const { section } = await params;
   if (!sections.has(section as BusinessRouteSection)) notFound();
   const area = section as BusinessRouteSection;
-  const preview = process.env.NODE_ENV === "development" && process.env.QADR_PREVIEW_MODE === "true";
-  if (area === "dashboard") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><DashboardWorkspace /></BusinessShell>;
-  if (area === "products") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><ProductsWorkspace /></BusinessShell>;
-  if (area === "stock") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><StockWorkspace /></BusinessShell>;
-  if (area === "pos") return <BusinessShell initialRole={initialRole} active={area} preview={preview}><PosWorkspace /></BusinessShell>;
-  return <BusinessShell initialRole={initialRole} active={area} preview={preview}><BusinessSuiteWorkspace key={area} section={area} /></BusinessShell>;
+  if (area === "dashboard") return <DashboardWorkspace />;
+  if (area === "products") return <ProductsWorkspace />;
+  if (area === "stock") return <StockWorkspace />;
+  if (area === "pos") return <PosWorkspace />;
+  return <BusinessSuiteWorkspace key={area} section={area} />;
 }

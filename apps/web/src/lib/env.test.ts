@@ -4,7 +4,7 @@ import { assertProductionAuthUrl, migrationDatabaseUrl, readEnvironment, require
 describe("readEnvironment", () => {
   it("supports development with optional services absent", () => {
     const result = readEnvironment({ NODE_ENV: "development" });
-    expect(result.NEXT_PUBLIC_POSTHOG_KEY).toBeUndefined();
+    expect(result.RESEND_API_KEY).toBeUndefined();
     expect(result.DATABASE_URL).toBeUndefined();
   });
 

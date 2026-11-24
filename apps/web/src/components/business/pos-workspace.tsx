@@ -16,8 +16,7 @@ import { MICROS, parseQuantityInput, stepQuantity, toApiQuantity } from "@/lib/c
 import { formatQuantity, formatXof } from "@/lib/i18n/format";
 import type { MessageKey } from "@/lib/i18n/translate";
 import { printThroughAgent, readPairing } from "@/lib/printing/agent-client";
-import { track } from "@/lib/analytics/client";
-import { countBucket } from "@/lib/analytics/events";
+import { forgetCached, readCached, writeCached } from "@/lib/client/data-cache";
 import { manualPaymentMethods, type ManualPaymentMethod } from "@/lib/payment-methods";
 import { filterCatalog, indexCatalog } from "@/lib/pos/catalog-search";
 import { forgetPendingSale, pendingSaleKey, rememberPendingSale, saleDigest } from "@/lib/pos/pending-sale";
@@ -33,6 +32,10 @@ type PaymentPart = { method: PayMethod; amountXof: string; touched: boolean; rec
 type SaleResult = { id: string; reference: string; totalXof: string; paidXof: string; dueXof: string; tenderedXof?: string; changeXof?: string };
 const methods: readonly PayMethod[] = manualPaymentMethods;
 const freshPayments = (): PaymentPart[] => [{ method: "cash", amountXof: "", touched: false }];
+type CatalogBody = { products?: Product[]; categories?: { id: string; name: string }[] };
+type CustomersBody = { customers?: Customer[] };
+const catalogKey = "/api/business/products";
+const customersKey = "/api/business/customers";
 
 /** Aperçu du montant d'une ligne. Le total de référence reste celui calculé par le serveur. */
 function lineTotal(price: string, quantity: string) {
@@ -110,7 +113,6 @@ export function PosWorkspace() {
     printKeys.current.set(saleId, idempotencyKey);
     const result = await printThroughAgent({ kind: "receipt", saleId, language: locale, idempotencyKey });
     if (result.jobId) printKeys.current.delete(saleId);
-    if (result.status === "failed") track("print_failed", { error: (["not_paired", "agent_unreachable", "timeout", "paper_out", "disconnected", "connection_refused", "communication_error"] as const).find((code) => code === result.error) ?? "other" });
     const errorKey = `printing.errors.${result.error ?? "generic"}` as MessageKey;
     const errorText = t(errorKey) === errorKey ? t("printing.errors.generic") : t(errorKey);
     setPrintState(result.status === "printed" ? t(result.error === "already_printed" ? "printing.results.already" : "printing.results.printed")
@@ -119,12 +121,27 @@ export function PosWorkspace() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([fetch("/api/business/products", { cache: "no-store" }), fetch("/api/business/customers", { cache: "no-store" })]).then(async ([productResponse, customerResponse]) => {
-      const [productData, customerData] = await Promise.all([productResponse.json(), customerResponse.json()]) as [{ products?: Product[]; categories?: { id: string; name: string }[]; error?: string }, { customers?: Customer[]; error?: string }];
-      if (!productResponse.ok) throw new Error(productData.error || t("pos.loadFailed"));
-      if (!customerResponse.ok) throw new Error(customerData.error || t("pos.loadFailed"));
+    // Retour à la caisse dans le même onglet : le dernier catalogue reçu s'affiche tout de suite, puis la réponse du
+    // serveur le remplace (stock à jour). Le serveur recontrôle de toute façon le stock à l'encaissement.
+    const cachedCatalog = readCached<CatalogBody>(catalogKey);
+    const cachedCustomers = readCached<CustomersBody>(customersKey);
+    if (cachedCatalog && cachedCustomers) {
+      setProducts(cachedCatalog.products ?? []); setCategories(cachedCatalog.categories ?? []); setCustomers(cachedCustomers.customers ?? []); setLoading(false);
+    }
+    void Promise.all([fetch(catalogKey, { cache: "no-store" }), fetch(customersKey, { cache: "no-store" })]).then(async ([productResponse, customerResponse]) => {
+      const [productData, customerData] = await Promise.all([productResponse.json(), customerResponse.json()]) as [CatalogBody & { error?: string }, CustomersBody & { error?: string }];
+      if (!productResponse.ok || !customerResponse.ok) {
+        // Refus du serveur (session, droit, abonnement) : le catalogue gardé n'est plus affiché.
+        forgetCached(catalogKey); forgetCached(customersKey);
+        if (active) { setProducts([]); setCategories([]); setCustomers([]); }
+        throw new Error((!productResponse.ok ? productData.error : customerData.error) || t("pos.loadFailed"));
+      }
+      writeCached(catalogKey, productData); writeCached(customersKey, customerData);
       if (active) { setProducts(productData.products ?? []); setCategories(productData.categories ?? []); setCustomers(customerData.customers ?? []); }
-    }).catch((caught: unknown) => { if (active) setError(caught instanceof Error ? caught.message : t("pos.loadFailed")); })
+    }).catch((caught: unknown) => {
+      // Réseau coupé avec un catalogue déjà reçu : la caisse reste utilisable (le serveur contrôle tout à l'encaissement).
+      if (active && (!(cachedCatalog && cachedCustomers) || !(caught instanceof TypeError))) setError(caught instanceof Error && !(caught instanceof TypeError) ? caught.message : t("pos.loadFailed"));
+    })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [t]);
@@ -138,6 +155,9 @@ export function PosWorkspace() {
   const listKey = `${deferredCategory}|${deferredSearch}`;
   const [shown, setShown] = useState({ key: listKey, count: catalogPage });
   const visibleCount = shown.key === listKey ? shown.count : catalogPage;
+  // Même tableau tant que la liste filtrée ne change pas : la grille mémorisée n'est pas redessinée à chaque frappe
+  // (un `.slice()` dans le rendu créait un nouveau tableau à chaque fois, 250 à 400 ms par touche mesurés le 2026-11-23).
+  const visibleProducts = useMemo(() => filteredProducts.slice(0, visibleCount), [filteredProducts, visibleCount]);
   const cartQuantities = useMemo(() => new Map(cart.map((line) => [line.product.variantId, line.quantity])), [cart]);
   const total = cart.reduce((sum, line) => sum + lineTotal(line.product.salePriceXof, line.quantity), 0n);
   // Affichage seulement : le serveur recalcule et contrôle tout (part affectée, monnaie, reste dû).
@@ -186,14 +206,17 @@ export function PosWorkspace() {
       const body = await response.json() as { sale?: SaleResult; error?: string; code?: string };
       if (!response.ok || !body.sale) throw new Error(body.code === "payment_reference_used" ? t("pos.referenceUsed") : body.error || t("pos.saleFailed"));
       setSuccess(body.sale); setPrintState(""); attemptRef.current = null; forgetPendingSale();
-      const methods = new Set(salePayload.payments.map((part) => part.method));
-      track("sale_recorded", { line_count: countBucket(salePayload.lines.length), has_customer: Boolean(salePayload.customerId),
-        payment_mix: body.sale.dueXof !== "0" && !salePayload.payments.length ? "credit" : methods.size > 1 ? "mixed" : methods.has("cash") ? "cash" : "mobile" });
       // Impression automatique : seulement après la validation du serveur, en arrière-plan ; une panne ne touche pas la vente.
       if (printSetup?.enabled && printSetup.autoPrint && readPairing()) void printReceipt(body.sale.id); setCart([]); setCustomerId(""); setPayments(freshPayments()); setMobileView("catalog");
-      const refreshed = await fetch("/api/business/products", { cache: "no-store" }).then((result) => result.json()) as { products?: Product[] };
-      if (refreshed.products) setProducts(refreshed.products);
-    } catch (caught) { track("sale_failed", { reason: caught instanceof TypeError ? "network" : "other" }); 
+      // Stock à jour en arrière-plan : la caisse est libre dès la confirmation du serveur (avant, le bouton restait
+      // occupé le temps de retélécharger tout le catalogue). Une panne ici ne touche pas la vente enregistrée.
+      void fetch(catalogKey, { cache: "no-store" }).then(async (result) => {
+        if (!result.ok) return;
+        const refreshed = await result.json() as CatalogBody;
+        writeCached(catalogKey, refreshed);
+        if (refreshed.products) setProducts(refreshed.products);
+      }).catch(() => undefined);
+    } catch (caught) {
       // Pas de réponse : la vente a pu passer. La clé d'idempotence est gardée, un nouvel essai ne la doublera pas.
       setError(caught instanceof TypeError ? t("pwa.network.saleUnknown") : caught instanceof Error ? caught.message : t("pos.saleFailed")); }
     finally { setPending(false); }
@@ -246,7 +269,7 @@ export function PosWorkspace() {
             <EmptyState icon="search" title={t("pos.noProducts")} />
           ) : (
             <>
-              <ProductGrid items={filteredProducts.slice(0, visibleCount)} cartQuantities={cartQuantities} onAdd={addProduct} />
+              <ProductGrid items={visibleProducts}cartQuantities={cartQuantities} onAdd={addProduct} />
               {filteredProducts.length > visibleCount && (
                 <div className="mt-3 flex justify-center">
                   <Button variant="secondary" onClick={() => setShown({ key: listKey, count: visibleCount + catalogPage })}>
@@ -269,7 +292,7 @@ export function PosWorkspace() {
                   <p className="m-0 text-xs text-fg-subtle">{t("pos.cartCount", { count: itemCount })}</p>
                 </div>
               </div>
-              <Button variant="ghost" onClick={() => { if (cart.length) track("cart_abandoned", { line_count: countBucket(cart.length) }); setCart([]); }} disabled={!cart.length} icon={<Icon name="trash" className="size-4" />}>{t("pos.clear")}</Button>
+              <Button variant="ghost" onClick={() => setCart([])} disabled={!cart.length} icon={<Icon name="trash" className="size-4" />}>{t("pos.clear")}</Button>
             </div>
 
             {cart.length === 0 ? (

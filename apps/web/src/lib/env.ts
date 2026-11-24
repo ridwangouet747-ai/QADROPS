@@ -19,8 +19,6 @@ const environmentSchema = z.object({
   NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional().or(z.literal("")),
   SENTRY_ENVIRONMENT: z.string().default("development"),
   NEXT_PUBLIC_SENTRY_ENVIRONMENT: z.string().default("development"),
-  NEXT_PUBLIC_POSTHOG_KEY: optionalNonEmpty,
-  NEXT_PUBLIC_POSTHOG_HOST: z.string().url().default("https://us.i.posthog.com"),
   VAPID_PUBLIC_KEY: z.string().regex(/^[A-Za-z0-9_-]{87}$/).optional().or(z.literal("")),
   VAPID_PRIVATE_KEY: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional().or(z.literal("")),
   VAPID_SUBJECT: z.string().regex(/^(mailto:|https:\/\/)/).optional().or(z.literal("")),

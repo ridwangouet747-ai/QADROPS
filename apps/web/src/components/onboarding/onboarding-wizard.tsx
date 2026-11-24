@@ -18,8 +18,7 @@ import { Alert } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { authClient } from "@/lib/auth/client";
-import { signOutAndResetAnalytics } from "@/lib/auth/logout";
-import { track } from "@/lib/analytics/client";
+import { signOutOfThisDevice } from "@/lib/auth/logout";
 import { safeNext } from "@/lib/client/redirect";
 import type { MessageKey } from "@/lib/i18n/translate";
 import {
@@ -188,7 +187,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const switchAccount = useCallback(async () => {
     setSwitching(true);
     try {
-      await signOutAndResetAnalytics();
+      await signOutOfThisDevice();
       if (entry === "onboarding") { router.replace("/register"); return; }
       setSessionEmail(null);
       setRecovery(null);
@@ -270,7 +269,6 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
     setDestination(opened ? "/business/dashboard" : "/business/subscription");
     storage.clear();
     setPhase("welcome");
-    track("signup_completed");
     // Un résultat de code promotionnel à lire laisse un peu plus de temps avant la redirection.
     redirectTimer.current = setTimeout(() => router.push(opened ? "/business/dashboard" : "/business/subscription"), outcome ? 7000 : 3800);
   };

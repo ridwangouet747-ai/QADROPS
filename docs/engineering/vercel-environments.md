@@ -93,8 +93,8 @@ Légende :
 | `NEXT_PUBLIC_SENTRY_DSN` | Sentry | `src/instrumentation-client.ts:3`, `env.ts:19` | Facultative | DSN | DSN | Public | Aucune erreur navigateur envoyée |
 | `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | Sentry | `instrumentation-client.ts:8`, `env.ts:21` | `development` | `preview` | `production` | Public | `development` |
 | `SENTRY_TEST_ENABLED` | Sentry | `api/observability/sentry-test/route.ts:4` | `true` seulement pour l'essai | **Ne pas définir** | **Ne pas définir** | Non | Route 404 (active seulement si `NODE_ENV=development`) |
-| `NEXT_PUBLIC_POSTHOG_KEY` | PostHog | `lib/analytics/client.ts:20,42`, `env.ts:22` | Vide | Clé `phc_…` d'un projet de test (facultative) | Clé `phc_…` (facultative) | Public | Analytique éteinte |
-| `NEXT_PUBLIC_POSTHOG_HOST` | PostHog | `analytics/client.ts:20,43`, `env.ts:23` | — | `https://eu.i.posthog.com` | `https://eu.i.posthog.com` | Public | Analytique éteinte : le défaut du schéma serveur ne s'applique pas dans le navigateur. Valeur vide : `readEnvironment` échoue. |
+| ~~`NEXT_PUBLIC_POSTHOG_KEY`~~ | PostHog retiré le 2026-11-24 | — | — | — | — | — | — |
+| ~~`NEXT_PUBLIC_POSTHOG_HOST`~~ | PostHog retiré le 2026-11-24 | — | — | — | — | — | — |
 | `VAPID_PUBLIC_KEY` | Web Push | `lib/notifications/server.ts:8`, `env.ts:24` (87 caractères base64url) | Paire de développement | **Paire propre** | **Paire propre**, jamais changée ensuite | Non (servie au navigateur par `/api/notifications/push-config`) | Push désactivé, notifications internes actives. Mauvais format : `readEnvironment` échoue (R4). |
 | `VAPID_PRIVATE_KEY` | Web Push | `notifications/server.ts:9`, `env.ts:25` (43 caractères) | idem | idem | idem | Oui | idem |
 | `VAPID_SUBJECT` | Web Push | `notifications/server.ts:10`, `env.ts:26` | `mailto:…` | `mailto:…` | `mailto:` d'une boîte lue | Non | Push désactivé. Un sujet d'exemple (`example.com`, `localhost`…) désactive aussi le push en production (mission 16, `vapid-config.ts`). |

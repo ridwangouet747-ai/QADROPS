@@ -1,6 +1,12 @@
-# Analyse produit avec PostHog (missions 03 et 10)
+# Analyse produit avec PostHog (missions 03 et 10) — RETIRÉE le 2026-11-24
 
-Code : `apps/web/src/lib/analytics/events.ts` (catalogue), `client.ts` (initialisation, consentement, envoi), `components/analytics-provider.tsx` (bandeau). Tests : `client.test.ts`.
+> **PostHog a été entièrement retiré** (mission performance du 2026-11-24, `docs/engineering/mission-performance-2026-11-24.md`) :
+> paquet `posthog-js` désinstallé, catalogue d'événements, bandeau de consentement, appels `track()`, variables
+> `NEXT_PUBLIC_POSTHOG_*` et hôtes PostHog de la CSP supprimés. Il n'était configuré sur aucun environnement Vercel.
+> Qadr Ops ne mesure plus l'audience ; la politique de confidentialité le dit (§ 10). Ce qui suit est l'historique de
+> l'ancienne configuration, gardé pour une éventuelle réintroduction (qui exigerait une nouvelle décision).
+
+Ancien code : `apps/web/src/lib/analytics/events.ts` (catalogue), `client.ts` (initialisation, consentement, envoi), `components/analytics-provider.tsx` (bandeau). Tests : `client.test.ts`.
 
 ## 1. Principes
 

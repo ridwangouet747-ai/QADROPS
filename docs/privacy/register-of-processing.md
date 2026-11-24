@@ -18,7 +18,7 @@ Responsable proposé : **Qadr Agency** (éditrice de Qadr Ops). Coordonnées et 
 | 7 | Exports et portabilité | Restituer les données | Commerçants | Toutes les données du commerce | Exécution du contrat ; droit d'accès | Propriétaire du commerce | Aucune copie conservée | — |
 | 8 | Journal d'audit | Traçabilité des opérations sensibles | Membres, propriétaire de la plateforme | Acteur, type d'événement, entité, métadonnées sans secret | Intérêt légitime (sécurité, preuve) | Équipe habilitée | À définir (ajout seul, non modifiable) | Oui |
 | 9 | Suivi des erreurs | Corriger les pannes | Utilisateurs touchés par une erreur | Pile d'appels, URL, identifiant technique | Intérêt légitime | Sentry | Selon réglage Sentry (à fixer) | UE (Allemagne) |
-| 10 | Mesure d'audience | Améliorer le produit | Utilisateurs **ayant consenti** | Événements d'un catalogue fermé | Consentement | PostHog | Selon réglage PostHog | Selon hôte configuré |
+| 10 | ~~Mesure d'audience~~ | **Retiré le 2026-11-24** (mission performance) : plus aucun envoi, ni bibliothèque, ni bandeau. | — | — | — | — | — | — |
 | 11 | Protection anti-robots | Bloquer les inscriptions automatisées | Visiteurs des formulaires | Jeton Turnstile, IP | Intérêt légitime | Cloudflare | Non conservé par Qadr Ops | Oui |
 
 ## Mesures de sécurité en place (constatées dans le code)

@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signOutAndResetAnalytics } from "@/lib/auth/logout";
+import { signOutOfThisDevice } from "@/lib/auth/logout";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -11,7 +11,6 @@ import { InstallInvite } from "@/components/pwa/install-invite";
 import { NetworkStatus } from "@/components/pwa/network-status";
 import { PushDeviceSync } from "@/components/notifications/push-device-sync";
 import { BusinessTimeZoneContext } from "@/components/business/business-time-zone";
-import { track } from "@/lib/analytics/client";
 import { BUSINESS_DEFAULT_TIME_ZONE, safeTimeZone } from "@/lib/i18n/format";
 import { cn } from "@/components/ui/cn";
 import { BusinessLogo } from "@/components/business/business-identity";
@@ -52,6 +51,13 @@ const roleModules: Record<string, BusinessArea[]> = {
   cashier: ["pos", "cash", "products", "sales", "customers", "stock", "printing", "install"],
   member: ["products", "sales", "customers", "stock", "inventory", "suppliers", "purchases", "subscription", "install"],
 };
+const areas = new Set<BusinessArea>([...items.map((item) => item.key), "modules"]);
+/** Module de l'en-tête d'après l'adresse (`/business/sales/…` → ventes) ; `null` pour une adresse inconnue. */
+export function businessAreaFromPath(pathname: string): BusinessArea | null {
+  const segment = pathname.split("/")[2] as BusinessArea | undefined;
+  return segment && areas.has(segment) ? segment : null;
+}
+
 const BusinessRoleContext = createContext("member");
 export const useBusinessRole = () => useContext(BusinessRoleContext);
 
@@ -86,7 +92,7 @@ function BusinessIdentity({ business }: { business: ActiveBusiness | null }) {
 }
 
 /** Menu « Plus » natif (<details>) : il s'ouvre sans JavaScript ; un clic extérieur le referme. */
-function MoreMenu({ entries, active }: { entries: NavItem[]; active: BusinessArea }) {
+function MoreMenu({ entries, active }: { entries: NavItem[]; active: BusinessArea | null }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
@@ -119,17 +125,12 @@ function MoreMenu({ entries, active }: { entries: NavItem[]; active: BusinessAre
  * `initialRole` : rôle lu par la garde serveur de la page, affiché avant la réponse de `/api/account/me` pour
  * que menus et boutons réservés ne décalent pas la page à leur arrivée. Indication d'affichage seulement.
  */
-export function BusinessShell({ active, preview = false, initialRole = null, children }: { active: BusinessArea; preview?: boolean; initialRole?: string | null; children: ReactNode }) {
+export function BusinessShell({ active, preview = false, initialRole = null, children }: { active: BusinessArea | null; preview?: boolean; initialRole?: string | null; children: ReactNode }) {
   const { t } = useI18n();
   const router = useRouter();
   const [business, setBusiness] = useState<ActiveBusiness | null>(preview ? { name: "Commerce Démo QADR", logo: null, role: "owner", timezone: null, lifecycle: "active" } : null);
   const role = business?.role ?? (initialRole && roleModules[initialRole] ? initialRole : "member");
   const timeZone = safeTimeZone(business?.timezone ?? BUSINESS_DEFAULT_TIME_ZONE);
-  useEffect(() => {
-    const features = ["dashboard", "pos", "stock", "inventory", "reports", "cash", "sales", "notifications", "printing", "subscription", "team"] as const;
-    const feature = features.find((item) => item === active);
-    if (feature) track("feature_viewed", { feature });
-  }, [active]);
   useEffect(() => {
     // /api/account/me répond à tous les rôles (les réglages du commerce exigent business:read, que la caisse n’a pas).
     const load = () => void fetch("/api/account/me", { cache: "no-store" }).then(async (response) => {
@@ -159,7 +160,8 @@ export function BusinessShell({ active, preview = false, initialRole = null, chi
     <BusinessRoleContext.Provider value={role}>
       <BusinessTimeZoneContext.Provider value={timeZone}>
       <div className="min-h-dvh bg-canvas text-fg">
-        <header className="sticky top-0 z-20 border-b border-line/70 bg-canvas/90 backdrop-blur-md">
+        {/* Fond plein, sans flou : `backdrop-blur` recalcule l'image sous l'en-tête à chaque défilement (coûteux sur Android modeste). */}
+        <header className="sticky top-0 z-20 border-b border-line/70 bg-canvas">
           <div className="mx-auto flex h-[68px] max-w-[1440px] items-center gap-3 px-4 sm:px-6 lg:h-[76px] lg:px-8">
             <BusinessIdentity business={business} />
             <nav aria-label={t("shell.modulesNavigation")} className="mx-auto hidden items-center gap-0.5 rounded-full bg-night p-1.5 shadow-raised lg:flex">
@@ -185,7 +187,7 @@ export function BusinessShell({ active, preview = false, initialRole = null, chi
                   <Icon name="settings" />
                 </Link>
               )}
-              <button type="button" onClick={() => void signOutAndResetAnalytics().finally(() => router.push("/login"))} aria-label={t("auth.logout")} title={t("auth.logout")}
+              <button type="button" onClick={() => void signOutOfThisDevice().finally(() => router.push("/login"))} aria-label={t("auth.logout")} title={t("auth.logout")}
                 className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-full border border-line bg-surface text-ink hover:border-danger-line hover:text-danger">
                 <Icon name="logout" />
               </button>
@@ -197,7 +199,7 @@ export function BusinessShell({ active, preview = false, initialRole = null, chi
         </header>
         <InstallInvite />
 
-        <main id="main-content" className={`business-page ${active}-page mx-auto max-w-[1440px] px-4 pt-5 pb-32 sm:px-6 lg:px-8 lg:pt-7 lg:pb-12`}>
+        <main id="main-content" className={`business-page ${active ?? "other"}-page mx-auto max-w-[1440px] px-4 pt-5 pb-32 sm:px-6 lg:px-8 lg:pt-7 lg:pb-12`}>
           {children}
         </main>
 

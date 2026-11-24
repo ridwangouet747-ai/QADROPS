@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/components/ui/cn";
+import { decorativeEffectsAllowed, whenPageIdle } from "./device-capability";
 import { ReceiptPaper, type ReceiptData } from "./receipt";
 
 type Tier = "high" | "low";
@@ -13,26 +14,13 @@ type Tier = "high" | "low";
  * - sinon (WebGL2 absent, mouvement réduit, économie de données, appareil modeste) : ticket HTML seul.
  */
 function detectTier(): Tier | null {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
-  const nav = navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string }; deviceMemory?: number };
-  if (nav.connection?.saveData) return null;
-  // Réseau lent annoncé par le navigateur : la 3D (≈ 240 Ko compressés) coûterait plus qu'elle n'apporte.
-  if (["slow-2g", "2g", "3g"].includes(nav.connection?.effectiveType ?? "")) return null;
-  if ((nav.deviceMemory ?? 4) < 2 || (nav.hardwareConcurrency ?? 4) < 4) return null;
+  // Réseau lent ou appareil modeste : la 3D (≈ 240 Ko compressés) coûterait plus qu'elle n'apporte.
+  if (!decorativeEffectsAllowed()) return null;
   const probe = document.createElement("canvas");
   const gl = probe.getContext("webgl2");
   if (!gl) return null;
   gl.getExtension("WEBGL_lose_context")?.loseContext();
   return window.matchMedia("(min-width: 1024px)").matches ? "high" : "low";
-}
-
-/** Après l'événement load, au premier moment de repos (au plus tard 3 s ; 1,5 s sans requestIdleCallback). */
-function whenPageIdle() {
-  return new Promise<void>((resolve) => {
-    const idle = () => { if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(() => resolve(), { timeout: 3000 }); else setTimeout(resolve, 1500); };
-    if (document.readyState === "complete") idle();
-    else window.addEventListener("load", idle, { once: true });
-  });
 }
 
 export function ReceiptStage({ data, label, className }: { data: ReceiptData; label: string; className?: string }) {

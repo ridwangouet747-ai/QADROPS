@@ -13,6 +13,9 @@ import { intlLocale } from "@/lib/i18n/config";
 import { formatDateTime, formatQuantity, formatXof } from "@/lib/i18n/format";
 import { SubscriptionNotice } from "./subscription-workspace";
 import { useBusinessTimeZone } from "@/components/business/business-time-zone";
+import { forgetCached, readCached, writeCached } from "@/lib/client/data-cache";
+
+const dashboardKey = "/api/business/dashboard";
 
 type Amount = string | null | undefined;
 type Overview = {
@@ -50,11 +53,20 @@ export function DashboardWorkspace() {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/business/dashboard", { cache: "no-store" })
+    // Retour au tableau de bord dans le même onglet : derniers chiffres reçus tout de suite, puis ceux du serveur.
+    const cached = readCached<Overview>(dashboardKey);
+    if (cached) { setData(cached); setSelectedSale((current) => current || cached.recentSales?.[0]?.id || ""); }
+    fetch(dashboardKey, { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json() as Overview;
-        if (!response.ok) throw new Error(body.error ?? t("dashboard.loadFailed"));
-        if (alive) { setData(body); setSelectedSale(body.recentSales?.[0]?.id ?? ""); }
+        if (!response.ok) {
+          // Refus du serveur : les chiffres gardés disparaissent (session ou droit changé).
+          forgetCached(dashboardKey);
+          if (alive) setData(null);
+          throw new Error(body.error ?? t("dashboard.loadFailed"));
+        }
+        writeCached(dashboardKey, body);
+        if (alive) { setData(body); setSelectedSale((current) => body.recentSales?.some((sale) => sale.id === current) ? current : body.recentSales?.[0]?.id ?? ""); }
       })
       .catch((caught: unknown) => { if (alive) setError(caught instanceof Error ? caught.message : t("dashboard.loadFailed")); });
     return () => { alive = false; };

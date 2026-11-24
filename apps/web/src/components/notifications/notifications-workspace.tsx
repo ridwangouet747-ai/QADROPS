@@ -11,7 +11,6 @@ import { Field, Input, Select } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { Card, CardTitle, PageHeader } from "@/components/ui/layout";
 import { formatDateTime } from "@/lib/i18n/format";
-import { track } from "@/lib/analytics/client";
 import { currentPushEndpoint, deviceLabel, enablePushOnThisDevice, pushSupport, removeDevice, type PushSupport } from "@/lib/notifications/client";
 import { notificationIcon, type NotificationItem } from "./notification-bell";
 import { useBusinessTimeZone } from "@/components/business/business-time-zone";
@@ -84,7 +83,7 @@ function Inbox() {
         <ul className="m-0 grid list-none gap-2 p-0">
           {items.map((item) => (
             <li key={item.id}>
-              <Link href={item.linkPath ?? "/business/notifications"} onClick={() => { track("notification_opened", { category: item.category as "system", surface: "inbox" }); markOne(item.id); }}
+              <Link href={item.linkPath ?? "/business/notifications"} onClick={() => markOne(item.id)}
                 className={cn("flex gap-3 rounded-[16px] border p-3.5 no-underline", item.readAt ? "border-line bg-surface" : "border-brand-tint bg-brand-soft/60")}>
                 <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-soft text-brand"><Icon name={notificationIcon(item.icon)} /></span>
                 <span className="min-w-0 flex-1">
@@ -137,7 +136,6 @@ function Settings() {
     setBusy(true); setNotice(null);
     const outcome = await enablePushOnThisDevice(deviceLabel());
     setBusy(false);
-    track("push_enabled", outcome.ok ? { result: "success", reason: "none" } : { result: "failure", reason: outcome.reason });
     if (!outcome.ok) { setNotice({ tone: "warning", text: t(`notifications.settings.states.${outcome.reason}`) }); return; }
     setThisEndpoint(await currentPushEndpoint()); void load();
   };

@@ -8,7 +8,7 @@ import { DaySection } from "./day-section";
 import { InterfaceScreens } from "./interface-screens";
 import { displayFont } from "./fonts";
 import { LandingHeader } from "./landing-header";
-import { LandingMotion } from "./landing-motion";
+import { LandingMotionLoader } from "./landing-motion-loader";
 import { BrandLogo, BrandMascot } from "@/components/brand/brand-logo";
 import { VideoEmbed } from "@/components/video/video-embed";
 import { ambiancePhoto } from "@/lib/landing/ambiance";
@@ -409,7 +409,7 @@ export function LandingPage({ t, locale }: { t: Translate; locale: Locale }) {
         </div>
       </main>
       <Closing t={t} whatsapp={whatsappNumber()} />
-      <LandingMotion />
+      <LandingMotionLoader />
     </div>
   );
 }

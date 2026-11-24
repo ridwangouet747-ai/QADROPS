@@ -68,7 +68,6 @@ export const privacyPolicyFr: readonly PolicySection[] = [
       "Resend : envoi des e-mails de compte (vérification, mot de passe, invitations).",
       "GeniusPay : paiement des abonnements Qadr Ops.",
       "Sentry : suivi des erreurs techniques, hébergé dans l’Union européenne.",
-      "PostHog : mesure d’audience, seulement après votre accord.",
       "Google ou Apple : seulement si vous choisissez de vous connecter avec eux.",
     ],
   },
@@ -108,7 +107,7 @@ export const privacyPolicyFr: readonly PolicySection[] = [
     id: "mesure",
     title: "10. Mesure d’audience et notifications",
     paragraphs: [
-      "La mesure d’audience n’est activée qu’après votre accord, et vous pouvez le retirer. Elle ne transmet ni montant, ni nom de client.",
+      "Qadr Ops ne mesure pas l’audience : aucun outil de suivi de navigation n’est chargé, et aucun bandeau ne vous le demande.",
       "Les notifications sur votre téléphone ne montrent qu’un titre court et un texte général, jamais un montant ou un nom de client. Elles cessent dès que vous vous déconnectez ou que votre session expire, même sur un appareil partagé.",
     ],
   },

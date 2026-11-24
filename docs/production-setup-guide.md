@@ -41,7 +41,7 @@ Audit du 2026-11-01, établi par lecture du code de `apps/web` et `apps/print-ag
 | Cloudflare Turnstile | **Intégré** : widget et vérification serveur | Oui (fortement recommandé) | Non : clés de test seulement |
 | Cloudflare R2 | **Intégré** (mission 12, lot L2) : stockage privé de l'original des imports, signature SigV4 maison, `docs/storage-r2.md` | Non : sans R2, l'import fonctionne sans garder l'original | Non : jamais contacté (`fetch` simulé, vecteurs AWS) |
 | Sentry | **Intégré** : serveur, edge et navigateur ; envoi des cartes sources **absent** | Recommandé | Non |
-| PostHog | **Intégré** : après consentement, catalogue fermé | Facultatif | Non : bibliothèque simulée |
+| PostHog | **Retiré le 2026-11-24** (mission performance) : plus aucun envoi, ni bibliothèque, ni bandeau. | — | — |
 | Web Push / VAPID | **Intégré** : chiffrement maison, abonnement par appareil | Facultatif | Non : vecteur RFC seulement |
 | Cron | **Intégré** : deux routes, déclarées dans `apps/web/vercel.json` | Recommandé | Non |
 | Vercel | **Partiel** : `vercel.json` (crons) seulement ; projet non créé | Oui (hébergeur retenu) | Non |
@@ -90,8 +90,8 @@ Inventaire tiré de toutes les lectures de `process.env` dans `apps/web` (schém
 | `SENTRY_ENVIRONMENT` | idem | Serveur | Recommandée (`production`) |
 | `NEXT_PUBLIC_SENTRY_DSN` | `src/instrumentation-client.ts` | Navigateur (build) | Recommandée |
 | `NEXT_PUBLIC_SENTRY_ENVIRONMENT` | idem | Navigateur (build) | Recommandée (`production`) |
-| `NEXT_PUBLIC_POSTHOG_KEY` | `lib/analytics/client.ts` | Navigateur (build) | Facultative |
-| `NEXT_PUBLIC_POSTHOG_HOST` | idem | Navigateur (build) | Facultative, **mais obligatoire avec la clé** : le navigateur n'applique pas la valeur par défaut |
+| ~~`NEXT_PUBLIC_POSTHOG_KEY`~~ | Retirée le 2026-11-24 | — | Ne plus définir |
+| ~~`NEXT_PUBLIC_POSTHOG_HOST`~~ | Retirée le 2026-11-24 | — | Ne plus définir |
 | `VAPID_PUBLIC_KEY` | `lib/notifications/server.ts` (servie par `/api/notifications/push-config`) | Serveur | Facultative (push) |
 | `VAPID_PRIVATE_KEY` | idem | Serveur | Facultative (push), secret |
 | `VAPID_SUBJECT` | idem | Serveur | Facultative (push) : `mailto:` ou `https://` |
@@ -413,6 +413,8 @@ Non fait : cela change le build et demande un jeton. Décision à prendre (point
 
 ## 10. PostHog
 
+> **Retiré le 2026-11-24** (mission performance) : plus aucun envoi, ni bibliothèque, ni bandeau. Les étapes ci-dessous sont caduques.
+
 **État : intégré.**
 
 **Fichiers :**
@@ -557,7 +559,7 @@ En revanche, la configuration peut l'affaiblir :
 - [ ] Resend : sous-domaine d'envoi, enregistrements DNS copiés à l'identique, statut *Verified*, clé *Sending access* limitée au domaine, adresse d'expédition.
 - [ ] Turnstile : un widget pour la production (domaine exact) et un pour `staging`.
 - [ ] Sentry : organisation en UE, projet Next.js, DSN dans les 4 variables, plafond de dépense.
-- [ ] PostHog (facultatif) : organisation en UE, clé `phc_…`, hôte `https://eu.i.posthog.com`, autocapture et replay coupés côté projet, limite de facturation.
+- [ ] ~~PostHog~~ : retiré le 2026-11-24, rien à faire.
 - [ ] Générer en local : `BETTER_AUTH_SECRET`, `CRON_SECRET` (et `NOTIFICATIONS_CRON_SECRET` si planificateur externe), clés VAPID. Une valeur distincte par environnement.
 - [ ] Donner votre autorisation écrite pour : (1) connecter le dépôt à Vercel et déployer ; (2) migrer `staging` ; (3) migrer la production.
 - [ ] Créer votre compte sur `/register`, puis lancer `platform-admin.ts grant` (§ 5.3).
@@ -599,7 +601,7 @@ Réel, sur `staging`, puis à nouveau en production :
   - serveur : erreur volontaire en local avec le DSN de production (`npm run dev`, `SENTRY_TEST_ENABLED=true`, `POST /api/observability/sentry-test`) ;
   - navigateur : erreur volontaire sur `staging` ;
   - vérifier qu'aucun e-mail, montant ou nom n'apparaît dans l'événement.
-- [ ] **PostHog** : bandeau affiché ; rien envoyé avant d'accepter ; seuls les événements du catalogue visibles dans *Live events* ; rien avec Do Not Track ou GPC.
+- [ ] ~~PostHog~~ : retiré le 2026-11-24 ; vérifier qu'aucun bandeau de mesure d'audience n'apparaît.
 - [ ] **Web Push** : abonnement et réception sur Chrome Android, Chrome ou Edge sur ordinateur, Firefox ; clic qui ouvre la bonne page ; désabonnement.
 - [ ] **Cron** :
   - appel manuel avec le secret : `curl.exe -H "Authorization: Bearer <CRON_SECRET>" https://app.votredomaine.ci/api/internal/notifications/process` doit répondre 200 ;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { forgetCached, readCached, writeCached } from "@/lib/client/data-cache";
 
 export class RequestError extends Error {
   constructor(public status: number | null, message?: string) { super(message); }
@@ -50,18 +51,27 @@ export function usePagedList<T, S>(url: string, params: Record<string, string>) 
     controller.current?.abort();
     const current = new AbortController();
     controller.current = current;
-    setLoading(true); setError(null);
+    // Première page déjà vue dans cet onglet (même filtre, même commerce) : affichée tout de suite, puis remplacée
+    // par la réponse du serveur. Les pages suivantes (« charger la suite ») ne sont jamais gardées.
+    const key = `${url}?${query}`;
+    const cached = readCached<Page<T, S>>(key);
+    if (cached) { setItems(cached.items ?? []); setSummary(cached.summary ?? null); setBody(cached); setNextCursor(cached.nextCursor ?? null); }
+    setLoading(!cached); setError(null);
     try {
       const page = await fetchPage(null, current.signal);
+      writeCached(key, page);
       setItems(page.items ?? []); setSummary(page.summary ?? null); setBody(page); setNextCursor(page.nextCursor ?? null);
     } catch (caught) {
       if (current.signal.aborted) return;
-      setItems([]); setNextCursor(null);
-      setError(caught instanceof RequestError ? caught : new RequestError(null));
+      const failure = caught instanceof RequestError ? caught : new RequestError(null);
+      // Refus du serveur (session, droit, abonnement) : rien de l'ancienne réponse ne reste affiché ni gardé.
+      // Réseau coupé : la dernière liste reçue reste visible, avec le message d'erreur qui signale qu'elle peut être ancienne.
+      if (failure.status !== null || !cached) { forgetCached(key); setItems([]); setNextCursor(null); }
+      setError(failure);
     } finally {
       if (!current.signal.aborted) setLoading(false);
     }
-  }, [fetchPage]);
+  }, [fetchPage, url, query]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;

@@ -11,7 +11,6 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/components/ui/cn";
 import { authClient } from "@/lib/auth/client";
 import { loginMode } from "@/lib/auth/login-identifier";
-import { track } from "@/lib/analytics/client";
 import { turnstileHeader } from "@/lib/auth/turnstile";
 import { safeNext } from "@/lib/client/redirect";
 import { AuthShell } from "./auth-shell";
@@ -123,20 +122,16 @@ export function LoginForm() {
         body: JSON.stringify({ username: identifier.trim().toLowerCase(), password }),
       }).then(async (response) => response.ok ? 200 : (await response.json().catch(() => ({})) as { code?: string }).code === "turnstile_failed" ? -1 : response.status).catch(() => 0);
       if (status !== 200) {
-        track("login_failed", { reason: status === -1 ? "turnstile" : status === 401 ? "credentials" : "other" });
         setError(status === -1 ? t("auth.turnstile.failed") : status === 429 ? t("auth.login.throttled") : status === 401 ? t("auth.login.failed") : t("errors.generic")); setBusy(false); security.renew(); return;
       }
-      track("login_succeeded");
       await routeAfterSignIn(router.push, next);
       return;
     }
     const { error: failure } = await authClient.signIn.email({ email: identifier.trim(), password, fetchOptions: securityHeaders(security.token) });
     if (failure) {
-      track("login_failed", { reason: turnstileRejected(failure) ? "turnstile" : failure.status === 403 ? "verification" : failure.status === 401 ? "credentials" : "other" });
       // 429 : limite du compte ou de l'adresse atteinte ; « mot de passe incorrect » ferait réessayer en vain.
       setError(turnstileRejected(failure) ? t("auth.turnstile.failed") : failure.status === 429 ? t("auth.login.throttled") : t("auth.login.failed")); setBusy(false); security.renew(); return;
     }
-    track("login_succeeded");
     await routeAfterSignIn(router.push, next);
   };
   return (
