@@ -53,7 +53,6 @@ export const accessFr = {
   gate: {
     title: "Un code Qadr Agency est nécessaire",
     body: "Qadr Ops s’active avec un code remis par Qadr Agency après votre paiement. Vérifiez votre code, puis créez votre compte et votre commerce.",
-    haveCode: "J’ai un code",
     verified: "Code vérifié : {plan}, {duration}. La durée commence à la création de votre commerce.",
     expired: "Le code vérifié n’est plus valable sur cet appareil. Vérifiez-le à nouveau avant de créer votre commerce.",
     activationFailed: "Votre commerce est créé, mais le code n’a pas pu être appliqué. Saisissez-le à nouveau dans Abonnement : il n’a pas été consommé.",
@@ -199,7 +198,6 @@ export const accessEn: AccessMessages = {
   gate: {
     title: "A Qadr Agency code is required",
     body: "Qadr Ops is activated with a code from Qadr Agency after your payment. Check your code, then create your account and your business.",
-    haveCode: "I have a code",
     verified: "Code checked: {plan}, {duration}. Access time starts when your business is created.",
     expired: "The checked code is no longer valid on this device. Check it again before creating your business.",
     activationFailed: "Your business was created, but the code could not be applied. Enter it again under Subscription: it was not used up.",
@@ -342,7 +340,6 @@ export const accessAr: AccessMessages = {
   gate: {
     title: "يلزم رمز من Qadr Agency",
     body: "يُفعَّل Qadr Ops برمز تمنحه Qadr Agency بعد الدفع. تحقّق من رمزك، ثم أنشئ حسابك ومتجرك.",
-    haveCode: "لدي رمز",
     verified: "تم التحقق من الرمز: {plan}، {duration}. تبدأ المدة عند إنشاء متجرك.",
     expired: "لم يعد الرمز الذي تحققت منه صالحاً على هذا الجهاز. تحقّق منه مجدداً قبل إنشاء متجرك.",
     activationFailed: "تم إنشاء متجرك، لكن تعذّر تطبيق الرمز. أدخله مجدداً في «الاشتراك»: لم يُستهلك.",

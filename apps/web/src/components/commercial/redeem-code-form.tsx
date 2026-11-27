@@ -1,18 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { AuthShell } from "@/components/auth/auth-shell";
-import { TurnstileWidget, turnstileSiteKey } from "@/components/auth/turnstile-widget";
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Alert } from "@/components/ui/feedback";
-import { Field, Input } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
-import { turnstileHeader } from "@/lib/auth/turnstile";
 import { whatsappHref } from "@/lib/commercial/mode";
 import { intlLocale } from "@/lib/i18n/config";
-import { finalizeCode, isPlausibleCode, normalizeCommercialCodeInput, redeemPromotionCode } from "@/lib/subscription/redeem-outcome";
+import { redeemPromotionCode } from "@/lib/subscription/redeem-outcome";
+import { AccessCodeFields, asAccessCodeError, isTransientAccessCodeError, useAccessCodeCheck, type CheckedAccessCode } from "./access-code-check";
 
 /*
  * Page /redeem-code (2026-11-16, docs/commercial-access-codes.md) : « Vous avez un code Qadr Agency ? ».
@@ -21,24 +19,16 @@ import { finalizeCode, isPlausibleCode, normalizeCommercialCodeInput, redeemProm
  * avec la session : le code ne s'applique jamais à un autre commerce que celui de la session.
  */
 
-type Checked = {
-  plan: { code: string | null; name: string | null }; duration: { unit: "day" | "month"; value: number }; activationDeadline: string;
-  next: "register" | "onboarding" | "renew"; businessName: string | null;
-};
-const knownErrors = new Set(["invalid", "already_used", "expired", "revoked", "invite_code", "incompatible_subscription", "business_suspended", "forbidden", "rate_limited", "network", "unavailable"]);
-type ErrorKey = "invalid" | "already_used" | "expired" | "revoked" | "invite_code" | "incompatible_subscription" | "business_suspended" | "forbidden" | "rate_limited" | "turnstile" | "network" | "unavailable";
-const asError = (code: unknown): ErrorKey => (code === "turnstile_failed" ? "turnstile" : typeof code === "string" && knownErrors.has(code) ? code as ErrorKey : "unavailable");
+type Checked = CheckedAccessCode;
 
 export function RedeemCodeForm() {
   const { t, locale } = useI18n();
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<ErrorKey | "malformed" | null>(null);
   const [checked, setChecked] = useState<Checked | null>(null);
+  const entry = useAccessCodeCheck((value) => setChecked(value));
+  const { code, setCode, busy, error, setError, errorText, sending } = entry;
+  const [renewing, setRenewing] = useState(false);
   const [renewed, setRenewed] = useState<{ endsAt: string | null } | null>(null);
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
-  const [security, setSecurity] = useState<{ token: string | null; resetKey: number }>({ token: null, resetKey: 0 });
-  const sending = useRef(false);
   const date = (value: string) => new Date(value).toLocaleDateString(intlLocale[locale], { dateStyle: "long" });
   const span = (duration: Checked["duration"]) => t(duration.unit === "month" ? "access.durationMonths" : "access.durationDays", { count: duration.value });
 
@@ -47,41 +37,17 @@ export function RedeemCodeForm() {
       .then((body: { whatsapp?: string | null } | null) => setWhatsapp(body?.whatsapp ?? null)).catch(() => undefined);
   }, []);
 
-  const check = async (event: FormEvent) => {
-    event.preventDefault();
-    const final = finalizeCode(code);
-    setCode(final);
-    if (!isPlausibleCode(final)) { setError("malformed"); return; }
-    if (turnstileSiteKey && !security.token) { setError("turnstile"); return; }
-    if (sending.current) return;
-    sending.current = true; setBusy(true); setError(null);
-    try {
-      const response = await fetch("/api/public/access-codes/check", {
-        method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...(security.token ? { [turnstileHeader]: security.token } : {}) },
-        body: JSON.stringify({ code: final }),
-      });
-      const body = await response.json().catch(() => null) as (Checked & { valid?: boolean; code?: string }) | null;
-      if (response.ok && body?.valid) setChecked(body);
-      else setError(response.status >= 500 || !body ? "unavailable" : asError(body.code));
-    } catch { setError("network"); } finally {
-      sending.current = false; setBusy(false);
-      // Un jeton Turnstile ne sert qu'une fois.
-      setSecurity((current) => ({ token: null, resetKey: current.resetKey + 1 }));
-    }
-  };
-
   const renew = async () => {
     if (sending.current) return;
-    sending.current = true; setBusy(true); setError(null);
+    sending.current = true; setRenewing(true); setError(null);
     const outcome = await redeemPromotionCode(code, null);
-    sending.current = false; setBusy(false);
+    sending.current = false; setRenewing(false);
     if (outcome.ok) { setRenewed({ endsAt: outcome.result.endsAt ?? null }); return; }
-    setError(outcome.reason === "network" ? "network" : asError(outcome.reason));
+    setError(outcome.reason === "network" ? "network" : asAccessCodeError(outcome.reason));
   };
 
   const restart = () => { setChecked(null); setRenewed(null); setError(null); setCode(""); };
   const contact = whatsapp ? whatsappHref(whatsapp, t("access.redeem.whatsappMessage")) : null;
-  const errorText = error === "malformed" ? t("access.redeem.malformed") : error ? t(`access.redeem.errors.${error}`) : "";
 
   return (
     <AuthShell title={t("access.redeem.title")} intro={t("access.redeem.intro")}
@@ -109,7 +75,7 @@ export function RedeemCodeForm() {
               <p dir="ltr" className="m-0 truncate font-mono text-sm text-fg-muted">{code}</p>
             </div>
           </div>
-          {error && <Alert tone={error === "network" || error === "unavailable" || error === "rate_limited" ? "warning" : "danger"}>{errorText}</Alert>}
+          {error && <Alert tone={isTransientAccessCodeError(error) ? "warning" : "danger"}>{errorText}</Alert>}
           <dl className="m-0 grid gap-2">
             {[
               [t("access.redeem.plan"), checked.plan.name ?? "—"],
@@ -126,8 +92,8 @@ export function RedeemCodeForm() {
           {checked.next === "renew" ? (
             <>
               <p className="m-0 text-sm text-fg-muted">{t("access.redeem.renewNote", { business: `⁨${checked.businessName ?? ""}⁩` })}</p>
-              <Button size="lg" block loading={busy} onClick={() => void renew()} icon={<Icon name="check" />}>
-                {busy ? t("access.redeem.renewing") : t("access.redeem.renew", { business: `⁨${checked.businessName ?? ""}⁩` })}
+              <Button size="lg" block loading={renewing} onClick={() => void renew()} icon={<Icon name="check" />}>
+                {renewing ? t("access.redeem.renewing") : t("access.redeem.renew", { business: `⁨${checked.businessName ?? ""}⁩` })}
               </Button>
             </>
           ) : (
@@ -135,23 +101,11 @@ export function RedeemCodeForm() {
               {t(checked.next === "register" ? "access.redeem.toRegister" : "access.redeem.toOnboarding")}<Icon name="forward" className="size-4" />
             </Link>
           )}
-          <Button variant="secondary" size="lg" block disabled={busy} onClick={restart}>{t("access.redeem.another")}</Button>
+          <Button variant="secondary" size="lg" block disabled={busy || renewing} onClick={restart}>{t("access.redeem.another")}</Button>
         </div>
       ) : (
-        <form method="post" noValidate onSubmit={(event) => void check(event)} className="grid grid-cols-[minmax(0,1fr)] gap-4">
-          {error && <Alert tone={error === "network" || error === "unavailable" || error === "rate_limited" ? "warning" : "danger"}>{errorText}</Alert>}
-          {/* Taille et marge du champ en style : `cn` ne départage pas deux classes concurrentes (px-4 et text-base de base).
-              Les 24 caractères du code tiennent ainsi en entier dans le champ dès 320 px. */}
-          <Field label={t("access.redeem.label")} hint={t("access.redeem.hint")}>
-            {(props) => <Input {...props} autoFocus value={code} onChange={(event) => { setCode(normalizeCommercialCodeInput(event.target.value)); if (error) setError(null); }}
-              dir="ltr" inputMode="text" autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={80}
-              placeholder="QADR-XXXX-XXXX-XXXX-XXXX" className="min-w-0 text-center font-mono tracking-[0.04em] sm:tracking-[0.08em]"
-              style={{ fontSize: "clamp(0.85rem, 3.6vw, 1.125rem)", paddingInline: "0.5rem" }} aria-invalid={error ? true : undefined} />}
-          </Field>
-          <TurnstileWidget action="access-code" resetKey={security.resetKey} onToken={(token) => setSecurity((current) => ({ ...current, token }))} />
-          <Button type="submit" size="lg" block loading={busy} disabled={code.length < 3 || (Boolean(turnstileSiteKey) && !security.token)} icon={<Icon name="shield" />}>
-            {busy ? t("access.redeem.checking") : t("access.redeem.submit")}
-          </Button>
+        <form method="post" noValidate onSubmit={(event) => void entry.check(event)} className="grid grid-cols-[minmax(0,1fr)] gap-4">
+          <AccessCodeFields state={entry} autoFocus />
           <div className="mt-1 grid gap-2 rounded-[16px] bg-paper p-4">
             <p className="m-0 text-sm font-semibold text-ink">{t("access.redeem.noCode")}</p>
             {contact ? (

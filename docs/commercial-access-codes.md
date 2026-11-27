@@ -13,8 +13,10 @@ Tests : `src/lib/security/access-codes.test.ts`, `src/test/commercial-access-cod
 3. Le propriétaire de la plateforme génère un code dans la console (`/platform`, onglet des codes d'accès) :
    formule, durée, date limite d'activation, référence interne facultative (n° de reçu, jamais de donnée bancaire).
    Le code brut (`QADR-XXXX-XXXX-XXXX-XXXX`) s'affiche **une seule fois**, avec un bouton de copie.
-4. Le client saisit le code sur `/redeem-code`. Un code valide pose un laissez-passer signé (cookie `qadr-access-pass`,
-   `__Host-` en HTTPS, 2 h) puis mène à l'inscription ; un compte existant passe directement à la création du commerce.
+4. Le client saisit le code sur `/redeem-code` **ou directement dans l'inscription** (`/register`, `/onboarding` : la
+   barrière affiche le champ depuis le 2026-11-27, composant partagé `components/commercial/access-code-check.tsx`).
+   Un code valide pose un laissez-passer signé (cookie `qadr-access-pass`, `__Host-` en HTTPS, 2 h) ; l'inscription relit
+   ce laissez-passer et ouvre ses étapes ; un compte existant passe directement à la création du commerce.
 5. L'inscription (`databaseHooks.user.create.before`) et la création du commerce exigent ce laissez-passer.
    Le code est consommé **dans la transaction qui crée le commerce et son abonnement** : si l'un échoue, rien n'est écrit
    et le code reste utilisable.

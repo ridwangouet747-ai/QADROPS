@@ -28,6 +28,7 @@ import {
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { whatsappHref } from "@/lib/commercial/mode";
 import { OnboardingScene } from "./onboarding-scene";
+import { AccessCodeFields, useAccessCodeCheck } from "@/components/commercial/access-code-check";
 import { PromoCodeBox, PromotionOutcome, type SignupOutcome } from "./promo-code-box";
 
 gsap.registerPlugin(useGSAP);
@@ -295,7 +296,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
   const businessErrors = business.formState.errors;
   const accountErrors = account.formState.errors;
   const businessLabel = values.displayName?.trim() || values.businessName?.trim() || "";
-  // Sans code vérifié, ni compte ni commerce : la barrière renvoie vers /redeem-code (le serveur refuse de toute façon).
+  // Sans code vérifié, ni compte ni commerce : la barrière fait saisir le code (le serveur refuse de toute façon).
   // Une invitation par e-mail reste ouverte : l’invité rejoint un commerce existant, il n’en crée pas.
   const gated = Boolean(gate?.required && !gate.pass && !next?.startsWith("/invitations/"));
 
@@ -335,7 +336,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
               </Link>}
             </div>
           ) : gated ? (
-            <AccessCodeGate whatsapp={gate?.whatsapp ?? null} />
+            <AccessCodeGate whatsapp={gate?.whatsapp ?? null} onVerified={loadGate} />
           ) : (
             <>
               <Stepper current={index} minimum={minimum} />
@@ -548,21 +549,27 @@ function ReviewBlock({ title, onEdit, children }: { title: string; onEdit: () =>
   );
 }
 
-/** Barrière du modèle commercial (2026-11-16) : aucun compte ni commerce sans code Qadr Agency vérifié. */
-function AccessCodeGate({ whatsapp }: { whatsapp: string | null }) {
+/**
+ * Barrière du modèle commercial (2026-11-16) : aucun compte ni commerce sans code Qadr Agency vérifié. Le code se saisit
+ * ici même (2026-11-27) : le serveur le vérifie et pose le laissez-passer, puis l'inscription relit ce laissez-passer
+ * (`onVerified`) et ouvre ses étapes. Rien n'est décidé dans le navigateur.
+ */
+function AccessCodeGate({ whatsapp, onVerified }: { whatsapp: string | null; onVerified: () => Promise<unknown> }) {
   const { t } = useI18n();
+  const entry = useAccessCodeCheck(() => { void onVerified(); });
   const contact = whatsapp ? whatsappHref(whatsapp, t("access.redeem.whatsappMessage")) : null;
   return (
     <div className="rounded-xl border border-line bg-surface p-6 shadow-card sm:p-8">
       <span aria-hidden="true" className="grid size-12 place-items-center rounded-full bg-brand-soft text-brand"><Icon name="shield" className="size-6" /></span>
       <h1 className="m-0 mt-4 text-[1.7rem] leading-tight font-bold tracking-[-0.03em] text-ink">{t("access.gate.title")}</h1>
       <p className="m-0 mt-2 text-fg-muted">{t("access.gate.body")}</p>
-      <div className="mt-5 grid gap-2">
-        <Link href="/redeem-code" className={buttonClasses({ variant: "primary", size: "lg", block: true, className: "no-underline" })}>
-          <Icon name="shield" className="size-4" />{t("access.gate.haveCode")}
-        </Link>
+      <form method="post" noValidate onSubmit={(event) => void entry.check(event)} className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-4">
+        <AccessCodeFields state={entry} />
+      </form>
+      <div className="mt-5 grid gap-2 rounded-[16px] bg-paper p-4">
+        <p className="m-0 text-sm font-semibold text-ink">{t("access.redeem.noCode")}</p>
         {contact
-          ? <a href={contact} target="_blank" rel="noopener noreferrer" className={buttonClasses({ variant: "secondary", size: "lg", block: true, className: "no-underline" })}>{t("access.redeem.contact")}</a>
+          ? <a href={contact} target="_blank" rel="noopener noreferrer" className={buttonClasses({ variant: "secondary", size: "md", block: true, className: "no-underline" })}>{t("access.redeem.contact")}</a>
           : <p className="m-0 text-center text-xs text-fg-subtle">{t("access.redeem.noContact")}</p>}
       </div>
       <p className="m-0 mt-5 text-center text-sm text-fg-muted">
