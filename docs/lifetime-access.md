@@ -107,35 +107,76 @@ Neon), aucune connexion réseau. Migrations 0000-0028 par le migrateur Drizzle (
 8. transaction d'activation (abonnement + consommation du code) : un échec annule les deux écritures ; sans échec,
    les deux sont validées.
 
-Limite : PGlite n'a qu'une connexion. Les courses entre connexions réelles sont couvertes par l'index unique partiel
-et le verrou du profil (tests de concurrence du harnais), mais n'ont pas été rejouées sur un PostgreSQL multi-connexions.
+Limite de cette répétition locale : PGlite n'a qu'une connexion. Les courses entre connexions réelles ont été rejouées
+ensuite sur Neon (§ 6.3).
 
-### 6.2 Isolation Vercel constatée le 2026-11-28
+### 6.2 Isolation Vercel (constatée et corrigée le 2026-11-28)
 
 Projet `web` : la poussée d'une branche crée un déploiement Preview (protégé par l'authentification Vercel). Les
 variables Neon de l'intégration (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `PG*`, `POSTGRES_*`) ne visent que
-**Production** ; en Preview, `DATABASE_URL` n'existe que pour deux anciennes branches (`perf/ultimate-performance-optimization`,
-`perf/global-performance-optimization`, valeur non lisible, cible inconnue). L'application ne lit que `DATABASE_URL` :
-un Preview de toute autre branche n'a **aucune** base et ne peut pas joindre Neon Production.
+**Production**. Les seules variables Preview liées à une base étaient propres aux branches
+`perf/global-performance-optimization` et `perf/ultimate-performance-optimization` (`DATABASE_URL`,
+`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`) ; valeurs illisibles (type « sensitive »), cible documentée par les rapports
+de mission : base de **test** `qadr_staging` (branche `mission-14-staging`), pas la production. Les deux PR étant
+fusionnées, ces 6 entrées ont été **supprimées** le 2026-11-28 avec l'accord du propriétaire. Après suppression :
+34 variables, aucune propre à une branche, **aucune variable de base de données en Preview**, `DATABASE_URL` de
+Production intacte. L'application ne lit que `DATABASE_URL` : un Preview n'a donc **aucune** base et ne peut pas joindre
+Neon Production.
 
-### 6.3 Procédure de production (après accord explicite du propriétaire)
+### 6.3 Répétition sur Neon du 2026-11-28 (réussie)
+
+Branche `repetition-0029-2026-11-28` (`br-silent-bonus-bcxrf6mr`), copiée de `main` le 2026-11-28 à 13:57 UTC
+(PostgreSQL 18.7), après suppression, avec accord, de `repetition-0026-2026-11-16` (répétition d'une migration déjà
+appliquée ; sa sauvegarde `sauvegarde-main-avant-0026-2026-11-16` est conservée). Production non touchée.
+
+1. **État initial** : 29 migrations, 6 abonnements (tous `active`), 2 formules, 10 codes, 6 commerces, 142 événements
+   d'audit ; empreintes MD5 (identifiant, statut, début, fin, formule) : abonnements `a088872b…`, formules `969915e1…`,
+   codes `933a1ab5…`.
+2. **0029 par `scripts/migrate-production.ts`** (connexion directe, phrase de confirmation nommant l'hôte de la
+   branche) : « en attente : 1 », « Terminé en une transaction : 30 migration(s) au journal », 40 s connexion comprise.
+3. **Après** : mêmes comptes, **mêmes empreintes** (abonnements, formules, codes) ; 6 abonnements et 2 formules en
+   `fixed_duration` ; 4 contraintes présentes et validées ; index `subscription_one_lifetime_idx` présent.
+4. **Contrôles SQL, 10 connexions indépendantes** (10 processus serveur distincts), 12/12 réussis :
+   forfait et code à vie enregistrables ; 3 formules, 4 codes et 6 abonnements incohérents refusés (`23514`) ; mise à nul
+   de la fin d'un abonnement réel copié refusée ; transaction d'activation atomique (échec `23505` → ni abonnement ni
+   consommation du code) ; 10 attributions simultanées avec le verrou du profil → **1 réussite, 9 refus** ;
+   10 insertions simultanées sans verrou → **1 insertion, 9 `23505`** (l'index est le dernier filet) ; 10 activations
+   simultanées du même code → **1 activation, 9 « déjà utilisé », aucun abonnement orphelin** ; après révocation, un
+   nouvel accès à vie est possible. Lignes de test préfixées et retirées (0 restante), empreintes inchangées ensuite.
+5. **Parcours complets, vrais services, vraies sessions, sur ce PostgreSQL Neon** (harnais `QADR_TEST_POSTGRES_URL`,
+   bases jetables `qadr_t_*` créées puis supprimées sur la branche) : `lifetime-access.http.test.ts`,
+   `commercial-access-codes.http.test.ts`, `commercial-access.http.test.ts` → **3 fichiers, 46 tests, 46 réussis**
+   (formule classique et à vie, codes classique et à vie, activation, attribution directe, affichage commerçant,
+   suspension, révocation, historique, sécurité, concurrence).
+
+### 6.4 Procédure de production (deux étapes contrôlées, chacune sur accord explicite du propriétaire)
 
 0029 est **additive** : l'ancien code continue de fonctionner sur le nouveau schéma (les insertions sans
 `duration_kind` prennent `fixed_duration`, `ends_at` reste fourni). L'ordre est donc : **migrer, puis fusionner** (le
 nouveau code lit `duration_kind` et échouerait sur l'ancien schéma).
 
-1. `pg_dump -Fc` de `main` (connexion directe, outils 18.7) et restauration réussie sur une base de test
-   (`docs/engineering/backup-restore.md`).
-2. Répétition sur une branche Neon **copiée de `main`** (pas de staging : 0025 y échoue), par
-   `scripts/migrate-production.ts` ; vérifier ensuite 30 migrations au journal et `count(*)` des abonnements inchangé.
-   L'offre Free limite le nombre de branches : en libérer une suppose l'accord du propriétaire.
-3. Production : depuis `apps/web`, `QADR_DB_TARGET=production`, `DATABASE_URL_UNPOOLED` = connexion directe de `main`,
-   `QADR_MIGRATION_CONFIRM="MIGRER LA PRODUCTION <hôte>/<base>"`, puis `npx tsx scripts/migrate-production.ts`. Jamais
-   `scripts/migrate.ts` sur `main`.
-4. Contrôles : `select duration_kind, count(*) from business_subscription group by 1` (tout `fixed_duration`),
-   contraintes et index présents, l'application en production répond normalement (ancien code).
-5. Fusion de la PR dans `main` (déploiement de production), puis vérification de `/business/subscription` et de la
-   console.
+**Étape A — base (aucun déploiement)**
 
-Retour arrière : la migration ne supprime aucune donnée ; en cas de problème avant toute écriture `lifetime`, la
-branche Neon de sauvegarde ou le `pg_dump` restaurent l'état antérieur.
+1. **Sauvegarde complète** : `pg_dump -Fc` de `main` (connexion directe, outils 18.7, mot de passe par `PGPASSFILE`
+   privé), plus une branche Neon `sauvegarde-main-avant-0029-<date>` (point de retour instantané ; une place de branche
+   à libérer, par exemple la branche de répétition une fois le rapport validé).
+2. **Restauration testée** : `pg_restore` du fichier dans une base vide d'une branche de test (jamais `main`), puis
+   comparaison des comptes par table et des empreintes ci-dessus (`docs/engineering/backup-restore.md`).
+3. **Vérification finale** : relire le journal de `main` (29 migrations), comparer ses empreintes à celles de la
+   répétition, contrôler que la PR est verte et inchangée depuis la répétition.
+4. **Migration** : depuis `apps/web`, `QADR_DB_TARGET=production`, `DATABASE_URL_UNPOOLED` = connexion directe de
+   `main`, `QADR_MIGRATION_CONFIRM="MIGRER LA PRODUCTION <hôte>/<base>"`, `npx tsx scripts/migrate-production.ts`.
+   Jamais `scripts/migrate.ts` sur `main`.
+5. **Vérification des données** : 30 migrations, mêmes comptes et mêmes empreintes qu'avant, tout `fixed_duration`,
+   4 contraintes validées, index présent ; l'application en production (ancien code) répond normalement.
+
+**Étape B — application (après présentation des résultats de l'étape A)**
+
+6. **Fusion** de la PR dans `main`.
+7. **Déploiement Vercel** de production (déclenché par la fusion) ; vérifier son état `READY` et son commit.
+8. **Tests après déploiement** : pages publiques et `/login`, `/business/subscription` d'un commerce existant
+   (expiration datée, inchangée), console `/platform` (formules, codes, « Accorder un accès à vie » visible) ; Sentry
+   sans nouvelle erreur. Aucune formule à vie n'est créée automatiquement.
+
+Retour arrière : avant toute écriture `lifetime`, revenir au déploiement précédent suffit (le schéma additif reste
+compatible) ; en dernier recours, la branche de sauvegarde ou le `pg_dump` restaurent l'état antérieur.
