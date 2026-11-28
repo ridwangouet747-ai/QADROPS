@@ -5,6 +5,7 @@
 export const accessFr = {
   durationDays: "{count} jours",
   durationMonths: "{count} mois",
+  lifetime: "accès à vie, sans date d’expiration",
   redeem: {
     title: "Activer mon accès",
     intro: "Vous avez un code Qadr Agency ? Vérifiez-le avant de créer votre compte ou de renouveler votre commerce.",
@@ -25,6 +26,7 @@ export const accessFr = {
     renewNote: "Le code sera appliqué au commerce {business}, ouvert dans cette session.",
     renewedTitle: "Accès activé",
     renewedBody: "{business} est accessible jusqu’au {date}.",
+    renewedLifetime: "{business} a désormais un accès permanent, sans date d’expiration.",
     openSpace: "Ouvrir mon espace",
     another: "Vérifier un autre code",
     noCode: "Pas encore de code ?",
@@ -150,6 +152,7 @@ export type AccessMessages = Shape<typeof accessFr>;
 export const accessEn: AccessMessages = {
   durationDays: "{count} days",
   durationMonths: "{count} months",
+  lifetime: "lifetime access, no expiry date",
   redeem: {
     title: "Activate my access",
     intro: "Do you have a Qadr Agency code? Check it before creating your account or renewing your business.",
@@ -170,6 +173,7 @@ export const accessEn: AccessMessages = {
     renewNote: "The code will be applied to {business}, open in this session.",
     renewedTitle: "Access activated",
     renewedBody: "{business} is available until {date}.",
+    renewedLifetime: "{business} now has permanent access, with no expiry date.",
     openSpace: "Open my workspace",
     another: "Check another code",
     noCode: "No code yet?",
@@ -292,6 +296,7 @@ export const accessEn: AccessMessages = {
 export const accessAr: AccessMessages = {
   durationDays: "{count} يوماً",
   durationMonths: "{count} أشهر",
+  lifetime: "وصول دائم، بلا تاريخ انتهاء",
   redeem: {
     title: "تفعيل وصولي",
     intro: "هل لديك رمز من Qadr Agency؟ تحقّق منه قبل إنشاء حسابك أو تجديد متجرك.",
@@ -312,6 +317,7 @@ export const accessAr: AccessMessages = {
     renewNote: "سيُطبَّق الرمز على المتجر {business} المفتوح في هذه الجلسة.",
     renewedTitle: "تم تفعيل الوصول",
     renewedBody: "يمكن الوصول إلى {business} حتى {date}.",
+    renewedLifetime: "أصبح لـ {business} وصول دائم بلا تاريخ انتهاء.",
     openSpace: "فتح مساحتي",
     another: "التحقق من رمز آخر",
     noCode: "ليس لديك رمز بعد؟",

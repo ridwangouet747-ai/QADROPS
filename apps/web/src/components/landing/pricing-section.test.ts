@@ -12,7 +12,7 @@ const state: { result: PublicPlansResult } = { result: { status: "ok", plans: []
 vi.mock("@/lib/domain/public-plans", () => ({ getPublicPlans: async () => state.result }));
 
 const plan = (index: number): PublicPlan => ({
-  code: `FORMULE_${index}`, name: `Formule ${index}`, priceXof: String(1000 * index), durationDays: 30,
+  code: `FORMULE_${index}`, name: `Formule ${index}`, priceXof: String(1000 * index), durationKind: "fixed_duration", durationDays: 30,
   description: null, productLimit: null, userLimit: null,
 });
 

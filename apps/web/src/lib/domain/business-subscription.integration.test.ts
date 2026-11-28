@@ -56,7 +56,7 @@ describe("code d’accès saisi par le commerçant", () => {
     const overview = await getBusinessSubscriptionOverview(db, user.a, biz.a);
     expect(overview).toMatchObject({ lifecycle: "trial", subscription: { status: "trialing", inForce: true, planName: "Essentiel", origin: "promotion" } });
     expect(overview.subscription!.remainingDays).toBe(21);
-    expect(overview.subscription!.endsAt.getTime()).toBe(new Date(result.endsAt!).getTime());
+    expect(overview.subscription!.endsAt!.getTime()).toBe(new Date(result.endsAt!).getTime());
   });
 
   it("rend le même résultat si le code est appliqué deux fois par le même commerce", async () => {

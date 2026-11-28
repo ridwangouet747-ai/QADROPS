@@ -21,7 +21,7 @@ type Overview = {
   subscriptions: { pending: number; expiringSoon: number; inForce: number };
   signups: { step: number; inPeriod: number; series: { start: string; count: number }[] };
   planDistribution: { planId: string; name: string; count: number }[];
-  planSummary: { id: string; name: string; code: string; priceXof: string; durationDays: number; active: boolean; subscribers: number }[];
+  planSummary: { id: string; name: string; code: string; priceXof: string; durationKind?: string; durationDays: number | null; active: boolean; subscribers: number }[];
   watchlist: { subscriptionId: string; businessName: string; planName: string; status: string; endsAt: string; daysLeft: number }[];
   alerts: { kind: "expiring" | "suspended" | "pendingSubscriptions" | "pendingPayments"; count: number }[];
   revenue: { billedXof: string; collectedXof: string; pendingXof: string; refundedXof: string; confirmedPayments: number; promotionalDiscountXof: string; offeredDays: number; redemptions: number };
@@ -200,7 +200,7 @@ export function PlatformOverview() {
                   <li key={plan.id} className="flex items-center justify-between gap-3 rounded-[18px] border border-pf-line px-3 py-2.5">
                     <span className="min-w-0">
                       <strong className="block truncate text-[0.85rem] text-pf-ink">{plan.name}</strong>
-                      <span className="numeric block text-[0.74rem] text-pf-muted">{money(plan.priceXof)} {t("platform.plans.perPeriod", { days: plan.durationDays })}</span>
+                      <span className="numeric block text-[0.74rem] text-pf-muted">{money(plan.priceXof)} {plan.durationKind === "lifetime" || plan.durationDays === null ? t("platform.plans.perLifetime") : t("platform.plans.perPeriod", { days: plan.durationDays })}</span>
                     </span>
                     {plan.active ? <PfBadge tone="solid">{t("platform.overview.subscribers", { count: plan.subscribers })}</PfBadge> : <PfBadge tone="outline">{t("platform.overview.inactive")}</PfBadge>}
                   </li>

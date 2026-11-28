@@ -9,7 +9,7 @@ import { accessCodeFamilyOf, accessCodeHint, generateAccessCode, hashAccessCode,
 import type { CommercialDatabase } from "./commercial";
 import { CommercialError } from "./commercial";
 import { requirePlatformAdmin, writePlatformAudit } from "./platform";
-import { assertTransition, isInForce } from "./subscription-lifecycle";
+import { assertTransition, byCoverage, isInForce, isLifetime } from "./subscription-lifecycle";
 
 /**
  * Codes d'accès commerciaux (2026-11-16, docs/commercial-access-codes.md).
@@ -25,6 +25,9 @@ import { assertTransition, isInForce } from "./subscription-lifecycle";
  * - renouvellement : un abonnement en cours de la même formule est prolongé à partir de SA fin (jamais raccourci) ;
  *   sans abonnement en cours, la période commence à l'activation ;
  * - le code n'est jamais consommé si l'abonnement n'a pas pu être accordé (même transaction) ;
+ * - accès à vie (2026-11-27, docs/lifetime-access.md) : seulement pour une formule à vie, décidé par le serveur à la
+ *   génération ; l'activation crée un abonnement `lifetime` sans date de fin. Un accès permanent en cours n'est jamais
+ *   raccourci ni remplacé par un code ordinaire (409 `lifetime_active`, le code reste utilisable) ;
  * - famille distincte des codes promotionnels et des codes d'invitation d'employés (empreintes séparées).
  */
 
@@ -38,14 +41,16 @@ export const commercialDurations = {
   m3: { unit: "month", value: 3 },
 } as const;
 export type CommercialDurationKey = keyof typeof commercialDurations;
-export type DurationUnit = "day" | "month";
+export type DurationUnit = "day" | "month" | "lifetime";
+/** Durée d'un code : nombre de jours ou de mois, ou accès permanent (`value` nul). */
+export type AccessDuration = { unit: DurationUnit; value: number | null };
 
 export const DEFAULT_ACTIVATION_DAYS = 30;
 export const MAX_CODES_PER_BATCH = 20;
 const dayMs = 86_400_000;
 
 /** Ajoute une durée en UTC ; les mois suivent le calendrier et retombent sur le dernier jour s'il manque. */
-export function addAccessDuration(start: Date, unit: DurationUnit, value: number) {
+export function addAccessDuration(start: Date, unit: "day" | "month", value: number) {
   if (unit === "day") return new Date(start.getTime() + value * dayMs);
   const result = new Date(start.getTime());
   const day = result.getUTCDate();
@@ -69,7 +74,8 @@ export function commercialCodeState(row: { consumedAt: Date | null; revokedAt: D
 
 const generateSchema = z.object({
   planId: z.string().min(1).max(100),
-  duration: z.enum(["d7", "d21", "m1", "m3", "custom"]),
+  /** `lifetime` : accepté seulement pour une formule à vie (et exigé pour elle) ; le serveur le vérifie. */
+  duration: z.enum(["d7", "d21", "m1", "m3", "custom", "lifetime"]),
   customDays: z.number().int().min(1).max(365).optional(),
   activationDays: z.number().int().min(1).max(180).default(DEFAULT_ACTIVATION_DAYS),
   /** Confirmation explicite : un code ne se crée qu'après la vérification d'un paiement. */
@@ -81,9 +87,14 @@ const generateSchema = z.object({
 export async function generateCommercialAccessCodes(db: Db, actorUserId: string, raw: unknown, now = new Date()) {
   await requirePlatformAdmin(db, actorUserId);
   const input = generateSchema.parse(raw);
-  const [plan] = await db.select({ id: subscriptionPlan.id, code: subscriptionPlan.code, name: subscriptionPlan.name }).from(subscriptionPlan).where(eq(subscriptionPlan.id, input.planId)).limit(1);
+  const [plan] = await db.select({ id: subscriptionPlan.id, code: subscriptionPlan.code, name: subscriptionPlan.name, durationKind: subscriptionPlan.durationKind }).from(subscriptionPlan).where(eq(subscriptionPlan.id, input.planId)).limit(1);
   if (!plan) throw new CommercialError("Formule introuvable.", 404, "plan_not_found");
-  const duration = input.duration === "custom" ? { unit: "day" as const, value: input.customDays! } : commercialDurations[input.duration];
+  // Le type d'accès suit la formule enregistrée, jamais le seul choix du navigateur.
+  const lifetimePlan = plan.durationKind === "lifetime";
+  if (lifetimePlan && input.duration !== "lifetime") throw new CommercialError("Cette formule est un accès à vie : choisissez « Accès à vie ».", 422, "lifetime_plan_requires_lifetime");
+  if (!lifetimePlan && input.duration === "lifetime") throw new CommercialError("L’accès à vie n’est possible qu’avec une formule à vie.", 422, "lifetime_requires_lifetime_plan");
+  const duration: AccessDuration = input.duration === "lifetime" ? { unit: "lifetime", value: null }
+    : input.duration === "custom" ? { unit: "day", value: input.customDays! } : commercialDurations[input.duration];
   const activationDeadline = new Date(now.getTime() + input.activationDays * dayMs);
   const codes = Array.from({ length: input.quantity }, () => {
     const code = generateAccessCode("commercial");
@@ -200,7 +211,7 @@ export async function describeCommercialCode(db: Db, row: CodeRow) {
   const [plan] = await db.select({ code: subscriptionPlan.code, name: subscriptionPlan.name }).from(subscriptionPlan).where(eq(subscriptionPlan.id, row.planId)).limit(1);
   return {
     plan: { code: plan?.code ?? null, name: plan?.name ?? null },
-    duration: { unit: row.durationUnit as DurationUnit, value: row.durationValue },
+    duration: { unit: row.durationUnit as DurationUnit, value: row.durationValue } satisfies AccessDuration,
     activationDeadline: row.activationDeadline.toISOString(),
   };
 }
@@ -221,8 +232,9 @@ export async function usableCommercialCodeById(db: Pick<Db, "select">, codeId: s
 /* ------------------------------------------------------------------ Activation */
 
 export type CommercialActivation = {
-  codeId: string; subscriptionId: string; status: string; startsAt: string; endsAt: string; replayed: boolean;
-  duration: { unit: DurationUnit; value: number }; plan: { code: string; name: string } | null;
+  /** `endsAt` nul et `lifetime` vrai : accès permanent. */
+  codeId: string; subscriptionId: string; status: string; startsAt: string; endsAt: string | null; lifetime: boolean; replayed: boolean;
+  duration: AccessDuration; plan: { code: string; name: string } | null;
 };
 
 /**
@@ -239,13 +251,15 @@ export async function activateCommercialCode(tx: Db, input: { codeId?: string; r
   } else {
     row = (await findCommercialCode(tx, input.rawCode, now, true)).row;
   }
-  const duration = { unit: row.durationUnit as DurationUnit, value: row.durationValue };
+  const duration: AccessDuration = { unit: row.durationUnit as DurationUnit, value: row.durationValue };
+  const grantsLifetime = duration.unit === "lifetime";
   const [plan] = await tx.select({ code: subscriptionPlan.code, name: subscriptionPlan.name }).from(subscriptionPlan).where(eq(subscriptionPlan.id, row.planId)).limit(1);
   if (row.consumedAt) {
     if (row.consumedBusinessId === input.businessId && row.consumedByUserId === input.actorUserId && row.subscriptionId) {
-      const [current] = await tx.select({ status: businessSubscription.status, startsAt: businessSubscription.startsAt, endsAt: businessSubscription.endsAt })
+      const [current] = await tx.select({ status: businessSubscription.status, startsAt: businessSubscription.startsAt, endsAt: businessSubscription.endsAt, durationKind: businessSubscription.durationKind })
         .from(businessSubscription).where(eq(businessSubscription.id, row.subscriptionId)).limit(1);
-      return { codeId: row.id, subscriptionId: row.subscriptionId, status: current?.status ?? "active", startsAt: (current?.startsAt ?? now).toISOString(), endsAt: (current?.endsAt ?? now).toISOString(), replayed: true, duration, plan: plan ?? null };
+      return { codeId: row.id, subscriptionId: row.subscriptionId, status: current?.status ?? "active", startsAt: (current?.startsAt ?? now).toISOString(),
+        endsAt: current?.endsAt?.toISOString() ?? null, lifetime: current ? isLifetime(current) : grantsLifetime, replayed: true, duration, plan: plan ?? null };
     }
     throw stateError("used");
   }
@@ -256,20 +270,41 @@ export async function activateCommercialCode(tx: Db, input: { codeId?: string; r
   if (!profile) throw new CommercialError("Commerce introuvable.", 404, "not_found");
   if (profile.status === "suspended") throw new CommercialError("Ce commerce est suspendu : contactez Qadr Agency.", 403, "business_suspended");
 
-  const subscriptions = await tx.select({ id: businessSubscription.id, planId: businessSubscription.planId, status: businessSubscription.status, startsAt: businessSubscription.startsAt, endsAt: businessSubscription.endsAt })
+  const subscriptions = await tx.select({ id: businessSubscription.id, planId: businessSubscription.planId, status: businessSubscription.status, startsAt: businessSubscription.startsAt, endsAt: businessSubscription.endsAt, durationKind: businessSubscription.durationKind })
     .from(businessSubscription).where(eq(businessSubscription.businessId, input.businessId)).for("update");
-  const running = subscriptions.filter((item) => isInForce(item, now)).sort((a, b) => b.endsAt.getTime() - a.endsAt.getTime())[0];
+  const running = subscriptions.filter((item) => isInForce(item, now)).sort(byCoverage)[0];
   const pending = subscriptions.find((item) => item.status === "pending");
+  // Un accès permanent n'est jamais raccourci, prolongé ni doublé par un code : seule la plateforme peut le modifier.
+  // (actif ou suspendu : un accès permanent suspendu se reprend par la plateforme, pas par un nouveau code)
+  if (subscriptions.some((item) => isLifetime(item) && (item.status === "active" || item.status === "suspended"))) throw new CommercialError("Ce commerce a déjà un accès à vie : ce code n’est pas nécessaire. Il reste utilisable.", 409, "lifetime_active");
   let subscriptionId: string;
   let before: Record<string, Json>;
   let startsAt: Date;
-  let endsAt: Date;
+  let endsAt: Date | null;
   let status: "active";
-  if (running) {
+  if (grantsLifetime) {
+    // Nouvel abonnement permanent ; une période à durée déterminée en cours reste intacte dans l'historique.
+    startsAt = now;
+    endsAt = null;
+    status = "active";
+    if (pending) {
+      assertTransition(pending.status, "active");
+      await tx.update(businessSubscription).set({ status, planId: row.planId, startsAt, endsAt, durationKind: "lifetime", trialEndsAt: null, origin: "access_code", updatedAt: now }).where(eq(businessSubscription.id, pending.id));
+      subscriptionId = pending.id;
+      before = { status: "pending" };
+    } else {
+      subscriptionId = randomUUID();
+      await tx.insert(businessSubscription).values({ id: subscriptionId, businessId: input.businessId, planId: row.planId, status, startsAt, endsAt, durationKind: "lifetime", origin: "access_code", createdAt: now, updatedAt: now });
+      before = running ? { status: running.status, endsAt: running.endsAt?.toISOString() ?? null, durationKind: running.durationKind, subscriptionId: running.id } : { status: null };
+    }
+    if (profile.status === "expired" || profile.status === "pending") {
+      await tx.update(businessProfile).set({ status: "active", updatedAt: now }).where(eq(businessProfile.businessId, input.businessId));
+    }
+  } else if (running && running.endsAt) {
     // Jamais de période raccourcie ni de seconde période parallèle sur une autre formule.
     if (running.planId !== row.planId) throw new CommercialError("Un abonnement à une autre formule est en cours : contactez Qadr Agency pour ce code.", 409, "incompatible_subscription");
     startsAt = running.startsAt;
-    endsAt = addAccessDuration(running.endsAt, duration.unit, duration.value);
+    endsAt = addAccessDuration(running.endsAt, duration.unit as "day" | "month", duration.value!);
     if (running.status === "trialing") assertTransition("trialing", "active");
     await tx.update(businessSubscription).set({ status: "active", endsAt, updatedAt: now }).where(eq(businessSubscription.id, running.id));
     subscriptionId = running.id;
@@ -277,7 +312,7 @@ export async function activateCommercialCode(tx: Db, input: { codeId?: string; r
     status = "active";
   } else {
     startsAt = now;
-    endsAt = addAccessDuration(now, duration.unit, duration.value);
+    endsAt = addAccessDuration(now, duration.unit as "day" | "month", duration.value!);
     status = "active";
     if (pending) {
       assertTransition(pending.status, "active");
@@ -298,10 +333,11 @@ export async function activateCommercialCode(tx: Db, input: { codeId?: string; r
   if (!consumed.length) throw stateError("used");
   await tx.insert(auditEvent).values({
     id: randomUUID(), businessId: input.businessId, actorUserId: input.actorUserId, eventType: "subscription.commercial_code_activated", entityType: "subscription", entityId: subscriptionId,
-    metadata: { businessId: input.businessId, codeId: row.id, hint: row.codeHint, durationUnit: duration.unit, durationValue: duration.value, before, after: { status, endsAt: endsAt.toISOString() }, result: "success" },
+    metadata: { businessId: input.businessId, codeId: row.id, hint: row.codeHint, planId: row.planId, durationUnit: duration.unit, durationValue: duration.value, before,
+      after: { status, endsAt: endsAt?.toISOString() ?? null, durationKind: grantsLifetime ? "lifetime" : "fixed_duration" }, result: "success" },
     occurredAt: now,
   });
-  return { codeId: row.id, subscriptionId, status, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), replayed: false, duration, plan: plan ?? null };
+  return { codeId: row.id, subscriptionId, status, startsAt: startsAt.toISOString(), endsAt: endsAt?.toISOString() ?? null, lifetime: grantsLifetime, replayed: false, duration, plan: plan ?? null };
 }
 
 /**

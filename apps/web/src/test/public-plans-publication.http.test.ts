@@ -39,7 +39,7 @@ describe("forfaits publiés depuis la console → page publique", () => {
     const plans = await readPublicPlans(h.db as never);
     expect(plans.map((plan) => plan.code)).toEqual(Array.from({ length: 10 }, (_, index) => `F${String(index + 1).padStart(2, "0")}`));
     for (const plan of plans) {
-      expect(Object.keys(plan).sort()).toEqual(["code", "description", "durationDays", "name", "priceXof", "productLimit", "userLimit"]);
+      expect(Object.keys(plan).sort()).toEqual(["code", "description", "durationDays", "durationKind", "name", "priceXof", "productLimit", "userLimit"]);
       expect(typeof plan.priceXof).toBe("string");
     }
   });

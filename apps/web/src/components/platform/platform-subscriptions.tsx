@@ -14,7 +14,8 @@ import {
 } from "./pf-ui";
 
 type Subscription = {
-  id: string; businessName: string; status: string; origin: string; startsAt: string; endsAt: string; remainingDays: number; planName: string; planPriceXof: string;
+  /** Accès à vie : `lifetime` vrai, `endsAt` et `remainingDays` nuls (ni date ni compte à rebours inventés). */
+  id: string; businessName: string; status: string; origin: string; startsAt: string; endsAt: string | null; remainingDays: number | null; lifetime?: boolean; planName: string; planPriceXof: string;
   payments: { id: string; amountXof: string; status: string; method: string; occurredAt: string }[];
   history: { eventType: string; occurredAt: string; metadata: { before?: unknown; after?: unknown; reason?: string | null } }[];
 };
@@ -81,7 +82,8 @@ export function PlatformSubscriptions() {
               <ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none gap-1.5 p-0">
                 {rows.map((row) => {
                   const open = expanded === row.id;
-                  const total = Math.max(1, Math.round((new Date(row.endsAt).getTime() - new Date(row.startsAt).getTime()) / 86_400_000));
+                  const permanent = row.lifetime === true || row.endsAt === null;
+                  const total = row.endsAt ? Math.max(1, Math.round((new Date(row.endsAt).getTime() - new Date(row.startsAt).getTime()) / 86_400_000)) : 1;
                   const actionable = ["pending", "trialing", "active", "suspended"].includes(row.status);
                   return (
                     <li key={row.id} className={cn("rounded-[20px] border px-3 py-3 sm:px-4", open ? "border-pf-line bg-pf-raised" : "border-transparent")}>
@@ -95,10 +97,10 @@ export function PlatformSubscriptions() {
                           </span>
                         </button>
                         <span className="grid gap-1.5 text-[0.76rem] text-pf-muted">
-                          <span>{date(row.startsAt)} → {date(row.endsAt)}</span>
-                          <PfProgress value={(row.remainingDays / total) * 100} label={t("platform.subscriptions.remaining")} />
+                          <span>{date(row.startsAt)} → {permanent || !row.endsAt ? t("platform.subscriptions.noExpiry") : date(row.endsAt)}</span>
+                          {!permanent && <PfProgress value={((row.remainingDays ?? 0) / total) * 100} label={t("platform.subscriptions.remaining")} />}
                         </span>
-                        <span className="text-[0.8rem] text-pf-fg"><span className="numeric font-semibold">{t("platform.common.daysLeft", { count: row.remainingDays })}</span><span className="block text-[0.74rem] text-pf-muted">{t(`platform.origin.${row.origin as "manual"}`)}</span></span>
+                        <span className="text-[0.8rem] text-pf-fg"><span className="numeric font-semibold">{permanent ? t("platform.subscriptions.lifetime") : t("platform.common.daysLeft", { count: row.remainingDays ?? 0 })}</span><span className="block text-[0.74rem] text-pf-muted">{t(`platform.origin.${row.origin as "manual"}`)}</span></span>
                         <PfBadge tone={statusTone(row.status)}>{t(`platform.status.${row.status as "active"}`)}</PfBadge>
                       </div>
                       {open && (
@@ -125,8 +127,8 @@ export function PlatformSubscriptions() {
                             ) : <p className="m-0 text-[0.78rem] text-pf-muted">{t("platform.subscriptions.noPayments")}</p>}
                             {actionable && (
                               <div className="mt-4 flex flex-wrap gap-2">
-                                {row.status !== "pending" && <PfButton size="sm" variant="dark" icon="plus" onClick={() => { setDays("30"); setActionError(""); setAction({ kind: "extend", subscription: row }); }}>{t("platform.subscriptions.extend")}</PfButton>}
-                                <PfButton size="sm" variant="danger" icon="ban" onClick={() => { setActionError(""); setAction({ kind: "cancel", subscription: row }); }}>{t("platform.subscriptions.cancel")}</PfButton>
+                                {row.status !== "pending" && !permanent && <PfButton size="sm" variant="dark" icon="plus" onClick={() => { setDays("30"); setActionError(""); setAction({ kind: "extend", subscription: row }); }}>{t("platform.subscriptions.extend")}</PfButton>}
+                                <PfButton size="sm" variant="danger" icon="ban" onClick={() => { setActionError(""); setAction({ kind: "cancel", subscription: row }); }}>{permanent ? t("platform.subscriptions.revokeLifetime") : t("platform.subscriptions.cancel")}</PfButton>
                               </div>
                             )}
                           </section>

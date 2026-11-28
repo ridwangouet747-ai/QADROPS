@@ -3,7 +3,7 @@ import { businessProfile, businessSubscription, member, subscriptionPlan } from 
 import { hasBusinessPermission } from "../auth/permissions";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { availableCampaignDiscount, invoicePricing, listPayablePlans, openInvoiceSummary, subscriptionPaymentRoles } from "./subscription-billing";
-import { businessLifecycle, isInForce, remainingDays } from "./subscription-lifecycle";
+import { businessLifecycle, byCoverage, isInForce, isLifetime, remainingDays } from "./subscription-lifecycle";
 
 /** Rôles autorisés à appliquer un code Qadr Agency (même règle que redeemSubscriptionPromotion). */
 export const promotionRedeemRoles = ["owner", "admin"] as const;
@@ -20,10 +20,12 @@ export async function getBusinessSubscriptionOverview(db: Pick<CommercialDatabas
   if (!profile) throw new CommercialError("Commerce introuvable.", 404, "not_found");
   const rows = await db.select({
     id: businessSubscription.id, status: businessSubscription.status, startsAt: businessSubscription.startsAt, endsAt: businessSubscription.endsAt, origin: businessSubscription.origin,
+    durationKind: businessSubscription.durationKind,
     planCode: subscriptionPlan.code, planName: subscriptionPlan.name, priceXof: subscriptionPlan.priceXof, durationDays: subscriptionPlan.durationDays,
   }).from(businessSubscription).innerJoin(subscriptionPlan, eq(subscriptionPlan.id, businessSubscription.planId))
-    .where(eq(businessSubscription.businessId, businessId)).orderBy(desc(businessSubscription.endsAt));
-  const inForce = rows.find((row) => isInForce(row, now));
+    .where(eq(businessSubscription.businessId, businessId)).orderBy(desc(businessSubscription.createdAt));
+  // Accès permanent en premier, puis la fin la plus lointaine (même ordre que la console et l'activation).
+  const inForce = rows.filter((row) => isInForce(row, now)).sort(byCoverage)[0];
   const shown = inForce ?? rows.find((row) => row.status !== "pending" && row.status !== "canceled");
   const pending = rows.find((row) => row.status === "pending");
   const roles = membership.role.split(",").map((role) => role.trim());
@@ -48,6 +50,8 @@ export async function getBusinessSubscriptionOverview(db: Pick<CommercialDatabas
     openInvoice: canPay ? await openInvoiceSummary(db, businessId, now) : null,
     subscription: shown ? {
       status: shown.status, inForce: Boolean(inForce), planCode: shown.planCode, planName: shown.planName, origin: shown.origin,
+      // Accès permanent : ni date de fin ni compte à rebours (endsAt et remainingDays nuls), jamais une date inventée.
+      durationKind: shown.durationKind as "fixed_duration" | "lifetime", lifetime: isLifetime(shown),
       startsAt: shown.startsAt, endsAt: shown.endsAt, remainingDays: inForce ? remainingDays(shown.endsAt, now) : 0,
     } : null,
     pending: pending ? { id: pending.id, planName: pending.planName, priceXof: pending.priceXof.toString(), durationDays: pending.durationDays,

@@ -28,7 +28,7 @@ import {
 import { BrandLogo } from "@/components/brand/brand-logo";
 import { whatsappHref } from "@/lib/commercial/mode";
 import { OnboardingScene } from "./onboarding-scene";
-import { AccessCodeFields, useAccessCodeCheck } from "@/components/commercial/access-code-check";
+import { AccessCodeFields, accessDurationLabel, useAccessCodeCheck, type AccessCodeDuration } from "@/components/commercial/access-code-check";
 import { PromoCodeBox, PromotionOutcome, type SignupOutcome } from "./promo-code-box";
 
 gsap.registerPlugin(useGSAP);
@@ -45,7 +45,7 @@ const emptyAccount: AccountValues = { name: "", email: "", username: "", passwor
 /** Laissez-passer du code Qadr Agency vérifié sur /redeem-code (2026-11-16), relu sur le serveur. */
 type AccessGate = {
   required: boolean; mode: "manual_code" | "geniuspay"; whatsapp: string | null;
-  pass: { plan: { name: string | null }; duration: { unit: "day" | "month"; value: number } } | null;
+  pass: { plan: { name: string | null }; duration: AccessCodeDuration } | null;
 };
 
 /** Lecture sûre du stockage de session (bloqué en navigation privée stricte). */
@@ -340,7 +340,7 @@ export function OnboardingWizard({ entry }: { entry: "register" | "onboarding" }
           ) : (
             <>
               <Stepper current={index} minimum={minimum} />
-              {gate?.pass && <div className="mt-4"><Alert tone="success">{t("access.gate.verified", { plan: `⁨${gate.pass.plan.name ?? "—"}⁩`, duration: t(gate.pass.duration.unit === "month" ? "access.durationMonths" : "access.durationDays", { count: gate.pass.duration.value }) })}</Alert></div>}
+              {gate?.pass && <div className="mt-4"><Alert tone="success">{t("access.gate.verified", { plan: `⁨${gate.pass.plan.name ?? "—"}⁩`, duration: accessDurationLabel(t, gate.pass.duration) })}</Alert></div>}
               {restored && <div className="mt-4"><Alert tone="info" onDismiss={() => setRestored(false)} dismissLabel={t("common.close")}>{t("wizard.restored")}</Alert></div>}
               <div ref={panel} className="mt-5">
                 <p className="m-0 text-[0.8rem] font-semibold text-brand-strong">{t("wizard.progress", { current: index + 1, total: wizardSteps.length })}</p>

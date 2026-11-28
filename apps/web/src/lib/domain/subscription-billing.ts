@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, gt, gte, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { BillingAvailability } from "../billing";
 import { GENIUSPAY_MINIMUM_XOF, subscriptionMethodFromGeniusPay } from "../billing/geniuspay";
@@ -7,7 +7,7 @@ import { BillingProviderError, type BillingProvider, type ProviderPayment } from
 import { auditEvent, businessProfile, businessSubscription, member, paymentProviderEvent, promotionCode, promotionRedemption, subscriptionInvoice, subscriptionPayment, subscriptionPlan } from "../db/schema";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { idempotencyKeySchema, type CommercialTransaction } from "./operation-guard";
-import { assertTransition, isInForce } from "./subscription-lifecycle";
+import { assertTransition, byCoverage, isInForce, isLifetime } from "./subscription-lifecycle";
 
 /*
  * Paiement des abonnements Qadr Ops par GeniusPay (mission 12, lot L1b, décision D-12-1).
@@ -91,12 +91,15 @@ async function attemptView(db: Pick<CommercialDatabase, "select">, attempt: Atte
 
 /* ------------------------------------------------------------------ Lecture publique des formules */
 
-/** Formules payables en ligne : actives, en XOF, au moins le minimum GeniusPay (200 XOF). */
+/**
+ * Formules payables en ligne : actives, en XOF, au moins le minimum GeniusPay (200 XOF), à durée déterminée.
+ * Un accès à vie ne se vend jamais en ligne (2026-11-27) : il passe par un code ou une attribution de la plateforme.
+ */
 export async function listPayablePlans(db: Pick<CommercialDatabase, "select">) {
   const rows = await db.select({ code: subscriptionPlan.code, name: subscriptionPlan.name, priceXof: subscriptionPlan.priceXof, durationDays: subscriptionPlan.durationDays, description: subscriptionPlan.description })
-    .from(subscriptionPlan).where(and(eq(subscriptionPlan.active, true), eq(subscriptionPlan.currency, "XOF"), gte(subscriptionPlan.priceXof, GENIUSPAY_MINIMUM_XOF)))
+    .from(subscriptionPlan).where(and(eq(subscriptionPlan.active, true), eq(subscriptionPlan.currency, "XOF"), eq(subscriptionPlan.durationKind, "fixed_duration"), gte(subscriptionPlan.priceXof, GENIUSPAY_MINIMUM_XOF)))
     .orderBy(asc(subscriptionPlan.priceXof), asc(subscriptionPlan.code));
-  return rows.map((row) => ({ ...row, priceXof: row.priceXof.toString() }));
+  return rows.flatMap((row) => row.durationDays === null ? [] : [{ ...row, durationDays: row.durationDays, priceXof: row.priceXof.toString() }]);
 }
 
 /** Facture ouverte du commerce et sa tentative en cours éventuelle (lecture seule). */
@@ -172,6 +175,12 @@ async function prepareCheckout(db: CommercialDatabase, provider: BillingProvider
     const [plan] = await tx.select().from(subscriptionPlan).where(and(eq(subscriptionPlan.code, input.planCode), eq(subscriptionPlan.active, true))).limit(1);
     if (!plan) throw new CommercialError("Formule introuvable.", 404, "plan_not_found");
     if (plan.currency !== "XOF" || plan.priceXof < GENIUSPAY_MINIMUM_XOF) throw new CommercialError("Cette formule ne peut pas être payée en ligne.", 422, "amount_too_low");
+    const planDays = plan.durationKind === "fixed_duration" ? plan.durationDays : null;
+    if (planDays === null) throw new CommercialError("Un accès à vie ne se paie pas en ligne : contactez Qadr Agency.", 422, "lifetime_not_payable_online");
+    // Un accès permanent en cours rend tout paiement inutile : rien n'est facturé.
+    const living = await tx.select({ durationKind: businessSubscription.durationKind, status: businessSubscription.status }).from(businessSubscription)
+      .where(and(eq(businessSubscription.businessId, businessId), eq(businessSubscription.durationKind, "lifetime"), inArray(businessSubscription.status, ["active", "suspended"]))).limit(1);
+    if (living.length) throw new CommercialError("Ce commerce a déjà un accès à vie : aucun paiement n’est nécessaire.", 409, "lifetime_active");
 
     // Lue sous le verrou du profil : une facture payée entre-temps consomme la remise.
     const pricing = invoicePricing(plan, await availableCampaignDiscount(tx, businessId));
@@ -181,7 +190,7 @@ async function prepareCheckout(db: CommercialDatabase, provider: BillingProvider
 
     let invoice: Invoice | undefined = (await tx.select().from(subscriptionInvoice).where(and(eq(subscriptionInvoice.businessId, businessId), eq(subscriptionInvoice.status, "open"))).for("update").limit(1))[0];
     if (invoice && (invoice.planId !== plan.id || invoice.amountXof !== pricing.amountXof || invoice.discountXof !== pricing.discountXof
-      || invoice.promotionRedemptionId !== pricing.promotionRedemptionId || invoice.durationDays !== plan.durationDays)) {
+      || invoice.promotionRedemptionId !== pricing.promotionRedemptionId || invoice.durationDays !== planDays)) {
       // Autre formule (ou prix ou remise modifiés depuis) : la facture ouverte n'est annulée que si aucun paiement n'y est en cours.
       // Un paiement abandonné dont le lien a expiré ne bloque plus (il resterait `pending` indéfiniment chez GeniusPay) ;
       // s'il aboutissait malgré tout, il serait enregistré sur la facture annulée et signalé (`payment_on_void_invoice`).
@@ -197,7 +206,7 @@ async function prepareCheckout(db: CommercialDatabase, provider: BillingProvider
       // `amount_xof` est le montant NET payé chez GeniusPay ; la remise et son origine restent sur la facture.
       const values = { id: randomUUID(), businessId, planId: plan.id, planCode: plan.code, planName: plan.name, amountXof: pricing.amountXof, currency: "XOF",
         discountXof: pricing.discountXof, promotionRedemptionId: pricing.promotionRedemptionId,
-        durationDays: plan.durationDays, status: "open", createdByUserId: actorUserId, createdAt: now, updatedAt: now };
+        durationDays: planDays, status: "open", createdByUserId: actorUserId, createdAt: now, updatedAt: now };
       [invoice] = await tx.insert(subscriptionInvoice).values(values).returning();
       await audit(tx, { businessId, actorUserId, eventType: "subscription.invoice_created", entityType: "subscription_invoice", entityId: invoice!.id, now,
         metadata: { after: { status: "open", planCode: plan.code, amountXof: pricing.amountXof.toString(), currency: "XOF", durationDays: plan.durationDays,
@@ -416,8 +425,20 @@ async function confirmAttempt(tx: CommercialTransaction, attempt: Attempt, metho
   }
 
   const subscriptions = await tx.select().from(businessSubscription).where(eq(businessSubscription.businessId, businessId)).for("update");
-  const running = subscriptions.filter((row) => isInForce(row, now)).sort((a, b) => b.endsAt.getTime() - a.endsAt.getTime());
-  const samePlan = running.find((row) => row.planId === invoice.planId);
+  const running = subscriptions.filter((row) => isInForce(row, now)).sort(byCoverage);
+  const lifetime = running.find(isLifetime);
+  if (lifetime) {
+    // Course rare (accès à vie accordé pendant le paiement) : l'argent est enregistré, l'accès permanent n'est ni
+    // raccourci ni doublé ; Qadr Agency rembourse ou affecte à la main.
+    await confirm(lifetime.id);
+    await audit(tx, { businessId, actorUserId: null, eventType: "subscription.payment_during_lifetime", entityType: "subscription_payment", entityId: attempt.id, now,
+      metadata: { invoiceId: invoice.id, subscriptionId: lifetime.id, before: { status: attempt.status }, after: { status: "confirmed" }, amountXof: attempt.amountXof.toString(),
+        reason: "Paiement reçu alors qu'un accès à vie est en cours : remboursement ou affectation manuelle par Qadr Agency.", result: "attention" } });
+    return;
+  }
+  // Ici, tout abonnement en cours est à durée déterminée (fin non nulle, vérifié par la contrainte de la base).
+  const fixed = running.flatMap((row) => row.endsAt ? [{ ...row, endsAt: row.endsAt }] : []);
+  const samePlan = fixed.find((row) => row.planId === invoice.planId);
   const duration = invoice.durationDays * dayMs;
   let subscriptionId: string;
   let periodStartsAt: Date;
@@ -432,7 +453,7 @@ async function confirmAttempt(tx: CommercialTransaction, attempt: Attempt, metho
     subscriptionId = samePlan.id;
     before = { status: samePlan.status, endsAt: samePlan.endsAt.toISOString() };
   } else {
-    const latest = running[0];
+    const latest = fixed[0];
     periodStartsAt = latest && latest.endsAt > now ? latest.endsAt : now;
     periodEndsAt = new Date(periodStartsAt.getTime() + duration);
     const pending = !latest ? subscriptions.find((row) => row.status === "pending" && row.planId === invoice.planId) : undefined;

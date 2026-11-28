@@ -12,8 +12,10 @@ export type RedeemFailure = (typeof redeemFailures)[number];
 export type RedeemSuccess = {
   kind: "access" | "discount"; replayed: boolean; plan: { code: string; name: string } | null;
   status?: string | null; endsAt?: string | null; grantDays?: number | null;
-  /** Code d’accès commercial (2026-11-16) : durée accordée en jours ou en mois calendaires. */
-  duration?: { unit: "day" | "month"; value: number };
+  /** Code d’accès commercial (2026-11-16) : durée accordée en jours ou en mois calendaires, ou accès à vie (valeur nulle). */
+  duration?: { unit: "day" | "month" | "lifetime"; value: number | null };
+  /** Accès permanent accordé : pas de date de fin (`endsAt` nul). */
+  lifetime?: boolean;
   discountAmountXof?: string; amountDueXof?: string; paymentStatus?: "pending" | "no_payment_due";
 };
 export type RedeemOutcome = { ok: true; result: RedeemSuccess } | { ok: false; reason: RedeemFailure };

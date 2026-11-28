@@ -26,7 +26,7 @@ function PlanCard({ plan, t, locale, whatsapp }: { plan: PublicPlan; t: Translat
       <h3 className="m-0 font-display text-[1.35rem] font-bold">{plan.name}</h3>
       <p className="m-0 mt-5 flex flex-wrap items-baseline gap-x-2">
         <span className="font-display text-[2.4rem] leading-none font-bold tracking-tight">{plan.priceXof === "0" ? t("landing.pricing.free") : formatXof(plan.priceXof, locale)}</span>
-        <span className="text-fg-muted">{t("landing.pricing.period", { days: count(plan.durationDays) })}</span>
+        <span className="text-fg-muted">{plan.durationKind === "lifetime" || plan.durationDays === null ? t("landing.pricing.lifetime") : t("landing.pricing.period", { days: count(plan.durationDays) })}</span>
       </p>
       {plan.description && <p className="m-0 mt-4 leading-relaxed text-fg-muted">{plan.description}</p>}
       <ul className="m-0 mt-5 grid list-none gap-2.5 p-0">

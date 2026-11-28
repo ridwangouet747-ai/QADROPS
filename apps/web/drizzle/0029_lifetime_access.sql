@@ -1,0 +1,12 @@
+ALTER TABLE "commercial_access_code" DROP CONSTRAINT "commercial_code_duration_check";--> statement-breakpoint
+ALTER TABLE "subscription_plan" DROP CONSTRAINT "plan_amount_duration_check";--> statement-breakpoint
+ALTER TABLE "business_subscription" ALTER COLUMN "ends_at" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "commercial_access_code" ALTER COLUMN "duration_value" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "subscription_plan" ALTER COLUMN "duration_days" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "business_subscription" ADD COLUMN "duration_kind" text DEFAULT 'fixed_duration' NOT NULL;--> statement-breakpoint
+ALTER TABLE "subscription_plan" ADD COLUMN "duration_kind" text DEFAULT 'fixed_duration' NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "subscription_one_lifetime_idx" ON "business_subscription" USING btree ("business_id") WHERE "business_subscription"."duration_kind" = 'lifetime' and "business_subscription"."status" in ('active','suspended');--> statement-breakpoint
+ALTER TABLE "business_subscription" ADD CONSTRAINT "subscription_duration_check" CHECK (("business_subscription"."duration_kind" = 'fixed_duration' and "business_subscription"."ends_at" is not null) or ("business_subscription"."duration_kind" = 'lifetime' and "business_subscription"."ends_at" is null and "business_subscription"."status" not in ('pending','trialing','expired')));--> statement-breakpoint
+ALTER TABLE "commercial_access_code" ADD CONSTRAINT "commercial_code_duration_check" CHECK (("commercial_access_code"."duration_unit" = 'day' and "commercial_access_code"."duration_value" is not null and "commercial_access_code"."duration_value" between 1 and 365) or ("commercial_access_code"."duration_unit" = 'month' and "commercial_access_code"."duration_value" is not null and "commercial_access_code"."duration_value" between 1 and 12) or ("commercial_access_code"."duration_unit" = 'lifetime' and "commercial_access_code"."duration_value" is null));--> statement-breakpoint
+ALTER TABLE "subscription_plan" ADD CONSTRAINT "plan_duration_kind_check" CHECK ("subscription_plan"."duration_kind" in ('fixed_duration','lifetime'));--> statement-breakpoint
+ALTER TABLE "subscription_plan" ADD CONSTRAINT "plan_amount_duration_check" CHECK ("subscription_plan"."price_xof" >= 0 and (("subscription_plan"."duration_kind" = 'fixed_duration' and "subscription_plan"."duration_days" is not null and "subscription_plan"."duration_days" > 0) or ("subscription_plan"."duration_kind" = 'lifetime' and "subscription_plan"."duration_days" is null)));

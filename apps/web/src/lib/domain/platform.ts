@@ -1,6 +1,6 @@
 import { enqueueNotification } from "./notifications";
 import { randomInt, randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditEvent, businessProfile, businessSubscription, member, organization,
@@ -10,8 +10,10 @@ import {
 import type { CommercialDatabase } from "./commercial";
 import { CommercialError } from "./commercial";
 import { readPlanFeatures } from "./plan-limits";
+import { isUniqueViolation } from "../db/unique-violation";
 import {
-  assertTransition, businessLifecycle, effectiveSubscriptionStatus, isInForce, remainingDays, type BusinessLifecycle,
+  assertTransition, businessLifecycle, byCoverage, effectiveSubscriptionStatus, isInForce, isLifetime, remainingDays,
+  subscriptionTermsColumns, type BusinessLifecycle,
 } from "./subscription-lifecycle";
 
 type PlatformDb = CommercialDatabase;
@@ -108,10 +110,10 @@ export async function getPlatformOverview(db: PlatformDb, actorUserId: string, r
   const businesses = await db.select({ businessId: businessProfile.businessId, name: organization.name, activity: businessProfile.activity, status: businessProfile.status, createdAt: organization.createdAt })
     .from(businessProfile).innerJoin(organization, eq(organization.id, businessProfile.businessId));
   const subscriptions = await db.select({
-    id: businessSubscription.id, businessId: businessSubscription.businessId, status: businessSubscription.status, endsAt: businessSubscription.endsAt,
+    id: businessSubscription.id, businessId: businessSubscription.businessId, ...subscriptionTermsColumns,
     planId: businessSubscription.planId, planName: subscriptionPlan.name, origin: businessSubscription.origin,
   }).from(businessSubscription).innerJoin(subscriptionPlan, eq(subscriptionPlan.id, businessSubscription.planId));
-  const plans = await db.select({ id: subscriptionPlan.id, name: subscriptionPlan.name, code: subscriptionPlan.code, priceXof: subscriptionPlan.priceXof, durationDays: subscriptionPlan.durationDays, active: subscriptionPlan.active })
+  const plans = await db.select({ id: subscriptionPlan.id, name: subscriptionPlan.name, code: subscriptionPlan.code, priceXof: subscriptionPlan.priceXof, durationKind: subscriptionPlan.durationKind, durationDays: subscriptionPlan.durationDays, active: subscriptionPlan.active })
     .from(subscriptionPlan).orderBy(asc(subscriptionPlan.priceXof));
 
   const byBusiness = new Map<string, typeof subscriptions>();
@@ -122,7 +124,9 @@ export async function getPlatformOverview(db: PlatformDb, actorUserId: string, r
   const names = new Map(businesses.map((business) => [business.businessId, business.name]));
   const inForce = subscriptions.filter((item) => isInForce(item, now));
   const soon = new Date(now.getTime() + 7 * dayMs);
-  const expiring = inForce.filter((item) => item.endsAt <= soon).sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime());
+  // Un accès permanent n'a pas d'échéance : jamais dans « bientôt échus ».
+  const expiring = inForce.flatMap((item) => !isLifetime(item) && item.endsAt && item.endsAt <= soon ? [{ ...item, endsAt: item.endsAt }] : [])
+    .sort((a, b) => a.endsAt.getTime() - b.endsAt.getTime());
 
   const [payments] = await db.select({
     // Une tentative GeniusPay annulée ou expirée (mission 12) n'est pas plus facturée qu'un échec.
@@ -205,8 +209,7 @@ export async function listPlatformBusinesses(db: PlatformDb, actorUserId: string
   // Statut affiché calculé en lecture (échéance passée = « expired »), comme dans la liste des abonnements.
   const subscriptions = (await db.select({
     businessId: businessSubscription.businessId, id: businessSubscription.id,
-    status: businessSubscription.status, startsAt: businessSubscription.startsAt,
-    endsAt: businessSubscription.endsAt, trialEndsAt: businessSubscription.trialEndsAt,
+    ...subscriptionTermsColumns, trialEndsAt: businessSubscription.trialEndsAt,
     planId: subscriptionPlan.id, planName: subscriptionPlan.name, planCode: subscriptionPlan.code,
     createdAt: businessSubscription.createdAt,
   }).from(businessSubscription).innerJoin(subscriptionPlan, eq(subscriptionPlan.id, businessSubscription.planId))
@@ -239,8 +242,7 @@ export async function getPlatformBusiness(db: PlatformDb, actorUserId: string, b
     .where(eq(businessProfile.businessId, businessId)).limit(1);
   if (!business) throw new CommercialError("Commerce introuvable.", 404);
   const subscriptions = (await db.select({
-    id: businessSubscription.id, status: businessSubscription.status, startsAt: businessSubscription.startsAt,
-    endsAt: businessSubscription.endsAt, trialEndsAt: businessSubscription.trialEndsAt, origin: businessSubscription.origin,
+    id: businessSubscription.id, ...subscriptionTermsColumns, trialEndsAt: businessSubscription.trialEndsAt, origin: businessSubscription.origin,
     planName: subscriptionPlan.name, planCode: subscriptionPlan.code,
   }).from(businessSubscription).innerJoin(subscriptionPlan, eq(subscriptionPlan.id, businessSubscription.planId))
     .where(eq(businessSubscription.businessId, businessId)).orderBy(desc(businessSubscription.createdAt)))
@@ -278,10 +280,11 @@ export async function setPlatformBusinessStatus(db: PlatformDb, actorUserId: str
         affected.push(item.id);
       }
     } else {
-      const suspended = await tx.select({ id: businessSubscription.id, endsAt: businessSubscription.endsAt, before: businessSubscription.statusBeforeSuspension }).from(businessSubscription)
+      const suspended = await tx.select({ id: businessSubscription.id, endsAt: businessSubscription.endsAt, durationKind: businessSubscription.durationKind, before: businessSubscription.statusBeforeSuspension }).from(businessSubscription)
         .where(and(eq(businessSubscription.businessId, businessId), eq(businessSubscription.status, "suspended")));
       for (const item of suspended) {
-        const next = item.endsAt > now ? (item.before === "trialing" ? "trialing" : "active") : "expired";
+        // Un accès permanent reprend toujours (il n'a pas d'échéance) ; une période fixe échue entre-temps expire.
+        const next = isLifetime(item) ? "active" : item.endsAt && item.endsAt > now ? (item.before === "trialing" ? "trialing" : "active") : "expired";
         await tx.update(businessSubscription).set({ status: next, statusBeforeSuspension: null, updatedAt: now }).where(eq(businessSubscription.id, item.id));
         affected.push(item.id);
       }
@@ -302,18 +305,43 @@ const featureSchema = z.object({
   productLimit: z.number().int().positive().max(1_000_000).nullable(),
   userLimit: z.number().int().positive().max(100_000).nullable(),
 }).strict();
-const planSchema = z.object({
+/**
+ * Type de durée (2026-11-27, docs/lifetime-access.md) : `fixed_duration` exige un nombre de jours ;
+ * `lifetime` n'en a aucun (jamais une longue durée fictive). Vérifié ici puis par la contrainte de la base.
+ */
+const planFields = {
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{2,32}$/),
   name: z.string().trim().min(2).max(80), priceXof: z.string().regex(/^(0|[1-9]\d{0,17})$/),
-  durationDays: z.number().int().min(1).max(3650), active: z.boolean().default(true), features: featureSchema,
-  description: z.string().trim().max(500).nullable().optional(), currency: z.literal("XOF").default("XOF"),
+  durationKind: z.enum(["fixed_duration", "lifetime"]),
+  durationDays: z.number().int().min(1).max(3650).nullable().optional(), active: z.boolean(), features: featureSchema,
+  description: z.string().trim().max(500).nullable().optional(), currency: z.literal("XOF"),
   storageMb: z.number().int().positive().max(10_000_000).nullable().optional(),
+};
+/** Création : valeurs par défaut (durée déterminée, publiée, XOF). */
+const planSchema = z.object({
+  ...planFields,
+  durationKind: planFields.durationKind.default("fixed_duration"), active: planFields.active.default(true), currency: planFields.currency.default("XOF"),
 }).strict();
+/**
+ * Modification : aucune valeur par défaut. Avec Zod 4, `.partial()` d'un champ à défaut le réapplique : renommer une
+ * formule non publiée la republiait, ou repassait une formule à vie en durée déterminée. Seuls les champs envoyés changent.
+ */
+const planUpdateSchema = z.object(planFields).partial().strict();
+
+/** Jours d'une formule selon son type ; refuse toute combinaison ambiguë (422). */
+function planDuration(kind: "fixed_duration" | "lifetime", days: number | null | undefined) {
+  if (kind === "lifetime") {
+    if (days !== null && days !== undefined) throw new CommercialError("Un accès à vie n’a pas de nombre de jours.", 422, "lifetime_without_days");
+    return { durationKind: kind, durationDays: null };
+  }
+  if (days === null || days === undefined) throw new CommercialError("Indiquez la durée en jours.", 422, "duration_required");
+  return { durationKind: kind, durationDays: days };
+}
 
 export async function listPlatformPlans(db: PlatformDb, actorUserId: string, now = new Date()) {
   await requirePlatformAdmin(db, actorUserId);
   const plans = await db.select().from(subscriptionPlan).orderBy(asc(subscriptionPlan.priceXof), asc(subscriptionPlan.name));
-  const subscriptions = await db.select({ planId: businessSubscription.planId, status: businessSubscription.status, endsAt: businessSubscription.endsAt }).from(businessSubscription);
+  const subscriptions = await db.select({ planId: businessSubscription.planId, ...subscriptionTermsColumns }).from(businessSubscription);
   return plans.map((plan) => ({
     ...plan, features: readPlanFeatures(plan.features),
     subscribers: subscriptions.filter((item) => item.planId === plan.id && isInForce(item, now)).length,
@@ -331,7 +359,8 @@ function planSnapshot(plan: Partial<typeof subscriptionPlan.$inferSelect>) {
 }
 
 export async function createPlatformPlan(db: PlatformDb, actorUserId: string, raw: unknown) {
-  const input = planSchema.parse(raw);
+  const parsed = planSchema.parse(raw);
+  const input = { ...parsed, ...planDuration(parsed.durationKind, parsed.durationDays) };
   await requirePlatformAdmin(db, actorUserId);
   const id = randomUUID();
   await db.transaction(async (tx) => {
@@ -340,14 +369,14 @@ export async function createPlatformPlan(db: PlatformDb, actorUserId: string, ra
     await tx.insert(subscriptionPlan).values({ ...input, id, priceXof: BigInt(input.priceXof), description: input.description ?? null, storageMb: input.storageMb ?? null });
     await writePlatformAudit(tx as unknown as PlatformDb, {
       actorUserId, eventType: "platform.plan_created", entityType: "subscription_plan", entityId: id,
-      after: planSnapshot({ ...input, priceXof: BigInt(input.priceXof) }), metadata: { code: input.code },
+      after: planSnapshot({ ...input, priceXof: BigInt(input.priceXof) }), metadata: { code: input.code, durationKind: input.durationKind, lifetime: input.durationKind === "lifetime" },
     });
   });
   return { id, ...input };
 }
 
 export async function updatePlatformPlan(db: PlatformDb, actorUserId: string, id: string, raw: unknown) {
-  const input = planSchema.partial().parse(raw);
+  const input = planUpdateSchema.parse(raw);
   if (!Object.keys(input).length) throw new CommercialError("Aucune modification fournie.");
   await requirePlatformAdmin(db, actorUserId);
   return db.transaction(async (tx) => {
@@ -357,7 +386,14 @@ export async function updatePlatformPlan(db: PlatformDb, actorUserId: string, id
     if (input.code !== undefined) values.code = input.code;
     if (input.name !== undefined) values.name = input.name;
     if (input.priceXof !== undefined) values.priceXof = BigInt(input.priceXof);
-    if (input.durationDays !== undefined) values.durationDays = input.durationDays;
+    // Le type et les jours se valident ensemble (valeur fournie, sinon valeur actuelle). Les abonnements déjà
+    // accordés gardent leurs propres conditions : modifier ou archiver une formule ne change aucun droit acquis.
+    if (input.durationKind !== undefined || input.durationDays !== undefined) {
+      const kind = input.durationKind ?? (current.durationKind === "lifetime" ? "lifetime" : "fixed_duration");
+      const days = input.durationDays !== undefined ? input.durationDays : kind === "lifetime" ? null : current.durationDays;
+      Object.assign(values, planDuration(kind, days));
+      if (input.durationKind !== undefined && input.durationDays === undefined) input.durationDays = values.durationDays ?? null;
+    }
     if (input.active !== undefined) values.active = input.active;
     if (input.features !== undefined) values.features = input.features;
     if (input.description !== undefined) values.description = input.description;
@@ -366,7 +402,8 @@ export async function updatePlatformPlan(db: PlatformDb, actorUserId: string, id
     const changed = Object.keys(input) as (keyof typeof current)[];
     const before = planSnapshot(Object.fromEntries(changed.map((key) => [key, current[key]])));
     const after = planSnapshot(Object.fromEntries(changed.map((key) => [key, values[key as keyof typeof values]])) as Partial<typeof subscriptionPlan.$inferSelect>);
-    await writePlatformAudit(tx as unknown as PlatformDb, { actorUserId, eventType: "platform.plan_updated", entityType: "subscription_plan", entityId: id, before, after, metadata: { code: current.code } });
+    await writePlatformAudit(tx as unknown as PlatformDb, { actorUserId, eventType: "platform.plan_updated", entityType: "subscription_plan", entityId: id, before, after,
+      metadata: { code: current.code, durationKind: values.durationKind ?? current.durationKind } });
     return { id, ...input };
   });
 }
@@ -553,15 +590,15 @@ export async function listPlatformSubscriptions(db: PlatformDb, actorUserId: str
   await requirePlatformAdmin(db, actorUserId);
   // Filtre sur le statut affiché (effectiveSubscriptionStatus), sans écrire en base depuis une lecture.
   const clauses = [];
-  const lapsed = and(inArray(businessSubscription.status, ["trialing", "active"]), lte(businessSubscription.endsAt, now));
+  // Même règle que isInForce : un accès permanent n'est jamais « échu » de lui-même.
+  const lapsed = and(inArray(businessSubscription.status, ["trialing", "active"]), eq(businessSubscription.durationKind, "fixed_duration"), lte(businessSubscription.endsAt, now));
   if (filters.status === "expired") clauses.push(or(eq(businessSubscription.status, "expired"), lapsed));
-  else if (filters.status === "trialing" || filters.status === "active") clauses.push(and(eq(businessSubscription.status, filters.status), gt(businessSubscription.endsAt, now)));
+  else if (filters.status === "trialing" || filters.status === "active") clauses.push(and(eq(businessSubscription.status, filters.status), sql`not (${lapsed})`));
   else if (filters.status && ["pending", "suspended", "canceled"].includes(filters.status)) clauses.push(eq(businessSubscription.status, filters.status));
   if (filters.search?.trim()) clauses.push(ilike(organization.name, `%${filters.search.trim().slice(0, 100)}%`));
   const subscriptions = await db.select({
     id: businessSubscription.id, businessId: businessSubscription.businessId, businessName: organization.name,
-    businessStatus: businessProfile.status, status: businessSubscription.status, origin: businessSubscription.origin,
-    startsAt: businessSubscription.startsAt, endsAt: businessSubscription.endsAt, createdAt: businessSubscription.createdAt,
+    businessStatus: businessProfile.status, ...subscriptionTermsColumns, origin: businessSubscription.origin, createdAt: businessSubscription.createdAt,
     trialEndsAt: businessSubscription.trialEndsAt, planId: subscriptionPlan.id, statusBeforeSuspension: businessSubscription.statusBeforeSuspension,
     planName: subscriptionPlan.name, planPriceXof: subscriptionPlan.priceXof, canceledAt: businessSubscription.canceledAt,
   }).from(businessSubscription).innerJoin(organization, eq(organization.id, businessSubscription.businessId))
@@ -578,7 +615,8 @@ export async function listPlatformSubscriptions(db: PlatformDb, actorUserId: str
     .from(auditEvent).where(and(eq(auditEvent.entityType, "subscription"), inArray(auditEvent.entityId, ids))).orderBy(desc(auditEvent.occurredAt)) : [];
   return {
     subscriptions: subscriptions.map((item) => ({
-      ...item, status: effectiveSubscriptionStatus(item, now), remainingDays: isInForce(item, now) ? remainingDays(item.endsAt, now) : 0,
+      // Accès permanent : remainingDays nul (aucun compte à rebours), jamais un nombre fictif.
+      ...item, lifetime: isLifetime(item), status: effectiveSubscriptionStatus(item, now), remainingDays: isInForce(item, now) ? remainingDays(item.endsAt, now) : 0,
       payments: payments.filter((payment) => payment.subscriptionId === item.id),
       history: events.filter((event) => event.entityId === item.id),
     })),
@@ -596,15 +634,18 @@ export async function updatePlatformSubscription(db: PlatformDb, actorUserId: st
   const input = subscriptionActionSchema.parse(raw);
   await requirePlatformAdmin(db, actorUserId);
   return db.transaction(async (tx) => {
-    const [current] = await tx.select({ id: businessSubscription.id, businessId: businessSubscription.businessId, status: businessSubscription.status, endsAt: businessSubscription.endsAt, trialEndsAt: businessSubscription.trialEndsAt })
+    const [current] = await tx.select({ id: businessSubscription.id, businessId: businessSubscription.businessId, ...subscriptionTermsColumns, trialEndsAt: businessSubscription.trialEndsAt })
       .from(businessSubscription).where(eq(businessSubscription.id, subscriptionId)).for("update").limit(1);
     if (!current) throw new CommercialError("Abonnement introuvable.", 404);
     if (input.action === "cancel") {
+      // Pour un accès à vie, l'annulation est la révocation : terminale, l'accès est fermé dès cet instant.
       assertTransition(current.status, "canceled");
       await tx.update(businessSubscription).set({ status: "canceled", canceledAt: now, statusBeforeSuspension: null, updatedAt: now }).where(eq(businessSubscription.id, subscriptionId));
-      await writeSubscriptionAudit(tx, actorUserId, current, "platform.subscription_canceled", { status: current.status }, { status: "canceled" }, input.reason);
+      await writeSubscriptionAudit(tx, actorUserId, current, isLifetime(current) ? "platform.lifetime_access_revoked" : "platform.subscription_canceled",
+        { status: current.status, durationKind: current.durationKind }, { status: "canceled" }, input.reason);
       return { id: subscriptionId, status: "canceled" };
     }
+    if (isLifetime(current) || !current.endsAt) throw new CommercialError("Un accès à vie n’a pas de date de fin : il ne se prolonge pas.", 409, "lifetime_not_extendable");
     if (!isInForce(current, now) && current.status !== "suspended") throw new CommercialError("Seule une période en cours ou suspendue peut être prolongée.", 409);
     const endsAt = new Date(current.endsAt.getTime() + input.days * dayMs);
     const trialEndsAt = current.status === "trialing" && current.trialEndsAt ? new Date(current.trialEndsAt.getTime() + input.days * dayMs) : current.trialEndsAt;
@@ -612,6 +653,70 @@ export async function updatePlatformSubscription(db: PlatformDb, actorUserId: st
     await writeSubscriptionAudit(tx, actorUserId, current, "platform.subscription_extended", { endsAt: current.endsAt.toISOString() }, { endsAt: endsAt.toISOString(), days: input.days }, input.reason);
     return { id: subscriptionId, status: current.status, endsAt };
   });
+}
+
+const lifetimeGrantSchema = z.object({
+  planId: z.string().min(1).max(100),
+  reason: reasonSchema,
+  /** Confirmation explicite exigée par le serveur (l'interface affiche une étape de confirmation). */
+  confirm: z.literal(true),
+}).strict();
+
+/**
+ * Attribution directe d'un accès à vie à un commerce (2026-11-27, docs/lifetime-access.md). Réservée au
+ * propriétaire de la plateforme ; motif et confirmation obligatoires ; une seule transaction sous verrou du profil.
+ * - La formule doit être une formule à vie publiée ; le type d'accès vient d'elle, jamais du navigateur.
+ * - Un abonnement à durée déterminée en cours n'est ni supprimé ni modifié : il reste dans l'historique, et l'accès
+ *   permanent prend le dessus (byCoverage). Un abonnement en attente est converti.
+ * - Un second accès à vie vivant est refusé (409), y compris en cas de course (index unique partiel).
+ * - Commerce suspendu : refus (409) ; la réactivation reste une décision séparée.
+ */
+export async function grantLifetimeAccess(db: PlatformDb, actorUserId: string, businessId: string, raw: unknown, now = new Date()) {
+  const input = lifetimeGrantSchema.parse(raw);
+  await requirePlatformAdmin(db, actorUserId);
+  try {
+    return await db.transaction(async (tx) => {
+      const [profile] = await tx.select({ status: businessProfile.status }).from(businessProfile).where(eq(businessProfile.businessId, businessId)).for("update").limit(1);
+      if (!profile) throw new CommercialError("Commerce introuvable.", 404);
+      if (profile.status === "suspended") throw new CommercialError("Ce commerce est suspendu : réactivez-le avant d’accorder un accès.", 409, "business_suspended");
+      const [plan] = await tx.select({ id: subscriptionPlan.id, code: subscriptionPlan.code, name: subscriptionPlan.name, durationKind: subscriptionPlan.durationKind, active: subscriptionPlan.active })
+        .from(subscriptionPlan).where(eq(subscriptionPlan.id, input.planId)).limit(1);
+      if (!plan) throw new CommercialError("Formule introuvable.", 404, "plan_not_found");
+      if (plan.durationKind !== "lifetime") throw new CommercialError("Choisissez une formule « Accès à vie ».", 422, "lifetime_requires_lifetime_plan");
+      if (!plan.active) throw new CommercialError("Cette formule n’est pas publiée.", 422, "plan_inactive");
+      const subscriptions = await tx.select({ id: businessSubscription.id, planId: businessSubscription.planId, ...subscriptionTermsColumns })
+        .from(businessSubscription).where(eq(businessSubscription.businessId, businessId)).for("update");
+      if (subscriptions.some((item) => isLifetime(item) && (item.status === "active" || item.status === "suspended"))) {
+        throw new CommercialError("Ce commerce a déjà un accès à vie.", 409, "lifetime_active");
+      }
+      const running = subscriptions.filter((item) => isInForce(item, now)).sort(byCoverage)[0];
+      const pending = subscriptions.find((item) => item.status === "pending");
+      let subscriptionId: string;
+      if (pending) {
+        assertTransition(pending.status, "active");
+        await tx.update(businessSubscription).set({ status: "active", planId: plan.id, startsAt: now, endsAt: null, durationKind: "lifetime", trialEndsAt: null, origin: "manual", updatedAt: now })
+          .where(eq(businessSubscription.id, pending.id));
+        subscriptionId = pending.id;
+      } else {
+        subscriptionId = randomUUID();
+        await tx.insert(businessSubscription).values({ id: subscriptionId, businessId, planId: plan.id, status: "active", startsAt: now, endsAt: null, durationKind: "lifetime", origin: "manual", createdAt: now, updatedAt: now });
+      }
+      if (profile.status === "expired" || profile.status === "pending") {
+        await tx.update(businessProfile).set({ status: "active", updatedAt: now }).where(eq(businessProfile.businessId, businessId));
+      }
+      const before: Record<string, Json> = pending ? { status: "pending", subscriptionId: pending.id }
+        : running ? { status: running.status, subscriptionId: running.id, durationKind: running.durationKind, endsAt: running.endsAt?.toISOString() ?? null } : { status: null };
+      await tx.insert(auditEvent).values({
+        id: randomUUID(), businessId, actorUserId, eventType: "subscription.lifetime_granted", entityType: "subscription", entityId: subscriptionId, occurredAt: now,
+        metadata: { businessId, planId: plan.id, planCode: plan.code, before, after: { status: "active", durationKind: "lifetime", endsAt: null, startsAt: now.toISOString() },
+          profileBefore: profile.status, reason: input.reason, result: "success" },
+      });
+      return { subscriptionId, businessId, status: "active" as const, durationKind: "lifetime" as const, startsAt: now, endsAt: null, plan: { id: plan.id, code: plan.code, name: plan.name } };
+    });
+  } catch (error) {
+    if (isUniqueViolation(error, "subscription_one_lifetime_idx")) throw new CommercialError("Ce commerce a déjà un accès à vie.", 409, "lifetime_active");
+    throw error;
+  }
 }
 
 async function writeSubscriptionAudit(tx: unknown, actorUserId: string | null, subscription: { id: string; businessId: string }, eventType: string, before: Record<string, Json>, after: Record<string, Json>, reason: string) {
@@ -842,14 +947,16 @@ async function redemptionResult(tx: unknown, promo: PromotionRow, redemption: ty
 
 async function applyAccessCode(tx: PlatformDb, promo: PromotionRow, businessId: string, actorUserId: string, profileStatus: string, now: Date) {
   const days = promo.grantDays!;
-  const subscriptions = await tx.select({ id: businessSubscription.id, planId: businessSubscription.planId, status: businessSubscription.status, endsAt: businessSubscription.endsAt, trialEndsAt: businessSubscription.trialEndsAt })
+  const subscriptions = await tx.select({ id: businessSubscription.id, planId: businessSubscription.planId, ...subscriptionTermsColumns, trialEndsAt: businessSubscription.trialEndsAt })
     .from(businessSubscription).where(eq(businessSubscription.businessId, businessId)).for("update");
-  const running = subscriptions.filter((item) => isInForce(item, now)).sort((a, b) => b.endsAt.getTime() - a.endsAt.getTime())[0];
+  const running = subscriptions.filter((item) => isInForce(item, now)).sort(byCoverage)[0];
   const pending = subscriptions.find((item) => item.status === "pending");
+  // Un accès permanent n'est jamais raccourci ni prolongé par un code d'essai.
+  if (running && isLifetime(running)) throw new CommercialError("Ce commerce a déjà un accès à vie : ce code n’est pas nécessaire.", 409, "lifetime_active");
   let subscriptionId: string;
   let before: Record<string, Json>;
   let after: Record<string, Json>;
-  if (running) {
+  if (running && running.endsAt) {
     if (running.planId !== promo.planId) throw new CommercialError("Un abonnement à un autre forfait est en cours : ce code ne peut pas s’y ajouter.", 409, "incompatible_subscription");
     const endsAt = new Date(running.endsAt.getTime() + days * dayMs);
     const trialEndsAt = running.status === "trialing" ? endsAt : running.trialEndsAt;

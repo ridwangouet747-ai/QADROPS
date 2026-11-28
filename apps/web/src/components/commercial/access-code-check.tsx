@@ -8,6 +8,7 @@ import { Alert } from "@/components/ui/feedback";
 import { Field, Input } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { turnstileHeader } from "@/lib/auth/turnstile";
+import type { Translate } from "@/lib/i18n/translate";
 import { finalizeCode, isPlausibleCode, normalizeCommercialCodeInput } from "@/lib/subscription/redeem-outcome";
 
 /*
@@ -16,8 +17,13 @@ import { finalizeCode, isPlausibleCode, normalizeCommercialCodeInput } from "@/l
  * le code sans le consommer et pose le laissez-passer HttpOnly que l'inscription et la création du commerce exigent.
  */
 
+/** Durée d'un code : jours, mois calendaires, ou accès permanent (`lifetime`, valeur nulle : aucune durée inventée). */
+export type AccessCodeDuration = { unit: "day" | "month" | "lifetime"; value: number | null };
+export const accessDurationLabel = (t: Translate, duration: AccessCodeDuration) => duration.unit === "lifetime" || duration.value === null
+  ? t("access.lifetime") : t(duration.unit === "month" ? "access.durationMonths" : "access.durationDays", { count: duration.value });
+
 export type CheckedAccessCode = {
-  plan: { code: string | null; name: string | null }; duration: { unit: "day" | "month"; value: number }; activationDeadline: string;
+  plan: { code: string | null; name: string | null }; duration: AccessCodeDuration; activationDeadline: string;
   next: "register" | "onboarding" | "renew"; businessName: string | null;
 };
 const knownErrors = new Set(["invalid", "already_used", "expired", "revoked", "invite_code", "incompatible_subscription", "business_suspended", "forbidden", "rate_limited", "network", "unavailable"]);

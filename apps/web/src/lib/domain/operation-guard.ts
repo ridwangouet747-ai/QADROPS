@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businessProfile, businessSubscription, idempotencyRecord } from "../db/schema";
 import { CommercialError, type CommercialDatabase } from "./commercial";
+import { subscriptionInForceSql } from "./subscription-lifecycle";
 
 /** Transaction handle passed to `db.transaction` callbacks. */
 export type CommercialTransaction = Parameters<Parameters<CommercialDatabase["transaction"]>[0]>[0];
@@ -31,7 +32,8 @@ export async function assertBusinessOperational(tx: CommercialTransaction, busin
   // without any subscription history (or only pending/canceled ones) are not blocked: that policy is not decided yet.
   const [subscriptions] = await tx.select({
     inForceHistory: sql<boolean>`bool_or(${businessSubscription.status} in ('trialing','active','expired'))`,
-    current: sql<boolean>`bool_or(${businessSubscription.status} in ('trialing','active') and ${businessSubscription.endsAt} > ${now})`,
+    // Règle d'accès unique (subscription-lifecycle) : un accès permanent n'expire jamais de lui-même.
+    current: sql<boolean>`bool_or(${subscriptionInForceSql(now)})`,
   }).from(businessSubscription).where(eq(businessSubscription.businessId, businessId));
   if (subscriptions?.inForceHistory && !subscriptions.current) {
     throw new CommercialError("L’abonnement de ce commerce a expiré : les opérations sont bloquées. Vos données restent consultables.", 403);

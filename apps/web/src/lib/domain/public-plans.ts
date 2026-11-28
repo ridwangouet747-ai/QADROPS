@@ -15,7 +15,9 @@ export type PublicPlan = {
   name: string;
   /** Entier XOF sérialisé en chaîne (jamais de flottant). */
   priceXof: string;
-  durationDays: number;
+  /** `lifetime` : accès sans date d'expiration (`durationDays` nul), jamais une durée inventée. */
+  durationKind: "fixed_duration" | "lifetime";
+  durationDays: number | null;
   description: string | null;
   productLimit: number | null;
   userLimit: number | null;
@@ -28,13 +30,13 @@ export type PublicPlansResult =
 export async function readPublicPlans(db: Pick<CommercialDatabase, "select">): Promise<PublicPlan[]> {
   const rows = await db.select({
     code: subscriptionPlan.code, name: subscriptionPlan.name, priceXof: subscriptionPlan.priceXof,
-    durationDays: subscriptionPlan.durationDays, description: subscriptionPlan.description, features: subscriptionPlan.features,
+    durationKind: subscriptionPlan.durationKind, durationDays: subscriptionPlan.durationDays, description: subscriptionPlan.description, features: subscriptionPlan.features,
   }).from(subscriptionPlan)
     .where(and(eq(subscriptionPlan.active, true), eq(subscriptionPlan.currency, "XOF")))
     .orderBy(asc(subscriptionPlan.priceXof), asc(subscriptionPlan.code));
   return rows.map(({ features, ...row }) => {
     const limits = readPlanFeatures(features);
-    return { ...row, priceXof: row.priceXof.toString(), productLimit: limits.productLimit, userLimit: limits.userLimit };
+    return { ...row, durationKind: row.durationKind === "lifetime" ? "lifetime" as const : "fixed_duration" as const, priceXof: row.priceXof.toString(), productLimit: limits.productLimit, userLimit: limits.userLimit };
   });
 }
 

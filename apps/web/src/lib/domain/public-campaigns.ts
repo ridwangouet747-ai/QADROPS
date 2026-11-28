@@ -47,11 +47,13 @@ type Evaluation = { ok: true; promo: PromotionRow; plans: EligiblePlan[]; plan: 
 
 export type LocalizedText = { fr: string; en: string; ar: string };
 
-async function eligiblePlans(db: Reader, promotionId: string) {
-  return db.select({ id: subscriptionPlan.id, code: subscriptionPlan.code, name: subscriptionPlan.name, priceXof: subscriptionPlan.priceXof, durationDays: subscriptionPlan.durationDays })
+/** Formules d'une campagne : seulement à durée déterminée (la remise porte sur une facture payée en ligne). */
+async function eligiblePlans(db: Reader, promotionId: string): Promise<EligiblePlan[]> {
+  const rows = await db.select({ id: subscriptionPlan.id, code: subscriptionPlan.code, name: subscriptionPlan.name, priceXof: subscriptionPlan.priceXof, durationDays: subscriptionPlan.durationDays })
     .from(promotionEligiblePlan).innerJoin(subscriptionPlan, eq(subscriptionPlan.id, promotionEligiblePlan.planId))
-    .where(and(eq(promotionEligiblePlan.promotionId, promotionId), eq(subscriptionPlan.active, true)))
+    .where(and(eq(promotionEligiblePlan.promotionId, promotionId), eq(subscriptionPlan.active, true), eq(subscriptionPlan.durationKind, "fixed_duration")))
     .orderBy(asc(subscriptionPlan.priceXof), asc(subscriptionPlan.name));
+  return rows.flatMap((row) => row.durationDays === null ? [] : [{ ...row, durationDays: row.durationDays }]);
 }
 
 /**

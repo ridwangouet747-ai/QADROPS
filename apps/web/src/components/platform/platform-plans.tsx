@@ -6,17 +6,20 @@ import { cn } from "@/components/ui/cn";
 import { Icon } from "@/components/ui/icon";
 import { formatXof } from "@/lib/i18n/format";
 import { PfPageHeader } from "./platform-shell";
-import { PfBadge, PfButton, PfCard, PfDialog, PfEmpty, PfField, PfInput, PfNotice, PfSkeleton, PfTextarea, pfErrorMessage, pfFocus, pfRequest } from "./pf-ui";
+import { PfBadge, PfButton, PfCard, PfDialog, PfEmpty, PfField, PfInput, PfNotice, PfSelect, PfSkeleton, PfTextarea, pfErrorMessage, pfFocus, pfRequest } from "./pf-ui";
 
 type Features = { pos: boolean; reports: boolean; inventory: boolean; procurement: boolean; productLimit: number | null; userLimit: number | null };
-type Plan = { id: string; code: string; name: string; description: string | null; priceXof: string; currency: string; durationDays: number; storageMb: number | null; active: boolean; features: Features; subscribers: number };
-type Draft = { code: string; name: string; description: string; priceXof: string; durationDays: string; storageMb: string; userLimit: string; productLimit: string; active: boolean; pos: boolean; reports: boolean; inventory: boolean; procurement: boolean };
+type DurationKind = "fixed_duration" | "lifetime";
+/** `durationDays` nul pour un accès à vie : jamais de durée fictive (docs/lifetime-access.md). */
+type Plan = { id: string; code: string; name: string; description: string | null; priceXof: string; currency: string; durationKind: DurationKind; durationDays: number | null; storageMb: number | null; active: boolean; features: Features; subscribers: number };
+type Draft = { code: string; name: string; description: string; priceXof: string; durationKind: DurationKind; durationDays: string; storageMb: string; userLimit: string; productLimit: string; active: boolean; pos: boolean; reports: boolean; inventory: boolean; procurement: boolean };
 
 const featureKeys = ["pos", "reports", "inventory", "procurement"] as const;
-const emptyDraft: Draft = { code: "", name: "", description: "", priceXof: "", durationDays: "30", storageMb: "", userLimit: "", productLimit: "", active: true, pos: true, reports: true, inventory: true, procurement: true };
+const emptyDraft: Draft = { code: "", name: "", description: "", priceXof: "", durationKind: "fixed_duration", durationDays: "30", storageMb: "", userLimit: "", productLimit: "", active: true, pos: true, reports: true, inventory: true, procurement: true };
 
 const toDraft = (plan: Plan): Draft => ({
-  code: plan.code, name: plan.name, description: plan.description ?? "", priceXof: plan.priceXof, durationDays: String(plan.durationDays),
+  code: plan.code, name: plan.name, description: plan.description ?? "", priceXof: plan.priceXof, durationKind: plan.durationKind,
+  durationDays: plan.durationDays === null ? "30" : String(plan.durationDays),
   storageMb: plan.storageMb ? String(plan.storageMb) : "", userLimit: plan.features.userLimit ? String(plan.features.userLimit) : "",
   productLimit: plan.features.productLimit ? String(plan.features.productLimit) : "", active: plan.active,
   pos: plan.features.pos, reports: plan.features.reports, inventory: plan.features.inventory, procurement: plan.features.procurement,
@@ -44,7 +47,9 @@ export function PlatformPlans() {
     setBusy(true); setFormError("");
     const body = {
       code: draft.code, name: draft.name, description: draft.description.trim() || null, priceXof: draft.priceXof.trim(), currency: "XOF",
-      durationDays: Number(draft.durationDays), storageMb: optionalNumber(draft.storageMb), active: draft.active,
+      // Accès à vie : aucun nombre de jours envoyé (le serveur le refuserait) ; le type est revérifié par le serveur.
+      durationKind: draft.durationKind, durationDays: draft.durationKind === "lifetime" ? null : Number(draft.durationDays),
+      storageMb: optionalNumber(draft.storageMb), active: draft.active,
       features: { pos: draft.pos, reports: draft.reports, inventory: draft.inventory, procurement: draft.procurement, userLimit: optionalNumber(draft.userLimit), productLimit: optionalNumber(draft.productLimit) },
     };
     try {
@@ -83,8 +88,12 @@ export function PlatformPlans() {
                       </header>
                       <p className="m-0">
                         <span className={cn("numeric text-[2.2rem] leading-none font-semibold tracking-[-0.045em]", dark ? "text-white" : "text-pf-ink")}>{formatXof(plan.priceXof, locale)}</span>
-                        <span className={cn("ms-1.5 text-[0.82rem]", dark ? "text-pf-panel-fg" : "text-pf-muted")}>{t("platform.plans.perPeriod", { days: plan.durationDays })}</span>
+                        <span className={cn("ms-1.5 text-[0.82rem]", dark ? "text-pf-panel-fg" : "text-pf-muted")}>{plan.durationKind === "lifetime" || plan.durationDays === null ? t("platform.plans.perLifetime") : t("platform.plans.perPeriod", { days: plan.durationDays })}</span>
                       </p>
+                      <dl className="m-0 grid grid-cols-2 gap-2 text-[0.8rem]">
+                        <div className="min-w-0"><dt className={dark ? "text-pf-panel-fg" : "text-pf-muted"}>{t("platform.plans.type")}</dt><dd className={cn("m-0 font-semibold", dark ? "text-white" : "text-pf-ink")}>{t(plan.durationKind === "lifetime" ? "platform.plans.kindLifetime" : "platform.plans.kindFixed")}</dd></div>
+                        <div className="min-w-0"><dt className={dark ? "text-pf-panel-fg" : "text-pf-muted"}>{t("platform.plans.durationLabel")}</dt><dd className={cn("m-0 font-semibold", dark ? "text-white" : "text-pf-ink")}>{plan.durationKind === "lifetime" || plan.durationDays === null ? t("platform.plans.noExpiry") : t("platform.plans.daysValue", { days: plan.durationDays })}</dd></div>
+                      </dl>
                       {plan.description && <p className={cn("m-0 text-[0.86rem]", dark ? "text-pf-panel-fg" : "text-pf-muted")}>{plan.description}</p>}
                       <ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none gap-2 p-0">
                         {featureKeys.map((key) => (
@@ -121,10 +130,21 @@ export function PlatformPlans() {
             <PfField label={t("platform.plans.name")}>{(props) => <PfInput {...props} required maxLength={80} value={draft.name} onChange={(event) => set({ name: event.target.value })} />}</PfField>
           </div>
           <PfField label={t("platform.plans.descriptionLabel")}>{(props) => <PfTextarea {...props} maxLength={500} value={draft.description} onChange={(event) => set({ description: event.target.value })} />}</PfField>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <PfField label={t("platform.plans.durationKind")}>{(props) => (
+              <PfSelect {...props} value={draft.durationKind} onChange={(event) => set({ durationKind: event.target.value === "lifetime" ? "lifetime" : "fixed_duration" })}>
+                <option value="fixed_duration">{t("platform.plans.kindFixed")}</option>
+                <option value="lifetime">{t("platform.plans.kindLifetime")}</option>
+              </PfSelect>
+            )}</PfField>
+            {draft.durationKind === "lifetime"
+              ? <div className="grid content-end"><p className="m-0 flex min-h-11 items-center gap-2 rounded-[14px] bg-pf-raised px-3 text-[0.86rem] font-semibold text-pf-ink"><Icon name="check" className="size-4" />{t("platform.plans.noExpiry")}</p></div>
+              : <PfField label={t("platform.plans.duration")}>{(props) => <PfInput {...props} required type="number" min={1} max={3650} value={draft.durationDays} onChange={(event) => set({ durationDays: event.target.value })} />}</PfField>}
+          </div>
+          {draft.durationKind === "lifetime" && <PfNotice tone="info">{t("platform.plans.lifetimeNote")}</PfNotice>}
+          <div className="grid gap-4 sm:grid-cols-2">
             <PfField label={t("platform.plans.price")}>{(props) => <PfInput {...props} required inputMode="numeric" pattern="0|[1-9][0-9]{0,17}" value={draft.priceXof} onChange={(event) => set({ priceXof: event.target.value.replace(/\D/g, "") })} />}</PfField>
             <PfField label={t("platform.plans.currency")}>{(props) => <PfInput {...props} value="XOF" readOnly disabled />}</PfField>
-            <PfField label={t("platform.plans.duration")}>{(props) => <PfInput {...props} required type="number" min={1} max={3650} value={draft.durationDays} onChange={(event) => set({ durationDays: event.target.value })} />}</PfField>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <PfField label={t("platform.plans.users")} hint={t("platform.plans.limitHint")}>{(props) => <PfInput {...props} type="number" min={1} value={draft.userLimit} onChange={(event) => set({ userLimit: event.target.value })} />}</PfField>

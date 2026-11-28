@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       await refundRateLimit(context.db, limits.decisions);
       // Même contrat que les codes d’accès historiques (`kind: "access"`) : la carte « J’ai un code » l’affiche telle quelle.
       return new Response(jsonSafe({ kind: "access", source: "commercial_code", replayed: activation.replayed, plan: activation.plan, status: activation.status,
-        startsAt: activation.startsAt, endsAt: activation.endsAt, duration: activation.duration }), { headers });
+        startsAt: activation.startsAt, endsAt: activation.endsAt, lifetime: activation.lifetime, duration: activation.duration }), { headers });
     } catch (error) {
       if (error instanceof CommercialError && error.code) {
         await recordCommercialCodeRejection(context.db, { reason: error.code, actorUserId: context.actorUserId, businessId: context.businessId, client: "session" });

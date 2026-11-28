@@ -13,7 +13,7 @@ import type { CommercialDatabase } from "./commercial";
 import { CommercialError } from "./commercial";
 import { isUniqueViolation } from "../db/unique-violation";
 import { assertPlanQuota } from "./plan-limits";
-import { businessLifecycle } from "./subscription-lifecycle";
+import { businessLifecycle, subscriptionTermsColumns } from "./subscription-lifecycle";
 
 /**
  * Codes d'invitation des employés (2026-11-16, docs/team-invite-codes.md). Domaine B, séparé des codes
@@ -62,7 +62,7 @@ async function requireCodeManager(db: Db, context: TeamContext) {
 async function businessIsOpen(db: Pick<Db, "select">, businessId: string, now: Date) {
   const [[profile], subscriptions] = await Promise.all([
     db.select({ status: businessProfile.status }).from(businessProfile).where(eq(businessProfile.businessId, businessId)).limit(1),
-    db.select({ status: businessSubscription.status, endsAt: businessSubscription.endsAt }).from(businessSubscription).where(eq(businessSubscription.businessId, businessId)),
+    db.select(subscriptionTermsColumns).from(businessSubscription).where(eq(businessSubscription.businessId, businessId)),
   ]);
   if (!profile) return false;
   const lifecycle = businessLifecycle(profile.status, subscriptions, now);

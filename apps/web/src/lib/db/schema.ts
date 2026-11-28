@@ -319,10 +319,16 @@ export const expense = pgTable("expense", {
 
 export const subscriptionPlan = pgTable("subscription_plan", {
   id: text("id").primaryKey(), code: text("code").notNull().unique(), name: text("name").notNull(), priceXof: bigint("price_xof", { mode: "bigint" }).notNull(),
-  durationDays: integer("duration_days").notNull(), active: boolean("active").notNull().default(true), features: jsonb("features").notNull().default({}),
+  /**
+   * Type de durée (2026-11-27, docs/lifetime-access.md) : `fixed_duration` (durée en jours obligatoire) ou `lifetime`
+   * (accès permanent, aucune durée : jamais un nombre de jours fictif).
+   */
+  durationKind: text("duration_kind").notNull().default("fixed_duration"),
+  durationDays: integer("duration_days"), active: boolean("active").notNull().default(true), features: jsonb("features").notNull().default({}),
   description: text("description"), currency: text("currency").notNull().default("XOF"), storageMb: integer("storage_mb"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [check("plan_amount_duration_check", sql`${t.priceXof} >= 0 and ${t.durationDays} > 0`), check("plan_currency_check", sql`${t.currency} = 'XOF'`),
+}, (t) => [check("plan_amount_duration_check", sql`${t.priceXof} >= 0 and ((${t.durationKind} = 'fixed_duration' and ${t.durationDays} is not null and ${t.durationDays} > 0) or (${t.durationKind} = 'lifetime' and ${t.durationDays} is null))`),
+  check("plan_duration_kind_check", sql`${t.durationKind} in ('fixed_duration','lifetime')`), check("plan_currency_check", sql`${t.currency} = 'XOF'`),
   check("plan_storage_positive", sql`${t.storageMb} is null or ${t.storageMb} > 0`)]);
 export const promotionCode = pgTable("promotion_code", {
   id: text("id").primaryKey(), code: text("code").notNull().unique(), discountPercent: integer("discount_percent"), discountXof: bigint("discount_xof", { mode: "bigint" }),
@@ -367,12 +373,22 @@ export const promotionEligiblePlan = pgTable("promotion_eligible_plan", {
 }, (t) => [primaryKey({ columns: [t.promotionId, t.planId], name: "promotion_eligible_plan_pk" })]);
 export const businessSubscription = pgTable("business_subscription", {
   id: text("id").primaryKey(), businessId: text("business_id").notNull().references(() => businessProfile.businessId, { onDelete: "restrict" }), planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }),
-  status: text("status").notNull(), startsAt: timestamp("starts_at", { withTimezone: true }).notNull(), endsAt: timestamp("ends_at", { withTimezone: true }).notNull(), trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+  status: text("status").notNull(), startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  /**
+   * Type de durée effectivement accordé, copié à l'attribution (un forfait modifié plus tard ne change pas les droits
+   * déjà accordés). `lifetime` : `ends_at` est nul et seule une action administrative (annulation, suspension) met fin
+   * à l'accès. Une date nulle ne vaut jamais accès permanent sans ce type explicite (contrainte ci-dessous).
+   */
+  durationKind: text("duration_kind").notNull().default("fixed_duration"),
+  endsAt: timestamp("ends_at", { withTimezone: true }), trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   providerReference: text("provider_reference"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   origin: text("origin").notNull().default("manual"), statusBeforeSuspension: text("status_before_suspension"),
   canceledAt: timestamp("canceled_at", { withTimezone: true }), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [unique("subscription_business_id_unique").on(t.businessId, t.id), index("subscription_business_status_idx").on(t.businessId, t.status, t.endsAt),
   check("subscription_status_check", sql`${t.status} in ('pending','trialing','active','suspended','expired','canceled')`),
+  check("subscription_duration_check", sql`(${t.durationKind} = 'fixed_duration' and ${t.endsAt} is not null) or (${t.durationKind} = 'lifetime' and ${t.endsAt} is null and ${t.status} not in ('pending','trialing','expired'))`),
+  // Au plus un accès permanent vivant (actif ou suspendu) par commerce : deux attributions simultanées n'en créent qu'un.
+  uniqueIndex("subscription_one_lifetime_idx").on(t.businessId).where(sql`${t.durationKind} = 'lifetime' and ${t.status} in ('active','suspended')`),
   check("subscription_origin_check", sql`${t.origin} in ('manual','promotion','payment','access_code')`),
   check("subscription_resume_status_check", sql`${t.statusBeforeSuspension} is null or ${t.statusBeforeSuspension} in ('trialing','active')`),
   index("subscription_status_end_idx").on(t.status, t.endsAt)]);
@@ -685,7 +701,8 @@ export const authSchema = { user, session, account, verification, organization, 
 export const commercialAccessCode = pgTable("commercial_access_code", {
   id: text("id").primaryKey(), codeHash: text("code_hash").notNull().unique(), codeHint: text("code_hint").notNull(),
   planId: text("plan_id").notNull().references(() => subscriptionPlan.id, { onDelete: "restrict" }),
-  durationUnit: text("duration_unit").notNull(), durationValue: integer("duration_value").notNull(),
+  /** `day` | `month` avec une valeur, ou `lifetime` sans valeur (accès permanent ; seulement pour une formule à vie). */
+  durationUnit: text("duration_unit").notNull(), durationValue: integer("duration_value"),
   activationDeadline: timestamp("activation_deadline", { withTimezone: true }).notNull(),
   /** Confirmation explicite, par le propriétaire de la plateforme, que le paiement a été vérifié hors ligne. */
   paymentVerifiedAt: timestamp("payment_verified_at", { withTimezone: true }).notNull(),
@@ -697,7 +714,7 @@ export const commercialAccessCode = pgTable("commercial_access_code", {
   consumedAt: timestamp("consumed_at", { withTimezone: true }), consumedByUserId: text("consumed_by_user_id").references(() => user.id, { onDelete: "restrict" }),
   consumedBusinessId: text("consumed_business_id").references(() => businessProfile.businessId, { onDelete: "restrict" }), subscriptionId: text("subscription_id"),
 }, (t) => [
-  check("commercial_code_duration_check", sql`(${t.durationUnit} = 'day' and ${t.durationValue} between 1 and 365) or (${t.durationUnit} = 'month' and ${t.durationValue} between 1 and 12)`),
+  check("commercial_code_duration_check", sql`(${t.durationUnit} = 'day' and ${t.durationValue} is not null and ${t.durationValue} between 1 and 365) or (${t.durationUnit} = 'month' and ${t.durationValue} is not null and ${t.durationValue} between 1 and 12) or (${t.durationUnit} = 'lifetime' and ${t.durationValue} is null)`),
   check("commercial_code_deadline_check", sql`${t.activationDeadline} > ${t.createdAt}`),
   check("commercial_code_single_end_check", sql`num_nonnulls(${t.revokedAt}, ${t.consumedAt}) <= 1`),
   check("commercial_code_revoked_check", sql`(${t.revokedAt} is null) = (${t.revokedByUserId} is null)`),

@@ -9,7 +9,7 @@ import { auditEvent, businessMemberAccess, businessProfile, businessSubscription
 import { assertActiveMembership, BusinessContextError } from "./business-context";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import { assertPlanQuota } from "./plan-limits";
-import { businessLifecycle } from "./subscription-lifecycle";
+import { businessLifecycle, subscriptionTermsColumns } from "./subscription-lifecycle";
 import { logoSchema } from "./business-logo";
 import { campaignOutcomeForBusiness, signupCampaignScope, type SignupCampaignScope } from "./public-campaigns";
 import { accessActivationScope, readAccessPass, type AccessActivationScope } from "@/lib/commercial/access-pass";
@@ -40,7 +40,7 @@ export async function getAccountOverview(db: CommercialDatabase, userId: string,
   const visible = memberships.filter((row) => row.activity !== null);
   // État commercial de chaque commerce : l’interface masque les modules d’un commerce sans droit d’usage ;
   // le refus reste appliqué côté serveur (getBusinessContext, requireBusinessPageAccess).
-  const subscriptions = visible.length ? await db.select({ businessId: businessSubscription.businessId, status: businessSubscription.status, endsAt: businessSubscription.endsAt })
+  const subscriptions = visible.length ? await db.select({ businessId: businessSubscription.businessId, ...subscriptionTermsColumns })
     .from(businessSubscription).where(inArray(businessSubscription.businessId, visible.map((row) => row.id))) : [];
   const now = new Date();
   const businesses = visible.map((row) => ({

@@ -16,15 +16,16 @@ import {
 type Lifecycle = "active" | "trial" | "suspended" | "expired" | "pending";
 type Row = {
   businessId: string; name: string; activity: string; status: string; createdAt: string; memberCount: number; lifecycle: Lifecycle;
-  owner: { name: string; email: string } | null; subscription: { planName: string; status: string; endsAt: string } | null;
+  owner: { name: string; email: string } | null; subscription: { planName: string; status: string; endsAt: string | null; durationKind?: string } | null;
 };
 type HistoryItem = { id: string; eventType: string; occurredAt: string; actor: { name: string | null } | null; before: unknown; after: unknown; reason: string | null };
 type Detail = Row & {
   phone: string | null; businessEmail: string | null; address: string | null;
-  subscriptions: { id: string; status: string; startsAt: string; endsAt: string; planName: string; origin: string }[];
+  /** `durationKind` = `lifetime` : accès permanent, `endsAt` nul (aucune date inventée). */
+  subscriptions: { id: string; status: string; startsAt: string; endsAt: string | null; durationKind: string; planName: string; origin: string }[];
   history: HistoryItem[];
 };
-type Plan = { id: string; name: string };
+type Plan = { id: string; name: string; active?: boolean; durationKind?: string };
 
 export const lifecycleTone = (value: string) => (value === "active" ? "solid" : value === "suspended" ? "alert" : value === "trial" ? "muted" : "outline") as "solid" | "alert" | "muted" | "outline";
 
@@ -126,6 +127,18 @@ function BusinessDetail({ businessId, onClose, onChanged }: { businessId: string
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [granting, setGranting] = useState(false);
+  const [lifetimePlans, setLifetimePlans] = useState<Plan[]>([]);
+  const [grantPlanId, setGrantPlanId] = useState("");
+  const [grantConfirmed, setGrantConfirmed] = useState(false);
+
+  useEffect(() => {
+    // Formules à vie publiées : seules attribuables directement (le serveur le revérifie).
+    pfRequest<Plan[]>("/api/platform/plans").then((list) => {
+      const eligible = list.filter((plan) => plan.durationKind === "lifetime" && plan.active);
+      setLifetimePlans(eligible); setGrantPlanId((current) => current || eligible[0]?.id || "");
+    }).catch(() => setLifetimePlans([]));
+  }, []);
 
   useEffect(() => {
     setDetail(null); setError("");
@@ -135,6 +148,17 @@ function BusinessDetail({ businessId, onClose, onChanged }: { businessId: string
 
   const date = (value: string) => new Date(value).toLocaleDateString(intlLocale[locale], { dateStyle: "medium" });
   const suspended = detail?.status === "suspended";
+  const hasLifetime = detail?.subscriptions.some((item) => item.durationKind === "lifetime" && (item.status === "active" || item.status === "suspended")) ?? false;
+  const grant = async (reason: string) => {
+    if (!detail) return;
+    if (!grantConfirmed) { setActionError(t("platform.businesses.lifetime.confirmRequired")); return; }
+    setBusy(true); setActionError("");
+    try {
+      await pfRequest(`/api/platform/businesses/${encodeURIComponent(detail.businessId)}/lifetime`, { method: "POST", body: { planId: grantPlanId, reason, confirm: true } });
+      setGranting(false); onClose();
+      onChanged(t("platform.businesses.lifetime.granted", { name: detail.name }));
+    } catch (caught) { setActionError(pfErrorMessage(caught, t, locale)); } finally { setBusy(false); }
+  };
   const submit = async (reason: string) => {
     if (!detail) return;
     setBusy(true); setActionError("");
@@ -147,7 +171,7 @@ function BusinessDetail({ businessId, onClose, onChanged }: { businessId: string
 
   return (
     <>
-      <PfDialog open={businessId !== null && !confirming} onClose={onClose} wide title={detail?.name ?? t("platform.common.loading")}
+      <PfDialog open={businessId !== null && !confirming && !granting} onClose={onClose} wide title={detail?.name ?? t("platform.common.loading")}
         description={detail ? `${t(`platform.activity.${detail.activity as "general"}`)} · ${t("platform.businesses.created")} ${date(detail.createdAt)}` : undefined}>
         {error && <PfNotice tone="alert">{error}</PfNotice>}
         {!detail && !error && <PfSkeleton className="h-48" />}
@@ -156,7 +180,10 @@ function BusinessDetail({ businessId, onClose, onChanged }: { businessId: string
             <div className="flex flex-wrap items-center gap-2">
               <PfBadge tone={lifecycleTone(detail.lifecycle)}>{t(`platform.lifecycle.${detail.lifecycle}`)}</PfBadge>
               <PfBadge tone="outline" dot={false}>{t("platform.common.members", { count: detail.memberCount })}</PfBadge>
-              <span className="ms-auto">
+              <span className="ms-auto flex flex-wrap gap-2">
+                {!suspended && !hasLifetime && lifetimePlans.length > 0 && (
+                  <PfButton variant="light" icon="shield" onClick={() => { setActionError(""); setGrantConfirmed(false); setGranting(true); }}>{t("platform.businesses.lifetime.grant")}</PfButton>
+                )}
                 <PfButton variant={suspended ? "dark" : "danger"} icon={suspended ? "play" : "pause"} onClick={() => { setActionError(""); setConfirming(true); }}>
                   {suspended ? t("platform.businesses.reactivate") : t("platform.businesses.suspend")}
                 </PfButton>
@@ -180,8 +207,8 @@ function BusinessDetail({ businessId, onClose, onChanged }: { businessId: string
                 <ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none gap-2 p-0">
                   {detail.subscriptions.map((item) => (
                     <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[18px] border border-pf-line bg-pf-card px-3 py-2.5 text-[0.82rem]">
-                      <span className="min-w-0"><strong className="text-pf-ink">{item.planName}</strong><span className="ms-2 text-pf-muted">{date(item.startsAt)} → {date(item.endsAt)}</span></span>
-                      <span className="flex items-center gap-2"><PfBadge tone="outline" dot={false}>{t(`platform.origin.${item.origin as "manual"}`)}</PfBadge><PfBadge tone={item.status === "active" ? "solid" : item.status === "suspended" ? "alert" : "muted"}>{t(`platform.status.${item.status as "active"}`)}</PfBadge></span>
+                      <span className="min-w-0"><strong className="text-pf-ink">{item.planName}</strong><span className="ms-2 text-pf-muted">{date(item.startsAt)} → {item.durationKind === "lifetime" || !item.endsAt ? t("platform.businesses.lifetime.noExpiry") : date(item.endsAt)}</span></span>
+                      <span className="flex items-center gap-2">{item.durationKind === "lifetime" && <PfBadge tone="dark" dot={false}>{t("platform.businesses.lifetime.badge")}</PfBadge>}<PfBadge tone="outline" dot={false}>{t(`platform.origin.${item.origin as "manual"}`)}</PfBadge><PfBadge tone={item.status === "active" ? "solid" : item.status === "suspended" ? "alert" : "muted"}>{t(`platform.status.${item.status as "active"}`)}</PfBadge></span>
                     </li>
                   ))}
                 </ul>
@@ -209,6 +236,24 @@ function BusinessDetail({ businessId, onClose, onChanged }: { businessId: string
         title={detail ? t(suspended ? "platform.businesses.reactivateTitle" : "platform.businesses.suspendTitle", { name: detail.name }) : ""}
         body={t(suspended ? "platform.businesses.reactivateBody" : "platform.businesses.suspendBody")}
         confirmLabel={suspended ? t("platform.businesses.reactivate") : t("platform.businesses.suspend")} />
+      <PfReasonDialog open={granting && detail !== null} busy={busy} error={actionError}
+        onClose={() => setGranting(false)} onConfirm={(reason) => void grant(reason)}
+        title={detail ? t("platform.businesses.lifetime.title", { name: detail.name }) : ""}
+        body={t("platform.businesses.lifetime.body")} confirmLabel={t("platform.businesses.lifetime.grant")}
+        extra={(
+          <>
+            <label className="grid gap-1.5 text-[0.82rem] font-semibold text-pf-ink">
+              {t("platform.businesses.lifetime.plan")}
+              <PfSelect value={grantPlanId} onChange={(event) => setGrantPlanId(event.target.value)} required>
+                {lifetimePlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+              </PfSelect>
+            </label>
+            <label className="flex min-h-11 cursor-pointer items-start gap-3 text-[0.84rem] text-pf-ink">
+              <input type="checkbox" checked={grantConfirmed} onChange={(event) => setGrantConfirmed(event.target.checked)} className={cn("mt-0.5 size-5 shrink-0 accent-pf-ink", pfFocus)} />
+              {t("platform.businesses.lifetime.confirm")}
+            </label>
+          </>
+        )} />
     </>
   );
 }

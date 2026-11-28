@@ -16,7 +16,7 @@ describe("versioned migrations on isolated PGlite", () => {
     await client.close();
   });
 
-  it("applies every committed migration (0000-0028) and creates the expected tables", async () => {
+  it("applies every committed migration (0000-0029) and creates the expected tables", async () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
@@ -24,7 +24,7 @@ describe("versioned migrations on isolated PGlite", () => {
       "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
     );
 
-    expect(applied.rows[0]?.count).toBe("29");
+    expect(applied.rows[0]?.count).toBe("30");
     expect(tables.rows[0]?.count).toBe("66");
     const names = await client.query<{ table_name: string }>(
       "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by table_name",
@@ -104,6 +104,11 @@ describe("versioned migrations on isolated PGlite", () => {
     // Migration 0028 (2026-11-17) : code de secours des comptes sans e-mail, une ligne par compte, supprimée avec lui.
     const recovery = await client.query<{ delete_rule: string }>("select rc.delete_rule from information_schema.referential_constraints rc where rc.constraint_name='account_recovery_code_user_id_user_id_fk'");
     expect(recovery.rows[0]?.delete_rule).toBe("CASCADE");
+    // Migration 0029 (2026-11-27) : accès à vie, type de durée explicite (défaut « durée déterminée »), un seul accès à vie vivant.
+    const kinds = await client.query<{ table_name: string; column_default: string }>("select table_name, column_default from information_schema.columns where table_schema='public' and column_name='duration_kind' order by table_name");
+    expect(kinds.rows).toEqual([{ table_name: "business_subscription", column_default: "'fixed_duration'::text" }, { table_name: "subscription_plan", column_default: "'fixed_duration'::text" }]);
+    const lifetimeIndex = await client.query<{ indexname: string }>("select indexname from pg_indexes where indexname = 'subscription_one_lifetime_idx'");
+    expect(lifetimeIndex.rows).toHaveLength(1);
   });
 
   it("does not reapply migrations on a second migrate() call", async () => {
@@ -111,6 +116,6 @@ describe("versioned migrations on isolated PGlite", () => {
     const applied = await client.query<{ count: string }>(
       'select count(*)::text as count from drizzle."__drizzle_migrations"',
     );
-    expect(applied.rows[0]?.count).toBe("29");
+    expect(applied.rows[0]?.count).toBe("30");
   });
 });

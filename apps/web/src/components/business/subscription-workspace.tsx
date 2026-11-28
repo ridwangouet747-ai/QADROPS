@@ -17,7 +17,8 @@ import { finalizeCode, isPlausibleCode, normalizeCodeInput, redeemPromotionCode,
 type Lifecycle = "active" | "trial" | "pending" | "expired" | "suspended";
 type Overview = {
   lifecycle: Lifecycle; canRedeem: boolean;
-  subscription: { status: string; inForce: boolean; planCode: string; planName: string; origin: string; startsAt: string; endsAt: string; remainingDays: number } | null;
+  /** `lifetime` : accès permanent, `endsAt` et `remainingDays` nuls (ni date ni compte à rebours inventés). */
+  subscription: { status: string; inForce: boolean; planCode: string; planName: string; origin: string; startsAt: string; endsAt: string | null; remainingDays: number | null; lifetime?: boolean } | null;
   pending: { id: string; planName: string; priceXof: string; amountDueXof?: string; durationDays: number } | null;
   canPay?: boolean; onlinePayment?: boolean; commercialMode?: "manual_code" | "geniuspay"; contact?: { whatsapp: string | null };
   plans?: { code: string; name: string; priceXof: string; durationDays: number; description: string | null }[];
@@ -82,11 +83,19 @@ export function SubscriptionWorkspace() {
             aside={overview && <Badge tone={lifecycleTone[overview.lifecycle]}>{t(`subscription.lifecycle.${overview.lifecycle}`)}</Badge>} />
           {overview && current && (
             <dl className="m-0 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[16px] bg-night-soft/70 p-3.5">
-                <dt className="text-xs text-night-fg">{t(current.inForce ? "subscription.current.endsLabel" : "subscription.current.endedLabel")}</dt>
-                <dd className="m-0 mt-1 text-lg font-bold text-white">{date(current.endsAt)}</dd>
-                {current.inForce && <dd className="m-0 mt-0.5 text-sm text-night-fg">{t("subscription.current.remaining", { count: current.remainingDays })}</dd>}
-              </div>
+              {current.lifetime || current.endsAt === null ? (
+                <div className="rounded-[16px] bg-night-soft/70 p-3.5">
+                  <dt className="text-xs text-night-fg">{t("subscription.current.expiryLabel")}</dt>
+                  <dd className="m-0 mt-1 text-lg font-bold text-white">{t("subscription.current.noExpiry")}</dd>
+                  <dd className="m-0 mt-0.5 text-sm text-night-fg">{t("subscription.current.permanent")}</dd>
+                </div>
+              ) : (
+                <div className="rounded-[16px] bg-night-soft/70 p-3.5">
+                  <dt className="text-xs text-night-fg">{t(current.inForce ? "subscription.current.endsLabel" : "subscription.current.endedLabel")}</dt>
+                  <dd className="m-0 mt-1 text-lg font-bold text-white">{date(current.endsAt)}</dd>
+                  {current.inForce && current.remainingDays !== null && <dd className="m-0 mt-0.5 text-sm text-night-fg">{t("subscription.current.remaining", { count: current.remainingDays })}</dd>}
+                </div>
+              )}
               <div className="rounded-[16px] bg-night-soft/70 p-3.5">
                 <dt className="text-xs text-night-fg">{t("subscription.current.source")}</dt>
                 <dd className="m-0 mt-1 text-lg font-bold text-white">{originKeys.has(current.origin) ? t(`subscription.origin.${current.origin as "promotion"}`) : current.origin}</dd>
@@ -199,8 +208,10 @@ function RedeemResult({ result, onAnother }: { result: RedeemSuccess; onAnother:
   if (result.plan) rows.push([t("subscription.result.plan"), result.plan.name]);
   if (result.kind === "access") {
     if (result.grantDays) rows.push([t("subscription.result.duration"), t("subscription.result.days", { count: result.grantDays })]);
-    else if (result.duration) rows.push([t("subscription.result.duration"), t(result.duration.unit === "month" ? "subscription.result.months" : "subscription.result.days", { count: result.duration.value })]);
-    if (result.endsAt) rows.push([t("subscription.result.endsAt"), new Date(result.endsAt).toLocaleDateString(intlLocale[locale], { dateStyle: "long" })]);
+    else if (result.duration) rows.push([t("subscription.result.duration"), result.duration.unit === "lifetime" || result.duration.value === null ? t("subscription.result.lifetime")
+      : t(result.duration.unit === "month" ? "subscription.result.months" : "subscription.result.days", { count: result.duration.value })]);
+    if (result.lifetime) rows.push([t("subscription.result.expiry"), t("subscription.result.noExpiry")]);
+    else if (result.endsAt) rows.push([t("subscription.result.endsAt"), new Date(result.endsAt).toLocaleDateString(intlLocale[locale], { dateStyle: "long" })]);
     if (result.status && statusKeys.has(result.status)) rows.push([t("subscription.result.state"), t(`subscription.result.status.${result.status as "trialing"}`)]);
   } else {
     rows.push([t("subscription.result.discount"), formatXof(result.discountAmountXof, locale)], [t("subscription.result.amountDue"), formatXof(result.amountDueXof, locale)]);

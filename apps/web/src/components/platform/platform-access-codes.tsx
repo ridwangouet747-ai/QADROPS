@@ -20,12 +20,14 @@ import {
 type State = "unused" | "used" | "expired" | "revoked";
 type Filter = "all" | State;
 type Code = {
-  id: string; hint: string; planName: string; durationUnit: "day" | "month"; durationValue: number; activationDeadline: string; createdAt: string;
+  id: string; hint: string; planName: string; durationUnit: Unit; durationValue: number | null; activationDeadline: string; createdAt: string;
   note: string | null; createdBy: string; revokedAt: string | null; consumedAt: string | null; consumedBy: string | null; businessName: string | null; state: State;
 };
-type Plan = { id: string; name: string; active: boolean };
-type Duration = "d7" | "d21" | "m1" | "m3" | "custom";
-type Generated = { codes: { id: string; code: string }[]; plan: { name: string }; duration: { unit: "day" | "month"; value: number }; activationDeadline: string };
+/** `lifetime` : accès permanent (valeur nulle). Le type d'accès suit la formule ; le serveur le revérifie. */
+type Unit = "day" | "month" | "lifetime";
+type Plan = { id: string; name: string; active: boolean; durationKind?: "fixed_duration" | "lifetime" };
+type Duration = "d7" | "d21" | "m1" | "m3" | "custom" | "lifetime";
+type Generated = { codes: { id: string; code: string }[]; plan: { name: string }; duration: { unit: Unit; value: number | null }; activationDeadline: string };
 
 const stateTone = (state: State) => (state === "unused" ? "solid" : state === "revoked" ? "alert" : state === "used" ? "dark" : "outline") as "solid" | "alert" | "dark" | "outline";
 
@@ -64,7 +66,12 @@ export function PlatformAccessCodes() {
 
   const set = (patch: Partial<typeof form>) => setForm((current) => ({ ...current, ...patch }));
   const date = (value: string) => new Date(value).toLocaleDateString(intlLocale[locale], { dateStyle: "medium" });
-  const span = (unit: "day" | "month", value: number) => t(unit === "month" ? "platform.access.durationMonths" : "platform.access.durationDays", { count: value });
+  const span = (unit: Unit, value: number | null) => unit === "lifetime" || value === null ? t("platform.access.lifetime")
+    : t(unit === "month" ? "platform.access.durationMonths" : "platform.access.durationDays", { count: value });
+  const selectedPlan = plans?.find((plan) => plan.id === form.planId);
+  const lifetimePlan = selectedPlan?.durationKind === "lifetime";
+  // La durée envoyée suit la formule choisie : « lifetime » pour une formule à vie, jamais pour une autre.
+  const duration: Duration = lifetimePlan ? "lifetime" : form.duration === "lifetime" ? "m1" : form.duration;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -72,7 +79,7 @@ export function PlatformAccessCodes() {
     setBusy(true); setFormError("");
     try {
       const result = await pfRequest<Generated>("/api/platform/access-codes", { method: "POST", body: {
-        planId: form.planId, duration: form.duration, ...(form.duration === "custom" ? { customDays: Number(form.customDays) } : {}),
+        planId: form.planId, duration, ...(duration === "custom" ? { customDays: Number(form.customDays) } : {}),
         activationDays: Number(form.activationDays), quantity: Number(form.quantity), note: form.note, paymentVerified: true,
       } });
       setOpen(false); setGenerated(result); setCopied(false);
@@ -93,6 +100,10 @@ export function PlatformAccessCodes() {
     void navigator.clipboard?.writeText(text).then(() => setCopied(true)).catch(() => undefined);
   };
   const durations: { value: Duration; label: string }[] = (["d7", "d21", "m1", "m3", "custom"] as const).map((value) => ({ value, label: t(`platform.access.${value}`) }));
+  const planLabel = (plan: Plan) => {
+    const name = plan.durationKind === "lifetime" ? t("platform.access.planLifetime", { name: plan.name }) : plan.name;
+    return plan.active ? name : t("platform.access.planInactive", { name });
+  };
 
   return (
     <>
@@ -147,13 +158,15 @@ export function PlatformAccessCodes() {
         <form onSubmit={(event) => void submit(event)} className="grid gap-4" noValidate>
           <PfField label={t("platform.access.plan")}>{(props) => (
             <PfSelect {...props} required value={form.planId} onChange={(event) => set({ planId: event.target.value })}>
-              {(plans ?? []).map((plan) => <option key={plan.id} value={plan.id}>{plan.active ? plan.name : t("platform.access.planInactive", { name: plan.name })}</option>)}
+              {(plans ?? []).map((plan) => <option key={plan.id} value={plan.id}>{planLabel(plan)}</option>)}
             </PfSelect>
           )}</PfField>
           <div className="grid gap-2">
             <span className="text-[0.82rem] font-semibold text-pf-ink">{t("platform.access.duration")}</span>
-            <PfSegmented label={t("platform.access.duration")} value={form.duration} onChange={(duration) => set({ duration })} options={durations} />
-            {form.duration === "custom" && <div className="max-w-56"><PfField label={t("platform.access.customDays")}>{(props) => <PfInput {...props} type="number" min={1} max={365} required value={form.customDays} onChange={(event) => set({ customDays: event.target.value })} />}</PfField></div>}
+            {lifetimePlan
+              ? <p className="m-0 flex min-h-11 items-center gap-2 rounded-[14px] bg-pf-raised px-3 text-[0.86rem] font-semibold text-pf-ink"><Icon name="check" className="size-4" />{t("platform.access.lifetimeDuration")}</p>
+              : <PfSegmented label={t("platform.access.duration")} value={duration} onChange={(next) => set({ duration: next })} options={durations} />}
+            {duration === "custom" && <div className="max-w-56"><PfField label={t("platform.access.customDays")}>{(props) => <PfInput {...props} type="number" min={1} max={365} required value={form.customDays} onChange={(event) => set({ customDays: event.target.value })} />}</PfField></div>}
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <PfField label={t("platform.access.activationDays")} hint={t("platform.access.activationHint")}>{(props) => <PfInput {...props} type="number" min={1} max={180} required value={form.activationDays} onChange={(event) => set({ activationDays: event.target.value })} />}</PfField>

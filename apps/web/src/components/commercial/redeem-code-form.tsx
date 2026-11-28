@@ -10,7 +10,7 @@ import { Icon } from "@/components/ui/icon";
 import { whatsappHref } from "@/lib/commercial/mode";
 import { intlLocale } from "@/lib/i18n/config";
 import { redeemPromotionCode } from "@/lib/subscription/redeem-outcome";
-import { AccessCodeFields, asAccessCodeError, isTransientAccessCodeError, useAccessCodeCheck, type CheckedAccessCode } from "./access-code-check";
+import { AccessCodeFields, accessDurationLabel, asAccessCodeError, isTransientAccessCodeError, useAccessCodeCheck, type CheckedAccessCode } from "./access-code-check";
 
 /*
  * Page /redeem-code (2026-11-16, docs/commercial-access-codes.md) : « Vous avez un code Qadr Agency ? ».
@@ -27,10 +27,10 @@ export function RedeemCodeForm() {
   const entry = useAccessCodeCheck((value) => setChecked(value));
   const { code, setCode, busy, error, setError, errorText, sending } = entry;
   const [renewing, setRenewing] = useState(false);
-  const [renewed, setRenewed] = useState<{ endsAt: string | null } | null>(null);
+  const [renewed, setRenewed] = useState<{ endsAt: string | null; lifetime: boolean } | null>(null);
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
   const date = (value: string) => new Date(value).toLocaleDateString(intlLocale[locale], { dateStyle: "long" });
-  const span = (duration: Checked["duration"]) => t(duration.unit === "month" ? "access.durationMonths" : "access.durationDays", { count: duration.value });
+  const span = (duration: Checked["duration"]) => accessDurationLabel(t, duration);
 
   useEffect(() => {
     fetch("/api/public/access-codes/pass", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
@@ -42,7 +42,7 @@ export function RedeemCodeForm() {
     sending.current = true; setRenewing(true); setError(null);
     const outcome = await redeemPromotionCode(code, null);
     sending.current = false; setRenewing(false);
-    if (outcome.ok) { setRenewed({ endsAt: outcome.result.endsAt ?? null }); return; }
+    if (outcome.ok) { setRenewed({ endsAt: outcome.result.endsAt ?? null, lifetime: outcome.result.lifetime === true }); return; }
     setError(outcome.reason === "network" ? "network" : asAccessCodeError(outcome.reason));
   };
 
@@ -63,7 +63,8 @@ export function RedeemCodeForm() {
             <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-brand-gradient text-white shadow-brand"><Icon name="check" className="size-6" /></span>
             <p className="m-0 text-lg font-bold text-ink">{t("access.redeem.renewedTitle")}</p>
           </div>
-          {renewed.endsAt && <p className="m-0 text-sm text-fg-muted">{t("access.redeem.renewedBody", { business: `⁨${checked.businessName ?? ""}⁩`, date: date(renewed.endsAt) })}</p>}
+          {renewed.lifetime ? <p className="m-0 text-sm text-fg-muted">{t("access.redeem.renewedLifetime", { business: `⁨${checked.businessName ?? ""}⁩` })}</p>
+            : renewed.endsAt && <p className="m-0 text-sm text-fg-muted">{t("access.redeem.renewedBody", { business: `⁨${checked.businessName ?? ""}⁩`, date: date(renewed.endsAt) })}</p>}
           <Link href="/business/dashboard" className={buttonClasses({ variant: "primary", size: "lg", block: true, className: "no-underline" })}>{t("access.redeem.openSpace")}</Link>
         </div>
       ) : checked ? (

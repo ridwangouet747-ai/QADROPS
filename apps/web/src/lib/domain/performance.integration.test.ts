@@ -346,10 +346,13 @@ describe("abonnements : statut affiché calculé en lecture, sans écriture (PGl
 
   it("effectiveSubscriptionStatus : essai ou abonnement actif échu lu « expired », le reste inchangé", () => {
     const now = new Date("2026-11-01T00:00:00Z");
-    expect(effectiveSubscriptionStatus({ status: "trialing", endsAt: now }, now)).toBe("expired");
-    expect(effectiveSubscriptionStatus({ status: "active", endsAt: new Date("2026-10-01T00:00:00Z") }, now)).toBe("expired");
-    expect(effectiveSubscriptionStatus({ status: "active", endsAt: new Date("2026-12-01T00:00:00Z") }, now)).toBe("active");
-    expect(effectiveSubscriptionStatus({ status: "suspended", endsAt: new Date("2026-10-01T00:00:00Z") }, now)).toBe("suspended");
+    const fixed = "fixed_duration";
+    expect(effectiveSubscriptionStatus({ status: "trialing", endsAt: now, durationKind: fixed }, now)).toBe("expired");
+    expect(effectiveSubscriptionStatus({ status: "active", endsAt: new Date("2026-10-01T00:00:00Z"), durationKind: fixed }, now)).toBe("expired");
+    expect(effectiveSubscriptionStatus({ status: "active", endsAt: new Date("2026-12-01T00:00:00Z"), durationKind: fixed }, now)).toBe("active");
+    expect(effectiveSubscriptionStatus({ status: "suspended", endsAt: new Date("2026-10-01T00:00:00Z"), durationKind: fixed }, now)).toBe("suspended");
+    // Accès permanent : jamais lu « expired », même des années plus tard.
+    expect(effectiveSubscriptionStatus({ status: "active", endsAt: null, durationKind: "lifetime" }, new Date("2046-01-01T00:00:00Z"))).toBe("active");
   });
 
   it("la console affiche l'essai échu comme expiré sans écrire ; seul le passage planifié écrit", async () => {

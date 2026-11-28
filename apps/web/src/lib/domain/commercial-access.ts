@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { businessProfile, businessSubscription } from "@/lib/db/schema";
 import type { CommercialDatabase } from "./commercial";
-import { businessLifecycle, type BusinessLifecycle } from "./subscription-lifecycle";
+import { businessLifecycle, subscriptionTermsColumns, type BusinessLifecycle } from "./subscription-lifecycle";
 
 /**
  * Accès commercial d'un commerce (mission CTO du 2026-11-14) : un commerce qui n'a encore jamais eu de droit
@@ -22,7 +22,7 @@ export function accessFromLifecycle(lifecycle: BusinessLifecycle): CommercialAcc
 export async function commercialAccess(db: Pick<CommercialDatabase, "select">, businessId: string, now = new Date()): Promise<CommercialAccess> {
   const [[profile], subscriptions] = await Promise.all([
     db.select({ status: businessProfile.status }).from(businessProfile).where(eq(businessProfile.businessId, businessId)).limit(1),
-    db.select({ status: businessSubscription.status, endsAt: businessSubscription.endsAt }).from(businessSubscription)
+    db.select(subscriptionTermsColumns).from(businessSubscription)
       .where(eq(businessSubscription.businessId, businessId)),
   ]);
   return accessFromLifecycle(businessLifecycle(profile?.status ?? "active", subscriptions, now));

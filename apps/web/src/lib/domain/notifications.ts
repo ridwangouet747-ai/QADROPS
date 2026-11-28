@@ -14,6 +14,7 @@ import {
 import { isAllowedPushEndpoint, type PushResult, type PushSender } from "../notifications/web-push";
 import { CommercialError, type CommercialDatabase } from "./commercial";
 import type { CommercialTransaction } from "./operation-guard";
+import { effectiveSubscriptionStatus, subscriptionTermsColumns } from "./subscription-lifecycle";
 
 /*
  * Moteur de notifications (mission 10), sur le principe de la boîte d'envoi transactionnelle :
@@ -71,10 +72,10 @@ async function segmentRecipients(db: Db, segment: Segment, now: Date): Promise<R
   if (segment.activities?.length) candidates = candidates.filter((row) => segment.activities!.includes(row.activity as (typeof segmentActivities)[number]));
   if (segment.roles?.length && !segment.roles.includes("all")) candidates = candidates.filter((row) => row.role.split(",").some((role) => segment.roles!.includes(role.trim() as "owner")));
   if (segment.subscriptionStatuses?.length) {
-    const subscriptions = await db.select({ businessId: businessSubscription.businessId, status: businessSubscription.status, endsAt: businessSubscription.endsAt }).from(businessSubscription);
+    const subscriptions = await db.select({ businessId: businessSubscription.businessId, ...subscriptionTermsColumns }).from(businessSubscription);
     const statusOf = new Map<string, string>();
     for (const item of subscriptions) {
-      const state = (item.status === "trialing" || item.status === "active") && item.endsAt <= now ? "expired" : item.status;
+      const state = effectiveSubscriptionStatus(item, now);
       if (!statusOf.has(item.businessId) || state === "active" || state === "trialing") statusOf.set(item.businessId, state);
     }
     candidates = candidates.filter((row) => segment.subscriptionStatuses!.includes(statusOf.get(row.businessId) as "active"));
@@ -277,8 +278,10 @@ async function retryPushDeliveries(db: CommercialDatabase, now: Date, sender: Pu
 
 /** Abonnements qui se terminent dans les 3 jours : un événement par abonnement et par échéance. */
 export async function enqueueExpiringSubscriptions(db: CommercialDatabase, now = new Date()) {
-  const soon = await db.select({ id: businessSubscription.id, businessId: businessSubscription.businessId, endsAt: businessSubscription.endsAt }).from(businessSubscription)
-    .where(and(inArray(businessSubscription.status, ["trialing", "active"]), gte(businessSubscription.endsAt, now), lte(businessSubscription.endsAt, new Date(now.getTime() + 3 * 86_400_000))));
+  // Un accès permanent n'a pas d'échéance : jamais d'avis « se termine bientôt ».
+  const due = await db.select({ id: businessSubscription.id, businessId: businessSubscription.businessId, endsAt: businessSubscription.endsAt }).from(businessSubscription)
+    .where(and(inArray(businessSubscription.status, ["trialing", "active"]), eq(businessSubscription.durationKind, "fixed_duration"), gte(businessSubscription.endsAt, now), lte(businessSubscription.endsAt, new Date(now.getTime() + 3 * 86_400_000))));
+  const soon = due.flatMap((item) => item.endsAt ? [{ ...item, endsAt: item.endsAt }] : []);
   for (const item of soon) {
     await enqueueNotification(db, { businessId: item.businessId, eventType: "subscription.expiring", payload: { subscriptionId: item.id, eventDate: item.endsAt.toISOString() },
       dedupKey: `subscription.expiring:${item.id}:${item.endsAt.toISOString().slice(0, 10)}` });

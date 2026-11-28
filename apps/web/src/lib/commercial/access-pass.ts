@@ -46,7 +46,7 @@ export function readAccessPass(headers: Headers, now = new Date(), source?: Reco
  * l'active dans sa propre transaction et y range le résultat.
  */
 export type AccessActivationOutcome =
-  | { status: "activated"; endsAt: string; replayed: boolean }
+  | { status: "activated"; endsAt: string | null; lifetime: boolean; replayed: boolean }
   | { status: "failed"; code: string };
 export type AccessActivationScope = { codeId: string; outcome?: AccessActivationOutcome };
 export const accessActivationScope = new AsyncLocalStorage<AccessActivationScope>();

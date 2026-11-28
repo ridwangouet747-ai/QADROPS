@@ -39,7 +39,7 @@ describe("formules affichées sur la page publique (PGlite isolé)", () => {
     expect(plans.find((plan) => plan.code === "OLD")).toBeUndefined();
     // 2^53 + 1 : un passage par `number` l'arrondirait à 9007199254740992.
     expect(plans.at(-1)?.priceXof).toBe("9007199254740993");
-    expect(plans[0]).toEqual({ code: "FREE", name: "Découverte", priceXof: "0", durationDays: 7, description: null, productLimit: null, userLimit: null });
+    expect(plans[0]).toEqual({ code: "FREE", name: "Découverte", priceXof: "0", durationKind: "fixed_duration", durationDays: 7, description: null, productLimit: null, userLimit: null });
     expect(plans[2]).toMatchObject({ code: "BASIC-B", productLimit: 250, userLimit: 5 });
     // Limites non entières, nulles ou textuelles : affichées « sans limite », jamais devinées.
     expect(plans[1]).toMatchObject({ code: "BASIC-A", productLimit: null, userLimit: null });

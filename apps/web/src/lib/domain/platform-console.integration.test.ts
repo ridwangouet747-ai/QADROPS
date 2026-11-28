@@ -193,7 +193,7 @@ describe("console Super Admin (mission 08)", () => {
       const running = before.subscriptions.find((item) => item.id === "sub-b")!;
       expect(running.origin).toBe("payment");
       const extended = await updatePlatformSubscription(db, admin, "sub-b", { action: "extend", days: 10, reason: "Geste commercial après panne" });
-      expect(new Date(extended.endsAt!).getTime() - running.endsAt.getTime()).toBe(10 * 86_400_000);
+      expect(new Date(extended.endsAt!).getTime() - running.endsAt!.getTime()).toBe(10 * 86_400_000);
       await updatePlatformSubscription(db, admin, "sub-b", { action: "cancel", reason: "Demande du commerçant" });
       await expect(updatePlatformSubscription(db, admin, "sub-b", { action: "cancel", reason: "Deuxième fois" })).rejects.toMatchObject({ status: 409 });
       await expect(updatePlatformSubscription(db, admin, "sub-old", { action: "extend", days: 5, reason: "Période terminée" })).rejects.toMatchObject({ status: 409 });

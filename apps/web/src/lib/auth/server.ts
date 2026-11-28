@@ -281,7 +281,7 @@ export function createQadrAuth(options: AuthOptions) {
             if (activation && inserted.length) {
               try {
                 const result = await tx.transaction((savepoint) => activateCommercialCode(savepoint as unknown as CommercialDatabase, { codeId: activation.codeId, businessId: created.id, actorUserId: user.id }));
-                activation.outcome = { status: "activated", endsAt: result.endsAt, replayed: result.replayed };
+                activation.outcome = { status: "activated", endsAt: result.endsAt, lifetime: result.lifetime, replayed: result.replayed };
               } catch (error) {
                 activation.outcome = { status: "failed", code: (error as { code?: string }).code ?? "error" };
               }
