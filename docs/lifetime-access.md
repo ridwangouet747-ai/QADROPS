@@ -180,3 +180,56 @@ nouveau code lit `duration_kind` et échouerait sur l'ancien schéma).
 
 Retour arrière : avant toute écriture `lifetime`, revenir au déploiement précédent suffit (le schéma additif reste
 compatible) ; en dernier recours, la branche de sauvegarde ou le `pg_dump` restaurent l'état antérieur.
+
+### 6.5 Étape A, points 1 et 2 : sauvegarde de `main` et restauration testée (2026-11-28, réussies)
+
+Outils : `pg_dump`/`pg_restore`/`psql` 18.7 officiels (archive EnterpriseDB
+`postgresql-18.7-1-windows-x64-binaries.zip`, 389 515 503 octets, téléchargée avec l'accord du propriétaire ; seuls
+les trois exécutables et leurs DLL extraits, signature Authenticode « EnterpriseDB Corporation » valide sur les 11
+fichiers ; archive supprimée ensuite). Mot de passe par `PGPASSFILE` privé (ACL réduite au seul compte), supprimé en
+fin d'essai. Production en **lecture seule** : aucune écriture, aucune migration.
+
+1. **Instantané unique** : une transaction `repeatable read read only` sur `main` exporte son instantané
+   (`pg_export_snapshot`) ; les empreintes de référence y sont relevées et `pg_dump --snapshot` lit **le même**
+   instantané. Aucun écart possible entre la référence et le fichier, même avec des écritures pendant la copie.
+2. **Sauvegarde** : `pg_dump -Fc` de `neondb` (connexion directe), exit 0, 35 s, 379 389 octets, SHA-256
+   `e248629f6dbc2361c45c37c166e96d6905ca2d45390050cb7a1841b627059419`, 715 entrées. Conservée sur le poste (dossier
+   privé hors dépôt) jusqu'à la fin de l'étape A, non chiffrée (le chiffrement du § 4 de `backup-restore.md` attend
+   toujours sa clé).
+3. **Référence relevée sur `main`** : 29 migrations ; 77 tables (67 `public`, 9 `neon_auth`, 1 `drizzle`) avec compte et
+   empreinte MD5 du contenu complet ; empreintes abonnements `a088872b…`, formules `969915e1…`, codes `933a1ab5…`,
+   **identiques à celles de la répétition** du § 6.3 : la production n'a pas changé depuis.
+4. **Restauration** dans une base **neuve** `qadr_restauration_main` de la branche de répétition
+   `repetition-0029-2026-11-28` (vide vérifiée avant, refus programmé si l'hôte était celui de `main`) :
+   `pg_restore --no-owner --single-transaction --exit-on-error`, en excluant seulement les 2 entrées
+   `DEFAULT ACL … cloud_admin` (réglages Neon présents d'office), exit 0, 183 s.
+5. **Comparaison** : 29 migrations, **77 tables sur 77 identiques** (comptes et empreintes du contenu), empreintes
+   abonnements, formules et codes identiques, droits accordés à `qadr_tenant` / `neon_auth` identiques (79 objets,
+   même empreinte). Catalogue : 2 037 lignes de chaque côté ; seul écart, le texte de 4 contraintes `CHECK`
+   (`import_batch_counts_check`, `notification_template_text_length`, `product_alias_length_check`,
+   `promotion_discount_check`) où PostgreSQL retire des parenthèses autour d'`AND` imbriqués : même condition, écart
+   déjà constaté le 2026-11-13 (`backup-restore.md` § 6.7). Propriétaire des objets : `neondb_owner` (effet de
+   `--no-owner`).
+
+### 6.6 Étape A, points 3 à 5 : migration de `main` (2026-11-28, réussie)
+
+1. **Branche de sauvegarde** : `repetition-0027-2026-11-17` supprimée avec l'accord du propriétaire (répétition d'une
+   migration déjà appliquée ; sa sauvegarde est conservée), puis `sauvegarde-main-avant-0029-2026-11-28`
+   (`br-royal-fog-bclc039u`) créée depuis `main` à 20:58:51 UTC, sans calcul attaché. Point de retour instantané.
+2. **Vérification finale** (20:59 UTC) : `main` à 29 migrations, empreintes abonnements, formules et codes identiques à
+   la sauvegarde et à la répétition, colonne `duration_kind` absente ; branche locale et distante sur `7a3c7bd`, CI de
+   la PR verte (`web` et Vercel Preview Comments).
+3. **Migration** : `scripts/migrate-production.ts` depuis `apps/web`, connexion directe, phrase
+   « MIGRER LA PRODUCTION ep-rough-bird-bc9xzcbh.c-16.us-east-1.aws.neon.tech/neondb » : « appliquées : 29 | en
+   attente : 1 », « Terminé en une transaction : 30 migration(s) au journal », exit 0, 34 s. Chaîne de connexion passée
+   par un fichier privé supprimé aussitôt, jamais affichée.
+4. **Données après** : 30 migrations ; **mêmes empreintes** (abonnements `a088872b…`, formules `969915e1…`, codes
+   `933a1ab5…`) ; 6 abonnements `active`, tous `fixed_duration`, aucun sans date de fin ; 2 formules
+   `fixed_duration` ; 4 contraintes présentes et validées ; index `subscription_one_lifetime_idx` présent ; 6 commerces,
+   142 événements d'audit (inchangés). Aucune formule ni aucun accès à vie créé.
+5. **Application en production (ancien code, schéma additif)** : `/`, `/login`, `/api/version` répondent 200 ; Sentry
+   sans nouveau problème (dernier vu le 2026-11-24).
+
+Reste : étape B (fusion de la PR, déploiement Vercel, tests après déploiement), sur accord du propriétaire. Retour
+arrière tant qu'aucune écriture `lifetime` n'existe : rien à faire côté base (l'ancien code fonctionne) ; sinon la
+branche `sauvegarde-main-avant-0029-2026-11-28` ou le `pg_dump` du § 6.5.
