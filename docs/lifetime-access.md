@@ -83,6 +83,59 @@ filet final ; sa violation est convertie en 409 (`isUniqueViolation`).
 
 ## 6. Mise en production
 
-Rien n'est appliqué à distance par cette branche. Procédure : répétition de 0029 sur une branche Neon copiée de `main`,
-`pg_dump` restauré, puis script de migration de production (`docs/engineering/production-runbook.md`), seulement après
-validation explicite du propriétaire. Aucune formule à vie n'est créée automatiquement : elle se crée dans la console.
+Rien n'est appliqué à distance par cette branche. Aucune formule à vie n'est créée automatiquement : elle se crée dans
+la console.
+
+### 6.1 Répétition locale du 2026-11-28 (réussie)
+
+Instance PostgreSQL locale et temporaire, en mémoire : PGlite 0.5.10 = **PostgreSQL 18.6** (même version majeure que
+Neon), aucune connexion réseau. Migrations 0000-0028 par le migrateur Drizzle (même mécanisme que
+`scripts/migrate-production.ts` : migrations en attente et journal dans une transaction), données représentatives
+(formule publiée et formule archivée, six commerces aux statuts `active`, `trialing`, `expired`, `canceled`,
+`suspended`, `pending`, un abonnement ancien expiré, codes en jours, en mois et déjà consommé), puis **0029 seule**
+(92 ms). 16 contrôles sur 16 réussis :
+
+1. 0029 s'exécute sans erreur (30 migrations au journal) ;
+2. statuts, dates de début et de fin des abonnements, prix, durées et publication des formules, codes : inchangés ;
+3. toutes les lignes existantes deviennent `fixed_duration` ;
+4. une formule à vie s'enregistre (`duration_days` nul) ; à vie avec jours, fixe sans jours, type inconnu : refusés ;
+5. `ends_at` nul accepté pour un accès à vie, refusé pour une durée déterminée (insertion et mise à jour) ;
+6. dix états incohérents refusés (à vie avec fin, en essai, expiré, en attente, deuxième accès à vie vivant, type
+   inconnu, code à vie avec valeur, code en jours ou en mois sans valeur, code de 13 mois) ; après révocation, un
+   nouvel accès à vie est possible et l'ancien reste au dossier ;
+7. un ancien code (mois) se consomme, un code à vie se crée ;
+8. transaction d'activation (abonnement + consommation du code) : un échec annule les deux écritures ; sans échec,
+   les deux sont validées.
+
+Limite : PGlite n'a qu'une connexion. Les courses entre connexions réelles sont couvertes par l'index unique partiel
+et le verrou du profil (tests de concurrence du harnais), mais n'ont pas été rejouées sur un PostgreSQL multi-connexions.
+
+### 6.2 Isolation Vercel constatée le 2026-11-28
+
+Projet `web` : la poussée d'une branche crée un déploiement Preview (protégé par l'authentification Vercel). Les
+variables Neon de l'intégration (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `PG*`, `POSTGRES_*`) ne visent que
+**Production** ; en Preview, `DATABASE_URL` n'existe que pour deux anciennes branches (`perf/ultimate-performance-optimization`,
+`perf/global-performance-optimization`, valeur non lisible, cible inconnue). L'application ne lit que `DATABASE_URL` :
+un Preview de toute autre branche n'a **aucune** base et ne peut pas joindre Neon Production.
+
+### 6.3 Procédure de production (après accord explicite du propriétaire)
+
+0029 est **additive** : l'ancien code continue de fonctionner sur le nouveau schéma (les insertions sans
+`duration_kind` prennent `fixed_duration`, `ends_at` reste fourni). L'ordre est donc : **migrer, puis fusionner** (le
+nouveau code lit `duration_kind` et échouerait sur l'ancien schéma).
+
+1. `pg_dump -Fc` de `main` (connexion directe, outils 18.7) et restauration réussie sur une base de test
+   (`docs/engineering/backup-restore.md`).
+2. Répétition sur une branche Neon **copiée de `main`** (pas de staging : 0025 y échoue), par
+   `scripts/migrate-production.ts` ; vérifier ensuite 30 migrations au journal et `count(*)` des abonnements inchangé.
+   L'offre Free limite le nombre de branches : en libérer une suppose l'accord du propriétaire.
+3. Production : depuis `apps/web`, `QADR_DB_TARGET=production`, `DATABASE_URL_UNPOOLED` = connexion directe de `main`,
+   `QADR_MIGRATION_CONFIRM="MIGRER LA PRODUCTION <hôte>/<base>"`, puis `npx tsx scripts/migrate-production.ts`. Jamais
+   `scripts/migrate.ts` sur `main`.
+4. Contrôles : `select duration_kind, count(*) from business_subscription group by 1` (tout `fixed_duration`),
+   contraintes et index présents, l'application en production répond normalement (ancien code).
+5. Fusion de la PR dans `main` (déploiement de production), puis vérification de `/business/subscription` et de la
+   console.
+
+Retour arrière : la migration ne supprime aucune donnée ; en cas de problème avant toute écriture `lifetime`, la
+branche Neon de sauvegarde ou le `pg_dump` restaurent l'état antérieur.

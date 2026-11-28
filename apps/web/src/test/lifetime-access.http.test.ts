@@ -9,6 +9,7 @@ import * as businessRoute from "@/app/api/platform/businesses/[businessId]/route
 import * as planRoute from "@/app/api/platform/plans/[planId]/route";
 import * as plansRoute from "@/app/api/platform/plans/route";
 import * as platformSubscriptionRoute from "@/app/api/platform/subscriptions/[subscriptionId]/route";
+import * as productsRoute from "@/app/api/business/products/route";
 import { commercialAccess } from "@/lib/domain/commercial-access";
 import { assertBusinessOperational } from "@/lib/domain/operation-guard";
 import { expireDueSubscriptions } from "@/lib/domain/subscription-lifecycle";
@@ -243,6 +244,97 @@ describe("accès à vie (formules, codes, attribution, règle d'accès)", () => 
     expect((await commercialAccess(h.db, businessId)).open).toBe(false);
     expect((await overview(owner)).lifecycle).not.toBe("active");
     expect(await h.count("select count(*)::text n from audit_event where event_type = 'platform.lifetime_access_revoked' and entity_id = $1", [subscriptionId])).toBe(1);
+  });
+
+  /* ------------------------------------------------------------------ revue du 2026-11-28 : A, C, I, L, compatibilité */
+
+  const createProduct = (actor: Actor) => h.call(productsRoute.POST, { path: "/api/business/products", actor, body: { name: `Article ${randomUUID().slice(0, 8)}`, salePriceXof: "1500" } });
+
+  it("scénarios A et C : formule classique de 30 jours créée par la console, code de 30 jours activé, fin datée comme avant", async () => {
+    const created = await h.call(plansRoute.POST, { path: "/api/platform/plans", actor: admin, body: {
+      code: "CLASSIQUE_30", name: "Classique 30 jours", priceXof: "5000", durationDays: 30, active: false,
+      features: { pos: true, reports: true, inventory: true, procurement: true, productLimit: null, userLimit: null } } });
+    expect(created.status, created.text).toBe(201);
+    const planId = created.body.id as string;
+    const listed = await h.call(plansRoute.GET, { method: "GET", path: "/api/platform/plans", actor: admin });
+    // Sans type précisé, une formule reste à durée déterminée (comportement historique).
+    expect(listed.body.find((plan: { id: string }) => plan.id === planId)).toMatchObject({ durationKind: "fixed_duration", durationDays: 30, active: false });
+    const generated = await h.call(accessCodesRoute.POST, { path: "/api/platform/access-codes", actor: admin, body: { planId, duration: "custom", customDays: 30, paymentVerified: true } });
+    expect(generated.status, generated.text).toBe(201);
+    expect(generated.body.duration).toEqual({ unit: "day", value: 30 });
+    const { owner, businessId } = await merchant("classique");
+    const before = Date.now();
+    const activated = await redeem(owner, generated.body.codes[0].code);
+    expect(activated.status, activated.text).toBe(200);
+    expect(activated.body).toMatchObject({ lifetime: false, status: "active", duration: { unit: "day", value: 30 } });
+    const [row] = await subscriptionsOf(businessId);
+    expect(row).toMatchObject({ duration_kind: "fixed_duration", plan_id: planId, origin: "access_code" });
+    const span = row!.ends_at!.getTime() - before;
+    expect(span).toBeGreaterThan(30 * 86_400_000 - 120_000);
+    expect(span).toBeLessThan(30 * 86_400_000 + 120_000);
+    expect((await overview(owner)).subscription).toMatchObject({ lifetime: false, durationKind: "fixed_duration", remainingDays: 30 });
+  });
+
+  it("scénario I : suspendre un accès à vie bloque les écritures côté serveur (vraie route), la fin reste nulle ; la reprise rétablit l'accès", async () => {
+    const { owner, businessId } = await merchant("suspension-vie");
+    const granted = await grant(businessId, grantBody());
+    expect(granted.status, granted.text).toBe(201);
+    expect((await createProduct(owner)).status).toBe(201);
+    const suspended = await h.call(businessRoute.PATCH, { path: `/api/platform/businesses/${businessId}`, actor: admin, params: { businessId }, body: { status: "suspended", reason: "Vérification" } });
+    expect(suspended.status, suspended.text).toBe(200);
+    expect((await subscriptionsOf(businessId))[0]).toMatchObject({ status: "suspended", duration_kind: "lifetime", ends_at: null });
+    const refused = await createProduct(owner);
+    expect(refused.status, refused.text).toBe(403);
+    expect((await commercialAccess(h.db, businessId)).lifecycle).toBe("suspended");
+    // Le navigateur ne peut pas lever la suspension en se déclarant « à vie ».
+    const forged = await h.call(productsRoute.POST, { path: "/api/business/products", actor: owner, body: { name: "Forcé", salePriceXof: "1", lifetime: true, status: "active" } });
+    expect(forged.status).not.toBe(201);
+    const resumed = await h.call(businessRoute.PATCH, { path: `/api/platform/businesses/${businessId}`, actor: admin, params: { businessId }, body: { status: "active", reason: "Vérification terminée" } });
+    expect(resumed.status).toBe(200);
+    expect((await subscriptionsOf(businessId))[0]).toMatchObject({ status: "active", duration_kind: "lifetime", ends_at: null });
+    expect((await createProduct(owner)).status).toBe(201);
+  });
+
+  it("scénario L : intégrité de l'historique — attribution, suspension, reprise, révocation, nouvelle attribution : aucune ligne effacée, audit complet et inaltérable", async () => {
+    const { businessId } = await merchant("historique", "trial");
+    const trial = (await subscriptionsOf(businessId))[0]!;
+    const first = await grant(businessId, grantBody({ reason: "Première attribution" }));
+    const firstId = first.body.subscriptionId as string;
+    await h.call(businessRoute.PATCH, { path: `/api/platform/businesses/${businessId}`, actor: admin, params: { businessId }, body: { status: "suspended", reason: "Contrôle" } });
+    await h.call(businessRoute.PATCH, { path: `/api/platform/businesses/${businessId}`, actor: admin, params: { businessId }, body: { status: "active", reason: "Contrôle terminé" } });
+    const revoked = await h.call(platformSubscriptionRoute.PATCH, { path: `/api/platform/subscriptions/${firstId}`, actor: admin, params: { subscriptionId: firstId }, body: { action: "cancel", reason: "Révocation" } });
+    expect(revoked.status, revoked.text).toBe(200);
+    // Une nouvelle attribution reste possible après révocation : l'accès révoqué n'est pas réutilisé, il reste au dossier.
+    const second = await grant(businessId, grantBody({ reason: "Nouvelle attribution" }));
+    expect(second.status, second.text).toBe(201);
+    expect(second.body.subscriptionId).not.toBe(firstId);
+    const rows = await subscriptionsOf(businessId);
+    expect(rows.map((row) => [row.id, row.status, row.duration_kind])).toEqual([
+      [trial.id, trial.status, "fixed_duration"], [firstId, "canceled", "lifetime"], [second.body.subscriptionId, "active", "lifetime"]]);
+    expect(rows[0]!.ends_at!.getTime()).toBe(trial.ends_at!.getTime());
+    const events = (await h.client.query<{ event_type: string }>(
+      "select event_type from audit_event where business_id = $1 and event_type in ('subscription.lifetime_granted','platform.lifetime_access_revoked') order by occurred_at, id", [businessId])).rows.map((row) => row.event_type);
+    expect(events.filter((type) => type === "subscription.lifetime_granted")).toHaveLength(2);
+    expect(events).toContain("platform.lifetime_access_revoked");
+    // Le journal d'audit est en ajout seul (déclencheur de la migration 0010).
+    await expect(h.client.query("update audit_event set event_type = 'falsifié' where business_id = $1", [businessId])).rejects.toThrow();
+    await expect(h.client.query("delete from audit_event where business_id = $1", [businessId])).rejects.toThrow();
+  });
+
+  it("compatibilité : renommer ou décrire une formule archivée ne la republie pas ; une formule classique publiée le reste", async () => {
+    const archivedPlan = await h.call(plansRoute.POST, { path: "/api/platform/plans", actor: admin, body: {
+      code: "ARCHIVE_COMPAT", name: "Ancienne", priceXof: "4000", durationDays: 60, active: false,
+      features: { pos: true, reports: true, inventory: true, procurement: true, productLimit: null, userLimit: null } } });
+    const planId = archivedPlan.body.id as string;
+    for (const body of [{ name: "Ancienne renommée" }, { description: "Nouvelle description" }, { priceXof: "4500" }]) {
+      const patched = await h.call(planRoute.PATCH, { path: `/api/platform/plans/${planId}`, actor: admin, params: { planId }, body });
+      expect(patched.status, patched.text).toBe(200);
+      const stored = (await h.client.query<{ active: boolean; duration_kind: string; duration_days: number }>("select active, duration_kind, duration_days from subscription_plan where id = $1", [planId])).rows[0]!;
+      expect(stored).toEqual({ active: false, duration_kind: "fixed_duration", duration_days: 60 });
+    }
+    const renamedPublished = await h.call(planRoute.PATCH, { path: `/api/platform/plans/${FIXED_PLAN}`, actor: admin, params: { planId: FIXED_PLAN }, body: { description: "Formule publiée, description seule" } });
+    expect(renamedPublished.status).toBe(200);
+    expect((await h.client.query<{ active: boolean }>("select active from subscription_plan where id = $1", [FIXED_PLAN])).rows[0]!.active).toBe(true);
   });
 
   /* ------------------------------------------------------------------ sécurité et concurrence */
